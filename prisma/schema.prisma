@@ -1,0 +1,127 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  Lead
+  Support
+  Strategist
+  Connector
+  Storyteller
+  Facilitator
+  Analyst
+  Partner
+}
+
+model Team {
+  id        String      @id @default(cuid())
+  name      String
+  mission   String
+  createdAt DateTime    @default(now())
+  players   Player[]
+  plans     Plan[]
+  focus     FocusBlock[]
+}
+
+model Player {
+  id        String   @id @default(cuid())
+  name      String
+  title     String?
+  createdAt DateTime @default(now())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id])
+  roles     PlanRoleAssignment[]
+}
+
+model Plan {
+  id           String               @id @default(cuid())
+  title        String
+  summary      String
+  status       String
+  ownerName    String
+  updatedAt    DateTime             @updatedAt
+  createdAt    DateTime             @default(now())
+  teamId       String
+  team         Team                 @relation(fields: [teamId], references: [id])
+  coreSections PlanCoreSections?
+  roleAssignments PlanRoleAssignment[]
+  timelineSteps   PlanTimelineStep[]
+  reviewNotes     PlanReviewNote[]
+  shareLinks      PlanShareLink[]
+  focusBlockId    String?
+  focusBlock      FocusBlock? @relation(fields: [focusBlockId], references: [id])
+}
+
+model PlanCoreSections {
+  id        String   @id @default(cuid())
+  planId    String   @unique
+  plan      Plan     @relation(fields: [planId], references: [id])
+  intention String
+  values    String
+  scope     String
+  success   String
+  risks     String
+}
+
+model PlanShareLink {
+  id        String   @id @default(cuid())
+  planId    String
+  plan      Plan     @relation(fields: [planId], references: [id])
+  slug      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  expiresAt DateTime?
+}
+
+model PlanRoleAssignment {
+  id         String   @id @default(cuid())
+  planId     String
+  plan       Plan     @relation(fields: [planId], references: [id])
+  role       Role
+  assigneeId String?
+  assignee   Player?  @relation(fields: [assigneeId], references: [id])
+  assigneeName String
+}
+
+model PlanTimelineStep {
+  id        String   @id @default(cuid())
+  planId    String
+  plan      Plan     @relation(fields: [planId], references: [id])
+  title     String
+  date      DateTime
+  order     Int
+}
+
+model PlanReviewNote {
+  id        String   @id @default(cuid())
+  planId    String
+  plan      Plan     @relation(fields: [planId], references: [id])
+  authorName String
+  note      String
+  createdAt DateTime @default(now())
+}
+
+model FocusBlock {
+  id        String   @id @default(cuid())
+  title     String
+  intent    String
+  spotlight String
+  markdown  String
+  createdAt DateTime @default(now())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id])
+  plans     Plan[]
+}
+
+model RubricCategory {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  prompts     String
+  createdAt   DateTime @default(now())
+}
