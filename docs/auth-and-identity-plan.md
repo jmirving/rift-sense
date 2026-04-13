@@ -2,30 +2,38 @@
 
 ## Purpose
 
-Define how `RiftSense` should adopt shared authentication through
-`Nexus` without taking local ownership of cross-app identity.
+Define how `RiftSense` adopts shared authentication through `Nexus`
+without becoming a second canonical account system.
 
 This document is aligned to the current `Nexus` documentation set,
 especially:
 
 - `Nexus/docs/product.md`
 - `Nexus/docs/nexus_architecture.md`
-- `Nexus/docs/functional-requirements.md`
 - `Nexus/docs/roadmap.md`
+- `Nexus/docs/domain-model.md`
 
-Those docs already position shared authentication as a Nexus platform
-responsibility rather than an app-local concern.
+## Product Boundary
+
+`RiftSense` should support two entry paths:
+
+- standalone entry: the user opens `RiftSense` directly and signs in from
+  an app-owned form
+- Nexus launch: the user launches `RiftSense` from `Nexus` and arrives
+  already authenticated through the launch-grant exchange
+
+Those are two entry paths into one identity system, not two separate
+account systems.
 
 ## Problem to Avoid
 
 `RiftSense` should not:
 
 - define its own permanent cross-app identity model
-- copy login, registration, and password reset into every app
-- require every app to share one long-lived app secret as the permanent
-  trust model
-
-That would make later `Nexus` adoption harder instead of easier.
+- create a second durable account database separate from `Nexus`
+- own password truth independently of `Nexus`
+- force users through a different credential story depending on which app
+  they open first
 
 ## Separation of Concerns
 
@@ -35,32 +43,34 @@ The clean boundary is:
 - `Identity`: define the canonical user record and stable user ID
 - `Authorization`: decide what the user may do inside a specific app
 
-Per the documented `Nexus` direction:
+Per the current direction:
 
-- `Nexus` should own authentication and canonical identity
-- `DraftEngine` should own DraftEngine-specific authorization
-- `RiftSense` should own RiftSense-specific authorization
+- `Nexus` owns authentication and canonical identity
+- `RiftSense` owns RiftSense-specific authorization
+- `RiftSense` may own its standalone sign-in UI, but not its own source of
+  credential truth
 
 ## Recommended Target Model
 
-`Nexus` should become the token issuer.
+`Nexus` is the token issuer and canonical account authority.
 
-`DraftEngine` and `RiftSense` both become token consumers.
+`RiftSense` is a token consumer. It can receive identity in either of two
+ways:
 
-Each application verifies a `Nexus`-issued access token and then
-applies its own local authorization rules.
+- hosted launch: exchange a Nexus launch grant for an app-scoped access token
+- standalone login: submit app-owned sign-in form data to a Nexus-backed
+  app-login endpoint and receive the same kind of app-scoped access token
 
-That means the shared contract is not "DraftEngine auth" but "trusted
-identity claims."
+In both cases, `RiftSense` should establish its own app cookie after
+receiving a valid RiftSense audience token.
 
 ## Shared Token Contract
 
-The first stable shared token contract should include:
+The stable shared token contract should include:
 
 - `iss`: token issuer, expected to be `Nexus`
 - `sub`: canonical shared user ID, not a local app row ID
-- `aud`: intended audience, such as `draftengine`, `riftsense`, or a
-  shared audience accepted by both
+- `aud`: intended audience, expected to include `riftsense`
 - `exp`
 - `iat`
 
@@ -69,45 +79,14 @@ Optional shared claims:
 - `email`
 - `displayName`
 - `globalRoles`
-- `teamIds` or workspace claims if and only if they become stable shared
-  concepts
 
-The critical part is `sub`: it must be a stable identity ID that both
-apps trust.
+The critical part is `sub`: it must be a stable identity ID that all apps
+trust.
 
 ## RiftSense Auth Interface
 
-`RiftSense` should integrate against a small auth interface rather than
-embedding one app's auth implementation directly.
-
-Recommended contract:
-
-```js
-export function verifyAccessToken(token) {
-  return {
-    subjectId: "usr_123",
-    issuer: "nexus",
-    audience: "riftsense",
-    claims: {}
-  };
-}
-
-export async function loadIdentity(subjectId) {
-  return {
-    id: "usr_123",
-    email: "user@example.com",
-    displayName: "LeadPlayer#NA1"
-  };
-}
-
-export function createRequireAuth({ verifyAccessToken, loadIdentity }) {
-  return async function requireAuth(request, _response, next) {
-    // verify bearer token
-    // attach request.auth and request.identity
-    next();
-  };
-}
-```
+`RiftSense` should continue to integrate against a small auth interface
+rather than embedding Nexus internals directly.
 
 Recommended request shape after auth middleware:
 
@@ -126,63 +105,51 @@ request.identity = {
 };
 ```
 
-This keeps the rest of the app from caring whether the token was issued
-by temporary DraftEngine-compatible logic or by `Nexus`.
-
-## Near-Term Implementation Strategy
-
-`RiftSense` should consume a `Nexus`-style auth contract from the start,
-even if `Nexus` auth is still being implemented.
-
-That means:
-
-- add auth middleware and token verification behind a local adapter
-- do not add local login or registration routes to `RiftSense`
-- protect curator mutations through the shared auth boundary
-- keep the rest of the app agnostic to how the token is issued
-
-The verifier implementation can start simple, but the contract should be
-`Nexus`-shaped rather than `DraftEngine`-shaped.
+This keeps the rest of the app from caring whether the token arrived from
+standalone login or hosted launch.
 
 ## Hosted Browser Callback
 
-Once the Nexus hosted launch-grant exchange is available, RiftSense
-should add an app-owned callback route:
+For Nexus-launched entry, `RiftSense` owns:
 
 - `GET /auth/nexus/callback`
 
-The RiftSense callback should:
+The callback should:
 
 - require a browser-supplied launch grant
 - redeem that grant through the Nexus exchange endpoint using the
   RiftSense app secret
-- verify the returned access token locally before trusting it
-- establish RiftSense-local recognized session state through an
-  app-owned cookie
-- redirect the user into RiftSense without requiring manual token paste
+- verify the returned token locally before trusting it
+- establish RiftSense-local recognized session state through an app-owned
+  cookie
+- redirect the user into RiftSense without a second login
 - render an intentional app-owned failure state when callback or
   exchange fails
 
-This preserves the existing separation of concerns:
+## Standalone Sign-In
 
-- Nexus owns canonical identity and token issuance
-- RiftSense owns app-local recognized session state and authorization
-- the browser callback is not itself trusted until the exchange
-  succeeds
+For direct-entry usage, `RiftSense` should expose an app-owned sign-in
+form and submit credentials to a Nexus-backed app-login path.
 
-## What Should Stay Local to Each App
+That means:
 
-Even after `Nexus` owns identity, each app should still own its own
-authorization decisions.
+- the UI is local to `RiftSense`
+- canonical credential validation still happens in `Nexus`
+- the returned access token is still audience-scoped to `riftsense`
+- successful login still results in a RiftSense-local session cookie
 
-For `DraftEngine`, examples include:
+This preserves one account system while allowing users to start in either
+app.
 
-- admin privileges
-- tag moderation rights
-- scoped write permissions
-- team-lead write permissions
+## Developer Fallback
 
-For `RiftSense`, examples will likely include:
+Manual token entry may exist only as a local or non-production fallback
+for contract testing. It should not be the primary user-facing auth path.
+
+## What Should Stay Local to RiftSense
+
+Even with shared identity, `RiftSense` still owns app-local authorization
+decisions such as:
 
 - content curator privileges
 - team-lead assignment privileges
@@ -190,25 +157,22 @@ For `RiftSense`, examples will likely include:
 
 Identity is shared. Authorization is not automatically shared.
 
-## Recommended RiftSense Implementation Order
+## Recommended Implementation Order
 
-1. Add auth middleware behind an adapter boundary in `RiftSense`.
-2. Require auth only for curator routes first.
-3. Keep public library browsing open unless product decisions change.
-4. Add local app authorization checks for curator-only mutations.
-5. Leave login and password reset out of `RiftSense`.
-6. Add the hosted Nexus callback plus app-local recognized session
-   boundary.
-7. Point the verifier at live `Nexus` token issuance once the shared
-   auth service is live.
+1. Keep app-local token verification and auth middleware stable.
+2. Support standalone sign-in through Nexus canonical auth.
+3. Support Nexus launch-grant callback for hosted entry.
+4. Keep public browsing decisions separate from auth decisions.
+5. Add RiftSense-specific authorization checks on top of shared identity.
 
 ## Immediate Practical Recommendation
 
-For the next implementation step, `RiftSense` should add:
+For current implementation work, `RiftSense` should maintain:
 
-- `server/auth/` with token verification and middleware interfaces
-- a `Nexus`-oriented JWT verifier contract
-- curator-route protection for create, update, publish, and delete
+- auth middleware and token verification behind an adapter boundary
+- app-owned standalone sign-in backed by `Nexus`
+- hosted Nexus callback plus app-local recognized session boundary
+- developer-only token tooling strictly as a fallback
 
-This gives the app a usable auth boundary now without requiring
-`RiftSense` to invent a second long-term auth system.
+That gives RiftSense a usable dual-entry auth story without introducing a
+second long-term account system.

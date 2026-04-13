@@ -7,15 +7,41 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+const state = {
+  session: null
+};
+
+function readStoredAuthToken() {
+  return window.localStorage.getItem("riftsense.authToken");
+}
+
+function getSessionState() {
+  if (state.session && typeof state.session === "object") {
+    return state.session;
+  }
+
+  return {
+    authEnabled: false,
+    authenticated: false,
+    user: null,
+    accountUrl: "",
+    portalBaseUrl: "",
+    manualTokenEntryAvailable: false,
+    unavailable: false,
+    error: ""
+  };
+}
+
 async function requestJson(url, options) {
   const headers = new Headers(options?.headers ?? {});
-  const authToken = window.localStorage.getItem("riftsense.authToken");
-  if (authToken && !headers.has("Authorization")) {
+  const authToken = readStoredAuthToken();
+  if (!options?.skipStoredToken && authToken && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${authToken}`);
   }
 
   const response = await fetch(url, {
     ...options,
+    credentials: "same-origin",
     headers
   });
   const body = response.status === 204 ? null : await response.json();
@@ -27,8 +53,119 @@ async function requestJson(url, options) {
   return body;
 }
 
+async function loadSession() {
+  try {
+    state.session = await requestJson("/api/session", {
+      headers: {
+        Accept: "application/json"
+      }
+    });
+  } catch (error) {
+    state.session = {
+      authEnabled: false,
+      authenticated: false,
+      user: null,
+      accountUrl: "",
+      portalBaseUrl: "",
+      manualTokenEntryAvailable: false,
+      unavailable: true,
+      error: error instanceof Error ? error.message : "Session is unavailable right now."
+    };
+  }
+}
+
+function renderDeveloperTokenTools(session) {
+  if (!session.manualTokenEntryAvailable) {
+    return "";
+  }
+
+  return `
+    <details class="session-dev-tools">
+      <summary>Developer token</summary>
+      <form id="session-token-form" class="session-form">
+        <label>
+          Bearer Token
+          <textarea name="authToken" rows="3" placeholder="Optional local fallback token">${escapeHtml(readStoredAuthToken() ?? "")}</textarea>
+        </label>
+        <div class="action-row">
+          <button class="button secondary" type="submit">Save Token</button>
+          <button class="button secondary" type="button" id="session-clear-button">Clear Token</button>
+        </div>
+      </form>
+    </details>
+  `;
+}
+
+function renderSessionPanel() {
+  const session = getSessionState();
+  const accountLink = session.accountUrl
+    ? `<a class="button secondary" href="${escapeHtml(session.accountUrl)}">Open Nexus</a>`
+    : "";
+
+  if (!session.authEnabled) {
+    return `
+      <section class="session-panel">
+        <div class="panel panel-slim">
+          <p class="eyebrow">Access</p>
+          <h2>Demo mode</h2>
+          <p class="muted">Shared sign-in is off in this environment.</p>
+        </div>
+      </section>
+    `;
+  }
+
+  if (session.authenticated) {
+    const displayName = session.user?.displayName?.trim() || "Signed in";
+    const email = session.user?.email?.trim() || "";
+
+    return `
+      <section class="session-panel">
+        <div class="panel panel-slim session-card">
+          <p class="eyebrow">Signed In</p>
+          <h2>${escapeHtml(displayName)}</h2>
+          ${email ? `<p class="muted">${escapeHtml(email)}</p>` : ""}
+          <div class="action-row">
+            <button class="button secondary" type="button" id="session-logout-button">Sign Out</button>
+            ${accountLink}
+          </div>
+          ${renderDeveloperTokenTools(session)}
+        </div>
+      </section>
+    `;
+  }
+
+  const intro = session.unavailable
+    ? session.error || "Session is unavailable right now."
+    : "Use your Nexus or DraftEngine account to sign in.";
+
+  return `
+    <section class="session-panel">
+      <div class="panel panel-slim session-card">
+        <p class="eyebrow">Sign In</p>
+        <h2>Continue in RiftSense</h2>
+        <p class="muted">${escapeHtml(intro)}</p>
+        <form id="session-login-form" class="session-form">
+          <label>
+            Email
+            <input type="email" name="email" autocomplete="email" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" autocomplete="current-password" required />
+          </label>
+          <div class="action-row">
+            <button class="button" type="submit">Sign In</button>
+            ${accountLink}
+          </div>
+          <p class="muted session-status" id="session-login-status" aria-live="polite"></p>
+        </form>
+        ${renderDeveloperTokenTools(session)}
+      </div>
+    </section>
+  `;
+}
+
 function appShell(content, hero = {}) {
-  const hasAuthToken = Boolean(window.localStorage.getItem("riftsense.authToken"));
   const pathname = window.location.pathname;
   const navCollapsed = window.localStorage.getItem("riftsense.navCollapsed") === "true";
   const searchParams = new URLSearchParams(window.location.search);
@@ -106,22 +243,7 @@ function appShell(content, hero = {}) {
             `).join("")}
           </div>
           <div class="side-nav-spacer"></div>
-          <section class="session-panel">
-            <details>
-              <summary>Session ${hasAuthToken ? "configured" : "not configured"}</summary>
-              <form id="session-form" class="session-form">
-                <label>
-                  Bearer Token
-                  <textarea name="authToken" rows="3" placeholder="Paste a Nexus-style bearer token here only if you are not launching from Nexus.">${escapeHtml(window.localStorage.getItem("riftsense.authToken") ?? "")}</textarea>
-                </label>
-                <div class="action-row">
-                  <button class="button secondary" type="submit">Save Token</button>
-                  <button class="button secondary" type="button" id="session-clear-button">Clear Token</button>
-                </div>
-                <p class="muted">Launching from Nexus should now establish a RiftSense session automatically. Manual token paste is the fallback path for local contract testing.</p>
-              </form>
-            </details>
-          </section>
+          ${renderSessionPanel()}
         </nav>
       </aside>
       <button id="nav-overlay" class="nav-overlay" type="button" aria-label="Close navigation"></button>
@@ -913,12 +1035,70 @@ function bindViewerActions(root, item) {
 }
 
 function bindSessionControls(root) {
-  const form = root.querySelector("#session-form");
+  const loginForm = root.querySelector("#session-login-form");
+  const loginStatus = root.querySelector("#session-login-status");
+  const logoutButton = root.querySelector("#session-logout-button");
+  const tokenForm = root.querySelector("#session-token-form");
   const clearButton = root.querySelector("#session-clear-button");
 
-  form?.addEventListener("submit", (event) => {
+  loginForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const formData = new FormData(form);
+    const submitButton = loginForm.querySelector('button[type="submit"]');
+    const formData = new FormData(loginForm);
+    const email = String(formData.get("email") ?? "").trim();
+    const password = String(formData.get("password") ?? "");
+
+    if (loginStatus) {
+      loginStatus.textContent = "";
+    }
+
+    if (submitButton instanceof HTMLButtonElement) {
+      submitButton.disabled = true;
+      submitButton.textContent = "Signing In...";
+    }
+
+    try {
+      await requestJson("/auth/login", {
+        method: "POST",
+        skipStoredToken: true,
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ email, password })
+      });
+
+      window.localStorage.removeItem("riftsense.authToken");
+      window.location.reload();
+    } catch (error) {
+      if (loginStatus) {
+        loginStatus.textContent = error instanceof Error ? error.message : "Sign-in failed.";
+      }
+    } finally {
+      if (submitButton instanceof HTMLButtonElement) {
+        submitButton.disabled = false;
+        submitButton.textContent = "Sign In";
+      }
+    }
+  });
+
+  logoutButton?.addEventListener("click", async () => {
+    try {
+      await requestJson("/auth/logout", {
+        method: "POST",
+        headers: {
+          Accept: "application/json"
+        }
+      });
+    } finally {
+      window.localStorage.removeItem("riftsense.authToken");
+      window.location.reload();
+    }
+  });
+
+  tokenForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const formData = new FormData(tokenForm);
     const token = String(formData.get("authToken") ?? "").trim();
     if (token) {
       window.localStorage.setItem("riftsense.authToken", token);
@@ -1030,6 +1210,8 @@ function bindNavSectionControls(root) {
 
 export async function renderApp(root) {
   const pathname = window.location.pathname;
+
+  await loadSession();
 
   try {
     if (pathname === "/") {

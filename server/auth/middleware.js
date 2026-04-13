@@ -43,6 +43,14 @@ function normalizePayload(payload) {
   };
 }
 
+function buildIdentity(auth) {
+  return {
+    id: auth.subjectId,
+    displayName: typeof auth.claims?.displayName === "string" ? auth.claims.displayName : null,
+    email: typeof auth.claims?.email === "string" ? auth.claims.email : null
+  };
+}
+
 export function createRequireAuth(config) {
   return function requireAuth(request, _response, next) {
     if (!config.auth.enabled) {
@@ -58,9 +66,7 @@ export function createRequireAuth(config) {
 
       const payload = verifyAccessToken(token, config);
       request.auth = normalizePayload(payload);
-      request.identity = {
-        id: request.auth.subjectId
-      };
+      request.identity = buildIdentity(request.auth);
       next();
     } catch (error) {
       next(error);
@@ -84,9 +90,7 @@ export function createOptionalAuth(config) {
 
       const payload = verifyAccessToken(token, config);
       request.auth = normalizePayload(payload);
-      request.identity = {
-        id: request.auth.subjectId
-      };
+      request.identity = buildIdentity(request.auth);
       next();
     } catch {
       next();

@@ -1,8 +1,11 @@
 import express from "express";
 
+import { authenticateWithNexusAccount as defaultAuthenticateWithNexusAccount } from "../auth/app-login.js";
 import { clearCookie, serializeCookie } from "../auth/cookies.js";
 import { redeemLaunchGrant as defaultRedeemLaunchGrant } from "../auth/exchange.js";
 import { verifyAccessToken } from "../auth/tokens.js";
+import { ApiError, formatErrorResponse } from "../errors.js";
+import { requireNonEmptyString, requireObject } from "../http/validation.js";
 
 function escapeHtml(value) {
   return String(value)
@@ -159,11 +162,113 @@ function renderHtmlPage({ title, heading, body, tone = "normal", portalBaseUrl }
 </html>`;
 }
 
+function sendApiResponse(response, status, payload) {
+  response.status(status).json(payload);
+}
+
+function sendApiError(response, error, fallbackMessage = "Request failed.") {
+  if (error instanceof ApiError) {
+    const formatted = formatErrorResponse(error);
+    response.status(formatted.status).json(formatted.body);
+    return;
+  }
+
+  response.status(503).json({
+    error: {
+      code: "SERVICE_UNAVAILABLE",
+      message: fallbackMessage
+    }
+  });
+}
+
 export function createAuthRouter({
   config,
-  redeemLaunchGrant = defaultRedeemLaunchGrant
+  redeemLaunchGrant = defaultRedeemLaunchGrant,
+  authenticateWithNexusAccount = defaultAuthenticateWithNexusAccount
 }) {
   const router = express.Router();
+
+  router.post("/login", async (request, response) => {
+    if (!config.auth.enabled) {
+      sendApiResponse(response, 403, {
+        error: {
+          code: "AUTH_DISABLED",
+          message: "RiftSense standalone sign-in is not available in this environment."
+        }
+      });
+      return;
+    }
+
+    if (!config.auth.jwtSecret || !config.auth.exchangeSecret || !config.auth.appLoginUrl) {
+      sendApiResponse(response, 503, {
+        error: {
+          code: "AUTH_MISCONFIGURED",
+          message: "RiftSense standalone sign-in is not fully configured."
+        }
+      });
+      return;
+    }
+
+    try {
+      const body = requireObject(request.body);
+      const email = requireNonEmptyString(body.email, "email");
+      const password = requireNonEmptyString(body.password, "password");
+      const authentication = await authenticateWithNexusAccount({
+        config,
+        email,
+        password
+      });
+
+      if (!authentication.ok) {
+        const message =
+          typeof authentication.payload?.message === "string"
+            ? authentication.payload.message
+            : "Invalid email or password.";
+        sendApiResponse(response, authentication.status || 401, {
+          error: {
+            code: authentication.status === 401 ? "UNAUTHORIZED" : "AUTH_FAILED",
+            message
+          }
+        });
+        return;
+      }
+
+      const accessToken = authentication.payload?.accessToken;
+      if (typeof accessToken !== "string" || !accessToken.trim()) {
+        throw new Error("Nexus login response did not include an access token.");
+      }
+
+      const payload = verifyAccessToken(accessToken, config);
+      if (
+        typeof authentication.payload?.user?.userId === "string" &&
+        authentication.payload.user.userId !== payload.sub
+      ) {
+        throw new Error("Nexus login user payload did not match token subject.");
+      }
+
+      response.setHeader("Set-Cookie", buildSessionCookie(accessToken, payload, config));
+      sendApiResponse(response, 200, {
+        authenticated: true,
+        user: {
+          id: payload.sub,
+          displayName:
+            typeof payload.displayName === "string"
+              ? payload.displayName
+              : typeof authentication.payload?.user?.displayName === "string"
+                ? authentication.payload.user.displayName
+                : null,
+          email:
+            typeof payload.email === "string"
+              ? payload.email
+              : typeof authentication.payload?.user?.email === "string"
+                ? authentication.payload.user.email
+                : null
+        }
+      });
+    } catch (error) {
+      sendApiError(response, error, "RiftSense standalone sign-in is unavailable right now.");
+    }
+  });
 
   router.get("/nexus/callback", async (request, response) => {
     const grantId = typeof request.query.grant === "string" ? request.query.grant.trim() : "";
@@ -278,8 +383,14 @@ export function createAuthRouter({
     }
   });
 
-  router.post("/logout", (_request, response) => {
+  router.post("/logout", (request, response) => {
     response.setHeader("Set-Cookie", clearSessionCookie(config));
+
+    if ((request.headers.accept || "").includes("application/json")) {
+      response.status(204).end();
+      return;
+    }
+
     response.redirect(303, "/");
   });
 

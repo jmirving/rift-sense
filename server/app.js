@@ -5,6 +5,7 @@ import { createOptionalAuth, createRequireAuth } from "./auth/middleware.js";
 import { createContentItemsRouter } from "./routes/content-items.js";
 import { createAuthRouter } from "./routes/auth.js";
 import { createHomeRouter } from "./routes/home.js";
+import { createSessionRouter } from "./routes/session.js";
 import { ApiError, badRequest, formatErrorResponse } from "./errors.js";
 
 const clientRoutes = [
@@ -27,7 +28,8 @@ export function createApp({
   userHomesRepository,
   assetStore,
   previewService,
-  redeemLaunchGrant
+  redeemLaunchGrant,
+  authenticateWithNexusAccount
 }) {
   const app = express();
   const requireAuth = createRequireAuth(config);
@@ -46,9 +48,12 @@ export function createApp({
     "/auth",
     createAuthRouter({
       config,
-      redeemLaunchGrant
+      redeemLaunchGrant,
+      authenticateWithNexusAccount
     })
   );
+
+  app.use("/api/session", createSessionRouter({ config }));
 
   app.use(
     "/api/home",

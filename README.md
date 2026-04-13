@@ -23,7 +23,7 @@ This mode:
 - leaves shared auth disabled
 - is the fastest way to iterate on the current UI and content workflows
 
-## Local Auth Contract Testing
+## Local Auth Testing
 
 Run `RiftSense` with Nexus-style auth enabled:
 
@@ -31,22 +31,23 @@ Run `RiftSense` with Nexus-style auth enabled:
 npm run local:mvp:auth
 ```
 
-Mint a compatible local dev token:
+In this mode, direct visits to `RiftSense` show an app-owned sign-in form.
+Use the same canonical account that exists in `Nexus` and `DraftEngine`.
+
+For local contract testing without a live `Nexus` instance, you can still
+mint a compatible dev token:
 
 ```bash
 npm run local:token
 ```
 
-Paste that token into the `Session` panel in the app UI. This still
-does not require a live `Nexus` instance.
-
-If you launch `RiftSense` from a local `Nexus` portal that is issuing
-the shared `nexus_access_token` cookie, the manual token paste is not
-needed.
+The token can be pasted into the small developer-only session tool in the
+sidebar. That fallback is for local testing only, not the primary product
+flow.
 
 ## Local Hosted Nexus Launch
 
-`RiftSense` now supports the hosted callback flow described by the Nexus
+`RiftSense` supports the hosted callback flow described by the Nexus
 launch-grant exchange contract.
 
 To run against a live local `Nexus` instance:
@@ -62,10 +63,13 @@ NEXUS_PORTAL_BASE_URL=http://127.0.0.1:3000 \
 npm run local:mvp:auth
 ```
 
-With the matching Nexus local env active, launch `RiftSense` from the
-portal. The browser should redirect through
-`/auth/nexus/callback`, redeem the grant, set the RiftSense-local auth
-cookie, and land in the authenticated home without manual token paste.
+With the matching local `Nexus` env active:
+
+- launching `RiftSense` from the portal should redirect through
+  `/auth/nexus/callback`, redeem the grant, set the RiftSense session
+  cookie, and land in the authenticated app
+- opening `RiftSense` directly should still show the standalone sign-in
+  form
 
 ## Automated Checks
 

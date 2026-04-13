@@ -9,12 +9,44 @@ function parsePort(value, defaultValue = 3000) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : defaultValue;
 }
 
+function parseBoolean(value) {
+  return ["1", "true", "yes", "on"].includes(String(value ?? "").trim().toLowerCase());
+}
+
+function normalizeUrl(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    return "";
+  }
+
+  try {
+    return new URL(value.trim()).toString();
+  } catch {
+    return "";
+  }
+}
+
+function deriveAppLoginUrl(env, portalBaseUrl) {
+  const explicit = normalizeUrl(env.NEXUS_APP_LOGIN_URL ?? "");
+  if (explicit) {
+    return explicit;
+  }
+
+  if (!portalBaseUrl) {
+    return "";
+  }
+
+  try {
+    return new URL("/api/auth/app-login", portalBaseUrl).toString();
+  } catch {
+    return "";
+  }
+}
+
 export function loadConfig(env = process.env) {
   const storageRoot = path.resolve(projectRoot, env.RIFTSENSE_STORAGE_ROOT ?? "storage");
   const maxUploadBytes = Number.parseInt(String(env.RIFTSENSE_MAX_UPLOAD_BYTES ?? ""), 10);
-  const authEnabled = ["1", "true", "yes", "on"].includes(
-    String(env.NEXUS_AUTH_ENABLED ?? "").trim().toLowerCase()
-  );
+  const authEnabled = parseBoolean(env.NEXUS_AUTH_ENABLED ?? "");
+  const portalBaseUrl = normalizeUrl(env.NEXUS_PORTAL_BASE_URL ?? "http://127.0.0.1:3000");
 
   return {
     nodeEnv: env.NODE_ENV ?? "development",
@@ -39,12 +71,16 @@ export function loadConfig(env = process.env) {
             ? env.NEXUS_JWT_SECRET.trim()
             : "",
       sessionCookieName: env.RIFTSENSE_SESSION_COOKIE_NAME ?? "riftsense_access_token",
-      exchangeUrl: env.NEXUS_EXCHANGE_URL ?? "",
+      exchangeUrl: normalizeUrl(env.NEXUS_EXCHANGE_URL ?? ""),
       exchangeSecret:
-        env.NEXUS_RIFTSENSE_EXCHANGE_SECRET ??
-        env.RIFTSENSE_EXCHANGE_SECRET ??
-        "",
-      portalBaseUrl: env.NEXUS_PORTAL_BASE_URL ?? "http://127.0.0.1:3000"
+        typeof env.NEXUS_RIFTSENSE_EXCHANGE_SECRET === "string" && env.NEXUS_RIFTSENSE_EXCHANGE_SECRET.trim()
+          ? env.NEXUS_RIFTSENSE_EXCHANGE_SECRET.trim()
+          : typeof env.RIFTSENSE_EXCHANGE_SECRET === "string"
+            ? env.RIFTSENSE_EXCHANGE_SECRET.trim()
+            : "",
+      portalBaseUrl,
+      appLoginUrl: deriveAppLoginUrl(env, portalBaseUrl),
+      allowManualTokenEntry: env.NODE_ENV !== "production"
     }
   };
 }
