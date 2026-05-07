@@ -180,18 +180,14 @@ function appShell(content, hero = {}) {
   const navSections = [
     {
       key: "learn",
-      title: "Learn",
+      title: "Improve",
       items: [
-        { href: "/library", label: "Library", active: pathname === "/library" || (pathname.startsWith("/content/") && !isCuratorDetail) },
-        { href: "/focus/today", label: "Focus Today", active: pathname === "/focus/today" },
-        { href: "/focus/week", label: "Focus This Week", active: pathname === "/focus/week" },
-        { href: "/focus/month", label: "Focus This Month", active: pathname === "/focus/month" },
-        { href: "/drills", label: "Drills", active: pathname === "/drills" },
-        { href: "/test", label: "Test", active: pathname === "/test" },
+        { href: "/", label: "Dashboard", active: pathname === "/" },
+        { href: "/goals", label: "Goals", active: pathname === "/goals" || pathname.startsWith("/focus/") },
         { href: "/review", label: "Review", active: pathname === "/review" },
-        { label: "Fundamentals", upcoming: true },
-        { label: "Playbooks", upcoming: true },
-        { label: "Drafting", upcoming: true }
+        { href: "/training", label: "Training", active: pathname === "/training" || pathname === "/drills" || pathname === "/test" },
+        { href: "/team", label: "Team", active: pathname === "/team" },
+        { href: "/library", label: "Library", active: pathname === "/library" || (pathname.startsWith("/content/") && !isCuratorDetail) }
       ]
     }
   ];
@@ -456,6 +452,82 @@ function continueCard(item) {
   `;
 }
 
+function trendLabel(trend) {
+  return {
+    positive: "Improving",
+    watch: "Watch",
+    "needs-attention": "Needs attention",
+    unknown: "No data yet"
+  }[trend] ?? "No data yet";
+}
+
+function trendClass(trend) {
+  return {
+    positive: "is-positive",
+    watch: "is-watch",
+    "needs-attention": "is-attention",
+    unknown: "is-unknown"
+  }[trend] ?? "is-unknown";
+}
+
+function statusBadge(label, trend = "unknown") {
+  return `<span class="status-badge ${trendClass(trend)}">${escapeHtml(label)}</span>`;
+}
+
+function targetList(items, emptyText) {
+  return `
+    <ul class="target-list">
+      ${(items ?? []).length > 0
+        ? items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")
+        : `<li>${escapeHtml(emptyText)}</li>`}
+    </ul>
+  `;
+}
+
+function signalCard(signal) {
+  return `
+    <article class="signal-card">
+      <div class="signal-card-head">
+        <p class="signal-value">${escapeHtml(signal.value)}</p>
+        ${statusBadge(trendLabel(signal.trend), signal.trend)}
+      </div>
+      <h3>${escapeHtml(signal.label)}</h3>
+      <p class="muted">${escapeHtml(signal.description ?? "")}</p>
+    </article>
+  `;
+}
+
+function nextStepCard(step) {
+  return `
+    <article class="next-step-card">
+      <p class="eyebrow">${escapeHtml(step.label ?? "Next")}</p>
+      <h3>${escapeHtml(step.title)}</h3>
+      <p class="muted">${escapeHtml(step.summary ?? "")}</p>
+      ${step.href ? `<a class="button secondary" href="${escapeHtml(step.href)}">Open</a>` : ""}
+    </article>
+  `;
+}
+
+function actionStepList(steps) {
+  return `
+    <ol class="action-step-list">
+      ${(steps ?? []).length > 0
+        ? steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")
+        : "<li>Choose one review moment and write the next action.</li>"}
+    </ol>
+  `;
+}
+
+function teamChecklist(items) {
+  return `
+    <ul class="team-checklist">
+      ${(items ?? []).length > 0
+        ? items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")
+        : "<li>No team checklist configured yet.</li>"}
+    </ul>
+  `;
+}
+
 function buildLibraryUrl(url, updates = {}) {
   const nextUrl = new URL("/library", window.location.origin);
   const nextEntries = {
@@ -570,81 +642,222 @@ function bindSourceTypeVisibility(root) {
 async function renderHome(root) {
   const { home } = await requestJson("/api/home");
   const profile = home.user.profile ?? {};
-  const focusBoard = home.focusBoard ?? {};
-  const coachFeed = home.coachFeed ?? {};
-  const focusTagline = `${profile.primaryRole ?? "Player"} · ${profile.teamName ?? "No team"}`;
-  const recentStats = focusBoard.recentGameStats ?? [];
-  const coachSections = coachFeed.sections ?? [];
-  const todayValue = focusBoard.todayGoal?.progressLabel ?? `${Math.max(0, Math.min(Number(focusBoard.progress?.todayPercent ?? 0), 100))}%`;
-  const weekValue = `${Math.max(0, Math.min(Number(focusBoard.progress?.weeklyPercent ?? 0), 100))}%`;
-  const monthValue = `${Math.max(0, Math.min(Number(focusBoard.progress?.monthlyPercent ?? 0), 100))}%`;
+  const dashboard = home.goalDashboard ?? {};
+  const goal = dashboard.activePersonalGoal ?? {};
+  const action = dashboard.todaysAction ?? {};
+  const teamFocus = dashboard.activeTeamFocus ?? {};
+  const suggestedNextSteps = dashboard.suggestedNextSteps ?? [];
+  const focusTagline = `${goal.role ?? profile.primaryRole ?? "Player"} · ${goal.scope ?? "Personal"}`;
 
   root.innerHTML = appShell(`
-    <section class="dashboard-stack">
-      <section class="panel focus-board-panel">
-        <div class="focus-board-head">
-          <div>
-            <p class="eyebrow">Focus Board</p>
-            <h2>${escapeHtml(focusBoard.todayGoal?.title ?? "No focus configured yet")}</h2>
-            <p class="muted">${escapeHtml(focusTagline)}</p>
+    <section class="goal-dashboard-stack">
+      <section class="panel active-goal-panel">
+        <div class="active-goal-hero">
+          <div class="active-goal-copy">
+            <p class="eyebrow">Active Goal</p>
+            <h2>${escapeHtml(goal.title ?? "No active goal yet")}</h2>
+            <div class="badge-row">
+              <span class="context-badge">${escapeHtml(focusTagline)}</span>
+              ${statusBadge(goal.status === "active" ? "Active" : "No data yet", goal.status === "active" ? "positive" : "unknown")}
+            </div>
+            <p>${escapeHtml(goal.summary ?? "Choose one goal to start tracking.")}</p>
+          </div>
+          <div class="active-goal-targets">
+            <p class="eyebrow">Weekly Targets</p>
+            ${targetList(goal.weeklyTargets, "No weekly targets configured yet.")}
           </div>
         </div>
-        <div class="focus-board-body">
-          <div class="focus-goal-block">
-            <p>${escapeHtml(focusBoard.todayGoal?.summary ?? "")}</p>
-          </div>
-          <div class="focus-summary-grid">
-            ${focusSummaryLink("Today", todayValue, "/focus/today")}
-            ${focusSummaryLink("This Week", weekValue, "/focus/week")}
-            ${focusSummaryLink("This Month", monthValue, "/focus/month")}
+        <div class="active-goal-footer">
+          <p class="muted">${escapeHtml(goal.progressSummary ?? "No trend summary yet. Review a game to create your first signal.")}</p>
+          <div class="action-row">
+            <a class="button" href="/review">Review Goal</a>
+            <a class="button secondary" href="/goals">View Goals</a>
           </div>
         </div>
       </section>
-      <section class="panel coach-panel">
-        <div class="panel-header">
-          <div>
-            <p class="eyebrow">Coach</p>
-            <h2>Recommended Next</h2>
+
+      <section class="dashboard-two-column">
+        <section class="panel todays-action-panel">
+          <p class="eyebrow">Today's Action</p>
+          <h2>${escapeHtml(action.title ?? "No action configured yet")}</h2>
+          <p class="action-time">${escapeHtml(action.estimatedMinutes ?? 0)} minutes</p>
+          <p>${escapeHtml(action.reason ?? "Choose one small review action to keep momentum.")}</p>
+          ${actionStepList(action.steps)}
+          <a class="button" href="${escapeHtml(action.href ?? "/review")}">${escapeHtml(action.ctaLabel ?? "Start review")}</a>
+        </section>
+
+        <section class="panel team-focus-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Team Focus</p>
+              <h2>${escapeHtml(teamFocus.title ?? "No team focus configured")}</h2>
+            </div>
+            <a class="button secondary" href="/team">Open Team Focus</a>
           </div>
-          <a class="button secondary" href="/library">Library</a>
-        </div>
-        <div class="coach-sections">
-          ${coachSections.length > 0
-            ? coachSections.map((section) => `
-              <section class="coach-section">
-                <div class="coach-section-head">
-                  <h3>${escapeHtml(section.title)}</h3>
-                </div>
-                <div class="coach-card-stack">
-                  ${(section.items ?? []).map(coachItemCard).join("")}
-                </div>
-              </section>
-            `).join("")
-            : '<p class="muted">No coach recommendations configured yet.</p>'}
-        </div>
+          <p>${escapeHtml(teamFocus.summary ?? "Add a team practice topic for this week.")}</p>
+          <div class="team-focus-meta">
+            <p><strong>Practice topic:</strong> ${escapeHtml(teamFocus.practiceTopic ?? "Not set")}</p>
+            <p><strong>Assigned review:</strong> ${escapeHtml(teamFocus.assignedReview ?? "Not set")}</p>
+          </div>
+          ${teamChecklist(teamFocus.checklist)}
+        </section>
       </section>
-      <section class="panel panel-slim">
+
+      <section class="panel recent-signals-panel">
         <div class="panel-header">
           <div>
             <p class="eyebrow">Recent Signals</p>
-            <h2>Recent Game Stats</h2>
+            <h2>Goal-linked evidence</h2>
           </div>
         </div>
-        <section class="stats-strip">
-          ${recentStats.length > 0
-            ? recentStats.map((metric) => `
-              <article class="stat-chip">
-                <p class="eyebrow">${escapeHtml(metric.label)}</p>
-                <p class="stat-chip-value">${escapeHtml(metric.value)}</p>
-                <p class="muted">${escapeHtml(metric.trend ?? metric.note ?? "")}</p>
-              </article>
-            `).join("")
-            : '<p class="muted">No recent signals yet.</p>'}
+        <section class="signal-grid">
+          ${(goal.signals ?? []).length > 0
+            ? goal.signals.map(signalCard).join("")
+            : '<p class="muted">No recent signals yet. Review a game to create your first signal.</p>'}
+        </section>
+      </section>
+
+      <section class="panel next-steps-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Suggested Next Steps</p>
+            <h2>Continue Learning</h2>
+          </div>
+        </div>
+        <section class="next-step-grid">
+          ${suggestedNextSteps.length > 0
+            ? suggestedNextSteps.slice(0, 4).map(nextStepCard).join("")
+            : '<p class="muted">No next steps yet. Add a goal or team focus to generate suggestions.</p>'}
         </section>
       </section>
     </section>
   `, {
     hidden: true
+  });
+}
+
+async function renderGoalDashboardPage(root, page) {
+  const { home } = await requestJson("/api/home");
+  const dashboard = home.goalDashboard ?? {};
+  const goal = dashboard.activePersonalGoal ?? {};
+  const action = dashboard.todaysAction ?? {};
+  const teamFocus = dashboard.activeTeamFocus ?? {};
+
+  const pages = {
+    goals: {
+      eyebrow: "Goals",
+      title: "Active Improvement Work",
+      text: "Personal and team goals stay visible so review work connects to a concrete target.",
+      content: `
+        <section class="panel active-goal-panel">
+          <div class="active-goal-hero">
+            <div class="active-goal-copy">
+              <p class="eyebrow">Personal Goal</p>
+              <h3>${escapeHtml(goal.title ?? "No active goal yet")}</h3>
+              <p>${escapeHtml(goal.summary ?? "Choose one goal to start tracking.")}</p>
+            </div>
+            <div>
+              <p class="eyebrow">Monthly Targets</p>
+              ${targetList(goal.monthlyTargets, "No monthly targets configured yet.")}
+            </div>
+          </div>
+        </section>
+        <section class="panel recent-signals-panel">
+          <p class="eyebrow">Signals</p>
+          <h3>What this goal tracks</h3>
+          <section class="signal-grid">
+            ${(goal.signals ?? []).length > 0
+              ? goal.signals.map(signalCard).join("")
+              : '<p class="muted">No signals configured yet.</p>'}
+          </section>
+        </section>
+      `
+    },
+    review: {
+      eyebrow: "Review",
+      title: action.title ?? "Review",
+      text: action.reason ?? "Use review moments to turn games into evidence.",
+      content: `
+        <section class="panel todays-action-panel">
+          <p class="eyebrow">Review Block</p>
+          <h3>${escapeHtml(action.title ?? "No review action configured")}</h3>
+          <p class="action-time">${escapeHtml(action.estimatedMinutes ?? 0)} minutes</p>
+          ${actionStepList(action.steps)}
+        </section>
+        <section class="panel recent-signals-panel">
+          <p class="eyebrow">Tag Against</p>
+          <h3>${escapeHtml(goal.title ?? "Active goal")}</h3>
+          <section class="signal-grid">
+            ${(goal.signals ?? []).length > 0
+              ? goal.signals.map(signalCard).join("")
+              : '<p class="muted">No signals configured yet.</p>'}
+          </section>
+        </section>
+      `
+    },
+    training: {
+      eyebrow: "Training",
+      title: "Small Practice Blocks",
+      text: "Training stays tied to the active goal instead of becoming a generic content grid.",
+      content: `
+        <section class="panel">
+          <p class="eyebrow">Decision Tree</p>
+          <h3>ADC trading check</h3>
+          <ul class="team-checklist">
+            <li>Do we win this matchup before level 6?</li>
+            <li>Is the wave state supporting the trade?</li>
+            <li>Are key cooldowns or summoners missing?</li>
+            <li>Can jungle or support punish if I extend?</li>
+          </ul>
+        </section>
+        <section class="panel">
+          <p class="eyebrow">Pre-game Reminder</p>
+          <h3>${escapeHtml(goal.title ?? "Active goal")}</h3>
+          <p>${escapeHtml(goal.summary ?? "Choose one goal to start tracking.")}</p>
+        </section>
+      `
+    },
+    team: {
+      eyebrow: "Team",
+      title: teamFocus.title ?? "Team Focus",
+      text: teamFocus.summary ?? "Team practice work will appear here.",
+      content: `
+        <section class="panel team-focus-panel">
+          <p class="eyebrow">Practice Topic</p>
+          <h3>${escapeHtml(teamFocus.practiceTopic ?? "No practice topic configured")}</h3>
+          <p><strong>Assigned review:</strong> ${escapeHtml(teamFocus.assignedReview ?? "Not set")}</p>
+          ${teamChecklist(teamFocus.checklist)}
+        </section>
+        <section class="panel recent-signals-panel">
+          <p class="eyebrow">Team Signals</p>
+          <h3>Objective setup evidence</h3>
+          <section class="signal-grid">
+            ${(teamFocus.signals ?? []).length > 0
+              ? teamFocus.signals.map(signalCard).join("")
+              : '<p class="muted">No team signals configured yet.</p>'}
+          </section>
+        </section>
+      `
+    }
+  };
+  const config = pages[page];
+
+  root.innerHTML = appShell(`
+    <section class="section-heading">
+      <div>
+        <p class="eyebrow">${escapeHtml(config.eyebrow)}</p>
+        <h2>${escapeHtml(config.title)}</h2>
+      </div>
+      <p class="section-copy">${escapeHtml(config.text)}</p>
+    </section>
+    <section class="goal-dashboard-stack">
+      ${config.content}
+    </section>
+  `, {
+    eyebrow: config.eyebrow,
+    title: config.title,
+    text: config.text,
+    compact: true
   });
 }
 
@@ -1222,6 +1435,14 @@ export async function renderApp(root) {
       return;
     }
 
+    if (pathname === "/goals") {
+      await renderGoalDashboardPage(root, "goals");
+      bindNavControls(root);
+      bindNavSectionControls(root);
+      bindSessionControls(root);
+      return;
+    }
+
     if (pathname === "/library") {
       await renderLibrary(root);
       bindNavControls(root);
@@ -1271,7 +1492,23 @@ export async function renderApp(root) {
     }
 
     if (pathname === "/review") {
-      await renderLearnPlaceholder(root, "review");
+      await renderGoalDashboardPage(root, "review");
+      bindNavControls(root);
+      bindNavSectionControls(root);
+      bindSessionControls(root);
+      return;
+    }
+
+    if (pathname === "/training") {
+      await renderGoalDashboardPage(root, "training");
+      bindNavControls(root);
+      bindNavSectionControls(root);
+      bindSessionControls(root);
+      return;
+    }
+
+    if (pathname === "/team") {
+      await renderGoalDashboardPage(root, "team");
       bindNavControls(root);
       bindNavSectionControls(root);
       bindSessionControls(root);

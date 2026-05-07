@@ -1,5 +1,7 @@
 import express from "express";
 
+import { normalizeGoalDashboard } from "../goal-dashboard.js";
+
 function buildContentLink(item) {
   if (!item) {
     return null;
@@ -53,6 +55,7 @@ function buildFallbackHome(userId) {
       headline: "No coach recommendations are configured for this user yet.",
       sections: []
     },
+    goalDashboard: normalizeGoalDashboard(),
     continueLearning: []
   };
 }
@@ -155,6 +158,7 @@ export function createHomeRouter({ config, userHomesRepository, contentItemsRepo
             contentItemsRepository
           )
         },
+        goalDashboard: normalizeGoalDashboard(home.goalDashboard),
         continueLearning: await hydrateContinueLearning(
           home.continueLearning ?? [],
           contentItemsRepository
