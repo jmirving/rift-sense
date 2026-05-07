@@ -634,6 +634,189 @@ p {
   font-size: 0.78rem;
 }
 
+.goal-dashboard-stack,
+.dashboard-two-column,
+.active-goal-hero,
+.active-goal-copy,
+.active-goal-targets,
+.active-goal-footer,
+.signal-grid,
+.next-step-grid,
+.signal-card,
+.next-step-card,
+.team-focus-meta,
+.target-list,
+.action-step-list,
+.team-checklist {
+  display: grid;
+  gap: 16px;
+}
+
+.goal-dashboard-stack {
+  gap: 20px;
+}
+
+.dashboard-two-column {
+  grid-template-columns: minmax(0, 0.95fr) minmax(320px, 1.05fr);
+  align-items: stretch;
+}
+
+.active-goal-panel,
+.todays-action-panel,
+.team-focus-panel,
+.recent-signals-panel,
+.next-steps-panel {
+  overflow: hidden;
+}
+
+.active-goal-panel {
+  border-color: var(--border-strong);
+  background:
+    radial-gradient(circle at top right, rgba(255, 209, 102, 0.18), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
+    var(--bg-panel);
+}
+
+.active-goal-hero {
+  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
+  align-items: start;
+}
+
+.active-goal-copy h2 {
+  margin-top: 6px;
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  letter-spacing: -0.05em;
+}
+
+.active-goal-copy h3,
+.todays-action-panel h3,
+.team-focus-panel h3,
+.recent-signals-panel h3,
+.next-step-card h3 {
+  font-size: clamp(1.2rem, 2vw, 1.55rem);
+}
+
+.active-goal-copy p,
+.todays-action-panel p,
+.team-focus-panel p,
+.next-step-card p {
+  line-height: 1.6;
+}
+
+.active-goal-targets {
+  align-content: start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 16px;
+}
+
+.active-goal-footer {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.status-badge.is-positive {
+  border-color: rgba(126, 240, 200, 0.42);
+  color: var(--success);
+  background: rgba(126, 240, 200, 0.08);
+}
+
+.status-badge.is-watch {
+  border-color: rgba(255, 209, 102, 0.36);
+  color: var(--accent);
+  background: rgba(255, 209, 102, 0.08);
+}
+
+.status-badge.is-attention {
+  border-color: rgba(255, 143, 143, 0.42);
+  color: var(--danger);
+  background: rgba(255, 143, 143, 0.08);
+}
+
+.action-time {
+  width: fit-content;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  padding: 6px 10px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.target-list,
+.action-step-list,
+.team-checklist {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.target-list li,
+.team-checklist li {
+  padding-block: 3px;
+}
+
+.action-step-list li {
+  padding-block: 5px;
+}
+
+.team-focus-meta {
+  gap: 8px;
+}
+
+.team-focus-meta strong {
+  color: var(--text);
+}
+
+.signal-grid,
+.next-step-grid {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.signal-card,
+.next-step-card {
+  align-content: start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 16px;
+}
+
+.signal-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.signal-value {
+  font-family: "Iowan Old Style", "Palatino Linotype", serif;
+  font-size: 2.2rem;
+  line-height: 0.95;
+}
+
+.next-step-card .button {
+  width: fit-content;
+}
+
 .home-area-row {
   display: flex;
   justify-content: space-between;
@@ -838,6 +1021,9 @@ body.nav-collapsed .session-panel {
   .library-toolbar-head,
   .library-filter-form,
   .focus-board-head,
+  .dashboard-two-column,
+  .active-goal-hero,
+  .active-goal-footer,
   .progress-grid {
     grid-template-columns: 1fr;
     display: grid;

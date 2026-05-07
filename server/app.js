@@ -10,6 +10,7 @@ import { ApiError, badRequest, formatErrorResponse } from "./errors.js";
 
 const clientRoutes = [
   "/",
+  "/goals",
   "/library",
   "/focus/today",
   "/focus/week",
@@ -17,6 +18,8 @@ const clientRoutes = [
   "/drills",
   "/test",
   "/review",
+  "/training",
+  "/team",
   "/content/:id",
   "/curator/content",
   "/curator/content/new"

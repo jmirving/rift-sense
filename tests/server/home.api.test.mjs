@@ -173,6 +173,9 @@ describe("home API", () => {
     expect(response.body.home.user.id).toBe("usr_demo_home");
     expect(response.body.home.user.source).toBe("demo");
     expect(response.body.home.coachFeed.sections[0].items[0].linkedContent.href).toBe("/content/cnt_home_video");
+    expect(response.body.home.goalDashboard.activePersonalGoal.title).toBe("Die Less");
+    expect(response.body.home.goalDashboard.activeTeamFocus.title).toBe("Dragon Setup");
+    expect(response.body.home.goalDashboard.todaysAction.title).toBe("Review last game deaths");
   });
 
   it("returns the authenticated user's home when Nexus auth is enabled", async () => {
@@ -191,5 +194,6 @@ describe("home API", () => {
     expect(response.body.home.user.id).toBe("usr_local_dev");
     expect(response.body.home.user.source).toBe("authenticated");
     expect(response.body.home.focusBoard.todayGoal.title).toBe("Review objective setup");
+    expect(response.body.home.goalDashboard.activePersonalGoal.title).toBe("Die Less");
   });
 });
