@@ -67,10 +67,7 @@ export function createHomeRouter({ config, userHomesRepository, contentItemsRepo
 
     response.json({
       home: await buildHomePayload({
-        home: {
-          ...home,
-          goalDashboard: normalizeGoalDashboard(home.goalDashboard)
-        },
+        home,
         effectiveUserId,
         source: isAuthenticatedHome ? "authenticated" : "demo",
         contentItemsRepository

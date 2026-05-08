@@ -174,8 +174,15 @@ describe("home API", () => {
     expect(response.body.home.user.source).toBe("demo");
     expect(response.body.home.coachFeed.sections[0].items[0].linkedContent.href).toBe("/content/cnt_home_video");
     expect(response.body.home.goalDashboard.activePersonalGoal.title).toBe("Die Less");
+    expect(response.body.home.goalDashboard.activePersonalGoal.templateId).toBe("goal-template-adc-die-less");
+    expect(response.body.home.goalDashboard.activePersonalGoal.weeklyTargets[0]).toMatchObject({
+      signalId: "signal-bad-2v2-death",
+      status: "on-track"
+    });
     expect(response.body.home.goalDashboard.activeTeamFocus.title).toBe("Dragon Setup");
     expect(response.body.home.goalDashboard.todaysAction.title).toBe("Review last game deaths");
+    expect(response.body.home.goalDashboard.todaysAction.templateId).toBe("action-death-review-v1");
+    expect(response.body.home.goalDashboard.recentInsights.length).toBeGreaterThan(0);
   });
 
   it("returns the public demo home from the dedicated demo endpoint", async () => {
@@ -239,5 +246,112 @@ describe("home API", () => {
     expect(response.status).toBe(200);
     expect(response.text).toContain('<div id="app"></div>');
     expect(response.text).toContain('<script type="module" src="/app/main.js"></script>');
+  });
+
+  it("serves the client app from onboarding routes", async () => {
+    const app = await createTestApp();
+
+    const onboardingResponse = await request(app).get("/onboarding");
+    const demoOnboardingResponse = await request(app).get("/demo/onboarding");
+
+    expect(onboardingResponse.status).toBe(200);
+    expect(onboardingResponse.text).toContain('<div id="app"></div>');
+    expect(demoOnboardingResponse.status).toBe(200);
+    expect(demoOnboardingResponse.text).toContain('<div id="app"></div>');
+  });
+
+  it("returns onboarding template options", async () => {
+    const app = await createTestApp();
+
+    const response = await request(app).get("/api/onboarding/options");
+
+    expect(response.status).toBe(200);
+    expect(response.body.templates.goalTemplates[0].id).toBe("goal-template-adc-die-less");
+    expect(response.body.templates.teamFocusTemplates[0].id).toBe("team-focus-template-dragon-setup");
+  });
+
+  it("saves onboarding to the local demo user when auth is disabled", async () => {
+    const app = await createTestApp();
+
+    const saveResponse = await request(app)
+      .post("/api/onboarding")
+      .send({
+        context: "both",
+        role: "ADC",
+        selectedGoalTemplateId: "goal-template-adc-die-less",
+        selectedSignalIds: ["signal-known-danger-death", "signal-clean-disengage"],
+        weeklyTargets: [
+          {
+            signalId: "signal-known-danger-death",
+            targetValue: 0,
+            label: "0 known gank deaths"
+          }
+        ],
+        selectedActionTemplateId: "action-death-review-v1",
+        selectedTeamFocusTemplateId: "team-focus-template-dragon-setup"
+      });
+
+    expect(saveResponse.status).toBe(201);
+    expect(saveResponse.body.goalDashboard.activePersonalGoal.templateId).toBe("goal-template-adc-die-less");
+
+    const homeResponse = await request(app).get("/api/home");
+    expect(homeResponse.status).toBe(200);
+    expect(homeResponse.body.home.goalDashboard.activePersonalGoal.signals.map((signal) => signal.id)).toEqual([
+      "signal-known-danger-death",
+      "signal-clean-disengage"
+    ]);
+  });
+
+  it("saves onboarding to the authenticated user when auth is enabled", async () => {
+    const app = await createTestApp({ authEnabled: true });
+    const token = jwt.sign(
+      { sub: "usr_local_dev", iss: "nexus", aud: "riftsense" },
+      "test-secret",
+      { algorithm: "HS256", expiresIn: "1h" }
+    );
+
+    const saveResponse = await request(app)
+      .post("/api/onboarding")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        context: "personal",
+        role: "ADC",
+        selectedGoalTemplateId: "goal-template-adc-die-less",
+        selectedSignalIds: ["signal-known-danger-death"],
+        weeklyTargets: [
+          {
+            signalId: "signal-known-danger-death",
+            targetValue: 0
+          }
+        ],
+        selectedActionTemplateId: "action-death-review-v1"
+      });
+
+    expect(saveResponse.status).toBe(201);
+
+    const homeResponse = await request(app)
+      .get("/api/home")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(homeResponse.status).toBe(200);
+    expect(homeResponse.body.home.user.id).toBe("usr_local_dev");
+    expect(homeResponse.body.home.user.source).toBe("authenticated");
+    expect(homeResponse.body.home.goalDashboard.activePersonalGoal.id).toBe("active-goal-usr-local-dev-die-less");
+    expect(homeResponse.body.home.goalDashboard.activeTeamFocus).toBeNull();
+  });
+
+  it("rejects invalid onboarding template IDs", async () => {
+    const app = await createTestApp();
+
+    const response = await request(app)
+      .post("/api/onboarding")
+      .send({
+        context: "personal",
+        role: "ADC",
+        selectedGoalTemplateId: "missing-template"
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("BAD_REQUEST");
   });
 });

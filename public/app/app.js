@@ -56,6 +56,9 @@ function toAppHref(href, context = getRouteContext()) {
   if (pathname === "/review") {
     return `/demo/review${suffix}`;
   }
+  if (pathname === "/onboarding") {
+    return `/demo/onboarding${suffix}`;
+  }
   if (pathname === "/training" || pathname === "/drills" || pathname === "/test") {
     return `/demo/training${suffix}`;
   }
@@ -274,7 +277,8 @@ function appShell(content, hero = {}) {
             { href: "/demo/goals", label: "Goals", active: pathname === "/demo/goals" },
             { href: "/demo/review", label: "Review", active: pathname === "/demo/review" },
             { href: "/demo/training", label: "Training", active: pathname === "/demo/training" },
-            { href: "/demo/team", label: "Team", active: pathname === "/demo/team" }
+            { href: "/demo/team", label: "Team", active: pathname === "/demo/team" },
+            { href: "/demo/onboarding", label: "Onboarding", active: pathname === "/demo/onboarding" }
           ]
         : [
             { href: "/", label: "Dashboard", active: pathname === "/" },
@@ -282,6 +286,7 @@ function appShell(content, hero = {}) {
             { href: "/review", label: "Review", active: pathname === "/review" },
             { href: "/training", label: "Training", active: pathname === "/training" || pathname === "/drills" || pathname === "/test" },
             { href: "/team", label: "Team", active: pathname === "/team" },
+            { href: "/onboarding", label: "Onboarding", active: pathname === "/onboarding" },
             { href: "/library", label: "Library", active: pathname === "/library" || (pathname.startsWith("/content/") && !isCuratorDetail) }
           ]
     }
@@ -569,11 +574,43 @@ function statusBadge(label, trend = "unknown") {
   return `<span class="status-badge ${trendClass(trend)}">${escapeHtml(label)}</span>`;
 }
 
+function targetChip(target) {
+  const label = typeof target === "string" ? target : target.label;
+  const currentValue = typeof target === "string" ? null : target.currentValue;
+  const targetValue = typeof target === "string" ? null : target.targetValue;
+  const statusLabel = typeof target === "string" ? "Needs review" : target.statusLabel;
+  const trend = typeof target === "string" ? "unknown" : target.trend;
+  const valueLabel =
+    currentValue === null || currentValue === undefined || targetValue === null || targetValue === undefined
+      ? "No data"
+      : `${currentValue}/${targetValue}`;
+
+  return `
+    <article class="target-chip">
+      <div>
+        <p class="target-chip-value">${escapeHtml(valueLabel)}</p>
+        <p class="target-chip-label">${escapeHtml(label ?? "Weekly target")}</p>
+      </div>
+      ${statusBadge(statusLabel ?? "Needs review", trend)}
+    </article>
+  `;
+}
+
+function targetChipGrid(items, emptyText) {
+  return `
+    <section class="target-chip-grid">
+      ${(items ?? []).length > 0
+        ? items.map(targetChip).join("")
+        : `<p class="muted">${escapeHtml(emptyText)}</p>`}
+    </section>
+  `;
+}
+
 function targetList(items, emptyText) {
   return `
     <ul class="target-list">
       ${(items ?? []).length > 0
-        ? items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")
+        ? items.map((item) => `<li>${escapeHtml(typeof item === "string" ? item : item.label)}</li>`).join("")
         : `<li>${escapeHtml(emptyText)}</li>`}
     </ul>
   `;
@@ -587,7 +624,7 @@ function signalCard(signal) {
         ${statusBadge(trendLabel(signal.trend), signal.trend)}
       </div>
       <h3>${escapeHtml(signal.label)}</h3>
-      <p class="muted">${escapeHtml(signal.description ?? "")}</p>
+      ${signal.description ? `<p class="muted signal-detail">${escapeHtml(signal.description)}</p>` : ""}
     </article>
   `;
 }
@@ -595,10 +632,20 @@ function signalCard(signal) {
 function nextStepCard(step) {
   return `
     <article class="next-step-card">
-      <p class="eyebrow">${escapeHtml(step.label ?? "Next")}</p>
+      <p class="eyebrow">${escapeHtml(step.label ?? "Next")}${step.estimatedMinutes ? ` · ${escapeHtml(step.estimatedMinutes)} min` : ""}</p>
       <h3>${escapeHtml(step.title)}</h3>
-      <p class="muted">${escapeHtml(step.summary ?? "")}</p>
+      <p class="muted">${escapeHtml(step.reason ?? step.summary ?? "")}</p>
       ${step.href ? `<a class="button secondary" href="${escapeHtml(step.href)}">Open</a>` : ""}
+    </article>
+  `;
+}
+
+function insightCard(insight) {
+  return `
+    <article class="insight-card">
+      <p class="eyebrow">Recent Insight</p>
+      <h3>${escapeHtml(insight.title)}</h3>
+      <p class="muted">${escapeHtml(insight.summary)}</p>
     </article>
   `;
 }
@@ -741,6 +788,7 @@ async function renderHome(root, context = getRouteContext()) {
   const goal = dashboard.activePersonalGoal ?? {};
   const action = dashboard.todaysAction ?? {};
   const teamFocus = dashboard.activeTeamFocus ?? {};
+  const recentInsights = dashboard.recentInsights ?? [];
   const suggestedNextSteps = (dashboard.suggestedNextSteps ?? []).filter((step) =>
     Boolean(toAppHref(step.href, context) || !step.href)
   );
@@ -769,19 +817,27 @@ async function renderHome(root, context = getRouteContext()) {
             <h2>${escapeHtml(goal.title ?? "No active goal yet")}</h2>
             <div class="badge-row">
               <span class="context-badge">${escapeHtml(focusTagline)}</span>
-              ${statusBadge(goal.status === "active" ? "Active" : "No data yet", goal.status === "active" ? "positive" : "unknown")}
+              ${statusBadge(goal.goalStatus ?? "No data yet", goal.goalStatusTrend ?? "unknown")}
+              ${statusBadge(`Trend: ${goal.trend ?? "Unknown"}`, goal.trendKey ?? "unknown")}
+              ${statusBadge(`Confidence: ${goal.confidence ?? "Low sample"}`, "unknown")}
             </div>
             <p>${escapeHtml(goal.summary ?? "Choose one goal to start tracking.")}</p>
+            <div class="hero-next-action">
+              <p class="eyebrow">Next action</p>
+              <h3>${escapeHtml(action.title ?? "No action configured yet")}</h3>
+              <p class="muted">${escapeHtml(action.reason ?? "Choose one small review action to keep momentum.")}</p>
+              <a class="button" href="${escapeHtml(actionHref)}">${escapeHtml(action.ctaLabel ?? "Start review")}</a>
+            </div>
           </div>
           <div class="active-goal-targets">
             <p class="eyebrow">Weekly Targets</p>
-            ${targetList(goal.weeklyTargets, "No weekly targets configured yet.")}
+            ${targetChipGrid(goal.weeklyTargets, "No weekly targets configured yet.")}
           </div>
         </div>
         <div class="active-goal-footer">
           <p class="muted">${escapeHtml(goal.progressSummary ?? "No trend summary yet. Review a game to create your first signal.")}</p>
           <div class="action-row">
-            <a class="button" href="${escapeHtml(reviewHref)}">Review Goal</a>
+            <a class="button secondary" href="${escapeHtml(reviewHref)}">Review Goal</a>
             <a class="button secondary" href="${escapeHtml(goalsHref)}">View Goals</a>
           </div>
         </div>
@@ -825,6 +881,20 @@ async function renderHome(root, context = getRouteContext()) {
           ${(goal.signals ?? []).length > 0
             ? goal.signals.map(signalCard).join("")
             : '<p class="muted">No recent signals yet. Review a game to create your first signal.</p>'}
+        </section>
+      </section>
+
+      <section class="panel insights-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Insights</p>
+            <h2>What the evidence means</h2>
+          </div>
+        </div>
+        <section class="insight-grid">
+          ${recentInsights.length > 0
+            ? recentInsights.map(insightCard).join("")
+            : '<p class="muted">No insights yet. Review a game to create enough evidence for a short summary.</p>'}
         </section>
       </section>
 
@@ -976,6 +1046,301 @@ async function renderGoalDashboardPage(root, page, context = getRouteContext()) 
     text: config.text,
     compact: true
   });
+}
+
+function templateOption(template, selectedId) {
+  const meta = [template.role, template.category].filter(Boolean).join(" · ");
+  return `
+    <option value="${escapeHtml(template.id)}" ${template.id === selectedId ? "selected" : ""}>
+      ${escapeHtml(template.title)}${meta ? ` (${escapeHtml(meta)})` : ""}
+    </option>
+  `;
+}
+
+function findTemplate(items, id) {
+  return (items ?? []).find((item) => item.id === id) ?? null;
+}
+
+function onboardingSignalCheckbox(signal, checked) {
+  return `
+    <label class="checkbox option-card">
+      <input type="checkbox" name="selectedSignalIds" value="${escapeHtml(signal.id)}" ${checked ? "checked" : ""} />
+      <span>
+        <strong>${escapeHtml(signal.label)}</strong>
+        <small>${escapeHtml(signal.description)}</small>
+      </span>
+    </label>
+  `;
+}
+
+function onboardingTargetCheckbox(target, signal, checked = true) {
+  return `
+    <label class="checkbox option-card">
+      <input
+        type="checkbox"
+        name="weeklyTargetSignalIds"
+        value="${escapeHtml(target.signalId)}"
+        data-target-value="${escapeHtml(target.targetValue)}"
+        data-target-label="${escapeHtml(target.label ?? signal?.label ?? target.signalId)}"
+        ${checked ? "checked" : ""}
+      />
+      <span>
+        <strong>${escapeHtml(target.label ?? signal?.label ?? target.signalId)}</strong>
+        <small>Target: ${escapeHtml(target.targetValue)}</small>
+      </span>
+    </label>
+  `;
+}
+
+function onboardingPreview({ state, templates }) {
+  const goal = findTemplate(templates.goalTemplates, state.selectedGoalTemplateId);
+  const action = findTemplate(templates.actionTemplates, state.selectedActionTemplateId);
+  const teamFocus = findTemplate(templates.teamFocusTemplates, state.selectedTeamFocusTemplateId);
+  const signalLabels = state.selectedSignalIds
+    .map((signalId) => findTemplate(templates.signalTemplates, signalId)?.label)
+    .filter(Boolean);
+
+  return `
+    <section class="onboarding-preview">
+      <article class="panel panel-slim">
+        <p class="eyebrow">Dashboard Preview</p>
+        <h3>${escapeHtml(goal?.title ?? "No personal goal selected")}</h3>
+        <p class="muted">${escapeHtml(goal?.description ?? "Team-only onboarding will create a team focus without a personal goal.")}</p>
+        <p><strong>Signals:</strong> ${escapeHtml(signalLabels.join(", ") || "None selected")}</p>
+        <p><strong>First action:</strong> ${escapeHtml(action?.title ?? "None selected")}</p>
+      </article>
+      <article class="panel panel-slim">
+        <p class="eyebrow">Team Focus</p>
+        <h3>${escapeHtml(teamFocus?.title ?? "Skipped")}</h3>
+        <p class="muted">${escapeHtml(teamFocus?.description ?? "No team focus will be created for this setup.")}</p>
+      </article>
+    </section>
+  `;
+}
+
+async function renderOnboarding(root, context = getRouteContext()) {
+  const { templates } = await requestJson("/api/onboarding/options", {
+    skipStoredToken: context.demoMode
+  });
+  const initialGoal = templates.goalTemplates[0];
+  const initialTeamFocus = templates.teamFocusTemplates[0];
+  const state = {
+    context: "both",
+    role: "ADC",
+    selectedGoalTemplateId: initialGoal?.id ?? "",
+    selectedSignalIds: initialGoal?.defaultSignalIds ?? [],
+    selectedWeeklyTargetIds: (initialGoal?.suggestedWeeklyTargets ?? []).map((target) => target.signalId),
+    selectedActionTemplateId: initialGoal?.defaultActionIds?.[0] ?? templates.actionTemplates[0]?.id ?? "",
+    selectedTeamFocusTemplateId: initialTeamFocus?.id ?? ""
+  };
+
+  function syncStateFromForm(form) {
+    const formData = new FormData(form);
+    const nextGoalId = String(formData.get("selectedGoalTemplateId") ?? "");
+    const goalChanged = nextGoalId && nextGoalId !== state.selectedGoalTemplateId;
+    const nextGoal = findTemplate(templates.goalTemplates, nextGoalId);
+
+    state.context = String(formData.get("context") ?? "personal");
+    state.role = String(formData.get("role") ?? "ADC");
+    state.selectedGoalTemplateId = nextGoalId;
+    state.selectedTeamFocusTemplateId = String(formData.get("selectedTeamFocusTemplateId") ?? "");
+
+    if (goalChanged && nextGoal) {
+      state.selectedSignalIds = nextGoal.defaultSignalIds ?? [];
+      state.selectedWeeklyTargetIds = (nextGoal.suggestedWeeklyTargets ?? []).map((target) => target.signalId);
+      state.selectedActionTemplateId = nextGoal.defaultActionIds?.[0] ?? state.selectedActionTemplateId;
+      return;
+    }
+
+    state.selectedSignalIds = formData.getAll("selectedSignalIds").map(String);
+    state.selectedWeeklyTargetIds = formData.getAll("weeklyTargetSignalIds").map(String);
+    state.selectedActionTemplateId = String(formData.get("selectedActionTemplateId") ?? "");
+  }
+
+  function payloadFromForm(form) {
+    syncStateFromForm(form);
+    const formData = new FormData(form);
+    const weeklyTargets = formData.getAll("weeklyTargetSignalIds").map((signalId) => {
+      const input = Array.from(form.querySelectorAll('input[name="weeklyTargetSignalIds"]'))
+        .find((targetInput) => targetInput.value === signalId);
+      return {
+        signalId,
+        targetValue: Number(input?.dataset.targetValue ?? 0),
+        label: input?.dataset.targetLabel ?? signalId
+      };
+    });
+
+    return {
+      context: state.context,
+      role: state.role,
+      selectedGoalTemplateId: state.selectedGoalTemplateId,
+      selectedSignalIds: state.selectedSignalIds,
+      weeklyTargets,
+      selectedActionTemplateId: state.selectedActionTemplateId,
+      selectedTeamFocusTemplateId: state.selectedTeamFocusTemplateId
+    };
+  }
+
+  function render() {
+    const selectedGoal = findTemplate(templates.goalTemplates, state.selectedGoalTemplateId) ?? templates.goalTemplates[0];
+    const selectedTeamFocus = findTemplate(templates.teamFocusTemplates, state.selectedTeamFocusTemplateId);
+    const selectedActionIds = selectedGoal?.defaultActionIds ?? [];
+    const signalIds = new Set(selectedGoal?.defaultSignalIds ?? []);
+    state.selectedSignalIds.forEach((signalId) => signalIds.add(signalId));
+    const visibleSignals = templates.signalTemplates.filter((signal) => signalIds.has(signal.id));
+    const weeklyTargets = selectedGoal?.suggestedWeeklyTargets ?? [];
+    const showPersonal = state.context === "personal" || state.context === "both";
+    const showTeam = state.context === "team" || state.context === "both";
+    const dashboardHref = toAppHref("/", context) ?? "/";
+
+    root.innerHTML = appShell(`
+      <section class="section-heading">
+        <div>
+          <p class="eyebrow">${context.demoMode ? "Demo Onboarding" : "Onboarding"}</p>
+          <h2>Create structured improvement state</h2>
+        </div>
+        <p class="section-copy">Choose reusable templates, accept sensible defaults, and preview the dashboard state before saving.</p>
+      </section>
+      <form class="onboarding-flow" id="onboarding-form">
+        <section class="panel onboarding-step">
+          <p class="eyebrow">Step 1</p>
+          <h3>Choose setup context</h3>
+          <div class="segmented-options">
+            ${["personal", "team", "both"].map((option) => `
+              <label class="option-card">
+                <input type="radio" name="context" value="${option}" ${state.context === option ? "checked" : ""} />
+                <span>${escapeHtml(option === "both" ? "Both" : option === "team" ? "Team improvement" : "Personal improvement")}</span>
+              </label>
+            `).join("")}
+          </div>
+        </section>
+
+        ${showPersonal ? `
+          <section class="panel onboarding-step">
+            <p class="eyebrow">Step 2</p>
+            <h3>Personal goal</h3>
+            <div class="field-row">
+              <label>
+                Role
+                <select name="role">
+                  ${["Top", "Jungle", "Mid", "ADC", "Support", "Multiple"].map((role) => `
+                    <option value="${role}" ${state.role === role ? "selected" : ""}>${role}</option>
+                  `).join("")}
+                </select>
+              </label>
+              <label>
+                Goal template
+                <select name="selectedGoalTemplateId">
+                  ${templates.goalTemplates.map((template) => templateOption(template, selectedGoal?.id)).join("")}
+                </select>
+              </label>
+              <label>
+                First action
+                <select name="selectedActionTemplateId">
+                  ${templates.actionTemplates
+                    .filter((template) => selectedActionIds.includes(template.id) || template.linkedGoalTemplateIds?.includes(selectedGoal?.id))
+                    .map((template) => templateOption(template, state.selectedActionTemplateId))
+                    .join("")}
+                </select>
+              </label>
+            </div>
+            <p class="muted">${escapeHtml(selectedGoal?.description ?? "")}</p>
+          </section>
+
+          <section class="panel onboarding-step">
+            <p class="eyebrow">Step 3</p>
+            <h3>Signals and weekly targets</h3>
+            <section class="option-grid">
+              ${visibleSignals.map((signal) => onboardingSignalCheckbox(signal, state.selectedSignalIds.includes(signal.id))).join("")}
+            </section>
+            <section class="option-grid target-option-grid">
+              ${weeklyTargets.map((target) => onboardingTargetCheckbox(
+                target,
+                findTemplate(templates.signalTemplates, target.signalId),
+                state.selectedWeeklyTargetIds.includes(target.signalId)
+              )).join("")}
+            </section>
+          </section>
+        ` : ""}
+
+        ${showTeam ? `
+          <section class="panel onboarding-step">
+            <p class="eyebrow">Team Setup</p>
+            <h3>Choose team focus</h3>
+            <label>
+              Team focus template
+              <select name="selectedTeamFocusTemplateId">
+                ${templates.teamFocusTemplates.map((template) => templateOption(template, selectedTeamFocus?.id)).join("")}
+              </select>
+            </label>
+            <p class="muted">${escapeHtml(selectedTeamFocus?.description ?? "")}</p>
+            ${teamChecklist(selectedTeamFocus?.defaultChecklist ?? [])}
+          </section>
+        ` : ""}
+
+        ${onboardingPreview({ state, templates })}
+
+        <section class="panel panel-slim onboarding-submit">
+          <div>
+            <p class="eyebrow">Finish</p>
+            <h3>${context.demoMode ? "Preview demo setup" : "Save onboarding setup"}</h3>
+            <p class="muted" id="onboarding-status" aria-live="polite">${context.demoMode ? "Demo onboarding does not write server state." : "Saving will update your active dashboard state."}</p>
+          </div>
+          <div class="action-row">
+            <button class="button" type="submit">${context.demoMode ? "Preview Setup" : "Save Setup"}</button>
+            <a class="button secondary" href="${escapeHtml(dashboardHref)}">Dashboard</a>
+          </div>
+        </section>
+      </form>
+    `, {
+      eyebrow: context.demoMode ? "Demo Onboarding" : "Onboarding",
+      title: "Start from templates, not blank text.",
+      text: "Onboarding creates reusable goal, signal, target, action, and team-focus state for the dashboard.",
+      compact: true
+    });
+
+    bindNavControls(root);
+    bindNavSectionControls(root);
+    bindSessionControls(root);
+
+    const form = root.querySelector("#onboarding-form");
+    form?.addEventListener("change", (event) => {
+      if (event.target?.name === "selectedSignalIds" || event.target?.name === "weeklyTargetSignalIds") {
+        syncStateFromForm(form);
+        return;
+      }
+      syncStateFromForm(form);
+      render();
+    });
+
+    form?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const status = root.querySelector("#onboarding-status");
+      const payload = payloadFromForm(form);
+
+      if (context.demoMode) {
+        status.textContent = "Demo preview is ready. The selected template state matches what the dashboard save would create.";
+        return;
+      }
+
+      status.textContent = "Saving...";
+      try {
+        await requestJson("/api/onboarding", {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(payload)
+        });
+        window.location.href = "/";
+      } catch (error) {
+        status.textContent = error instanceof Error ? error.message : "Onboarding save failed.";
+      }
+    });
+  }
+
+  render();
 }
 
 async function renderFocusPage(root, scope) {
@@ -1630,6 +1995,11 @@ export async function renderApp(root) {
       bindNavControls(root);
       bindNavSectionControls(root);
       bindSessionControls(root);
+      return;
+    }
+
+    if (pathname === "/onboarding" || pathname === "/demo/onboarding") {
+      await renderOnboarding(root, context);
       return;
     }
 

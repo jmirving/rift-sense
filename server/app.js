@@ -6,6 +6,7 @@ import { createContentItemsRouter } from "./routes/content-items.js";
 import { createAuthRouter } from "./routes/auth.js";
 import { createDemoRouter } from "./routes/demo.js";
 import { createHomeRouter } from "./routes/home.js";
+import { createOnboardingRouter } from "./routes/onboarding.js";
 import { createSessionRouter } from "./routes/session.js";
 import { ApiError, badRequest, formatErrorResponse } from "./errors.js";
 
@@ -16,7 +17,9 @@ const clientRoutes = [
   "/demo/review",
   "/demo/training",
   "/demo/team",
+  "/demo/onboarding",
   "/goals",
+  "/onboarding",
   "/library",
   "/focus/today",
   "/focus/week",
@@ -77,6 +80,17 @@ export function createApp({
     "/api/demo",
     createDemoRouter({
       contentItemsRepository
+    })
+  );
+
+  app.use(
+    "/api/onboarding",
+    createOnboardingRouter({
+      config: {
+        ...config,
+        requireAuth
+      },
+      userHomesRepository
     })
   );
 

@@ -642,12 +642,21 @@ p {
 .active-goal-footer,
 .signal-grid,
 .next-step-grid,
+.insight-grid,
+.target-chip-grid,
 .signal-card,
 .next-step-card,
+.insight-card,
+.target-chip,
 .team-focus-meta,
 .target-list,
 .action-step-list,
-.team-checklist {
+.team-checklist,
+.onboarding-flow,
+.onboarding-step,
+.onboarding-preview,
+.option-grid,
+.segmented-options {
   display: grid;
   gap: 16px;
 }
@@ -699,8 +708,23 @@ p {
 .active-goal-copy p,
 .todays-action-panel p,
 .team-focus-panel p,
-.next-step-card p {
+.next-step-card p,
+.insight-card p {
   line-height: 1.6;
+}
+
+.hero-next-action {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(8, 18, 31, 0.24);
+}
+
+.hero-next-action .button {
+  width: fit-content;
 }
 
 .active-goal-targets {
@@ -787,17 +811,40 @@ p {
 }
 
 .signal-grid,
-.next-step-grid {
+.next-step-grid,
+.insight-grid,
+.target-chip-grid,
+.option-grid,
+.onboarding-preview {
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
 }
 
 .signal-card,
-.next-step-card {
+.next-step-card,
+.insight-card,
+.target-chip,
+.option-card {
   align-content: start;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.03);
   padding: 16px;
+}
+
+.target-chip {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.target-chip-value {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.target-chip-label {
+  color: var(--muted);
+  font-size: 0.86rem;
 }
 
 .signal-card-head {
@@ -813,8 +860,52 @@ p {
   line-height: 0.95;
 }
 
+.signal-detail {
+  font-size: 0.88rem;
+}
+
 .next-step-card .button {
   width: fit-content;
+}
+
+.onboarding-flow {
+  gap: 20px;
+}
+
+.segmented-options {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.option-card {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  color: var(--muted);
+}
+
+.option-card input {
+  width: auto;
+  margin-top: 3px;
+}
+
+.option-card strong {
+  display: block;
+  color: var(--text);
+}
+
+.option-card small {
+  display: block;
+  margin-top: 4px;
+  line-height: 1.45;
+}
+
+.target-option-grid {
+  margin-top: 14px;
+}
+
+.onboarding-submit {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
 }
 
 .home-area-row {
@@ -1020,6 +1111,7 @@ body.nav-collapsed .session-panel {
   .panel-header,
   .library-toolbar-head,
   .library-filter-form,
+  .onboarding-submit,
   .focus-board-head,
   .dashboard-two-column,
   .active-goal-hero,
