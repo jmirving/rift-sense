@@ -120,10 +120,15 @@ describe("home API", () => {
       signalId: "signal-bad-2v2-death",
       status: "on-track"
     });
+    expect(response.body.home.goalDashboard.activePersonalGoal.evidenceSource.summary).toContain("Based on 5 signal events");
+    expect(response.body.home.goalDashboard.activePersonalGoal.evidenceSource.confidence).toBe("Low sample");
     expect(response.body.home.goalDashboard.activeTeamFocus.title).toBe("Dragon Setup");
+    expect(response.body.home.goalDashboard.activeTeamFocus.assignment).toBe("Should bot wave be dropped before dragon?");
+    expect(response.body.home.goalDashboard.activeTeamFocus.nextTeamAction.title).toBe("Refresh Dragon Setup checklist");
     expect(response.body.home.goalDashboard.todaysAction.title).toBe("Review last game deaths");
     expect(response.body.home.goalDashboard.todaysAction.templateId).toBe("action-death-review-v1");
     expect(response.body.home.goalDashboard.recentInsights.length).toBeGreaterThan(0);
+    expect(response.body.home.goalDashboard.recentInsights[0].basedOn.length).toBeGreaterThan(0);
   });
 
   it("returns the public demo home from the dedicated demo endpoint", async () => {
@@ -159,6 +164,7 @@ describe("home API", () => {
     expect(response.body.home.user.source).toBe("authenticated");
     expect(response.body.home.focusBoard).toBeUndefined();
     expect(response.body.home.goalDashboard.activePersonalGoal.title).toBe("Die Less");
+    expect(response.body.home.goalDashboard.activePersonalGoal.evidenceSource.summary).toContain("Based on 5 signal events");
   });
 
   it("ignores authenticated identity on the dedicated demo endpoint", async () => {
@@ -241,6 +247,8 @@ describe("home API", () => {
       "signal-known-danger-death",
       "signal-clean-disengage"
     ]);
+    expect(homeResponse.body.home.goalDashboard.activePersonalGoal.evidenceSource.summary).toBe("Seeded from onboarding");
+    expect(homeResponse.body.home.goalDashboard.activePersonalGoal.evidenceSource.confidence).toBe("No reviewed games yet");
   });
 
   it("saves onboarding to the authenticated user when auth is enabled", async () => {

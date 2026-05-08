@@ -722,6 +722,12 @@ p {
   line-height: 1.6;
 }
 
+.evidence-meta {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
 .hero-next-action {
   display: grid;
   gap: 10px;
@@ -919,6 +925,11 @@ p {
 
 .signal-detail {
   font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.signal-detail strong {
+  color: var(--text);
 }
 
 .next-step-card .button {

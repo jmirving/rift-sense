@@ -14,6 +14,18 @@ function normalizeSignal(signal) {
   };
 }
 
+function normalizeEvidenceSource(evidenceSource) {
+  const resolved = evidenceSource ?? {};
+
+  return {
+    summary: resolved.summary ?? "No reviewed games yet",
+    confidence: resolved.confidence ?? "No reviewed games yet",
+    confidenceTrend: resolved.confidenceTrend ?? "unknown",
+    totalEvents: Number(resolved.totalEvents ?? 0),
+    sourceBreakdown: Array.isArray(resolved.sourceBreakdown) ? resolved.sourceBreakdown : []
+  };
+}
+
 function normalizeTarget(target) {
   if (typeof target === "string") {
     return {
@@ -46,10 +58,11 @@ function normalizeGoal(goal, fallback) {
     goalStatusTrend: resolved.goalStatusTrend ?? (resolved.status === "active" ? "positive" : "unknown"),
     trend: resolved.trend ?? "Unknown",
     trendKey: resolved.trendKey ?? "unknown",
-    confidence: resolved.confidence ?? "Low sample",
+    confidence: resolved.confidence ?? "No reviewed games yet",
     weeklyTargets: (resolved.weeklyTargets ?? []).map(normalizeTarget),
     monthlyTargets: resolved.monthlyTargets ?? [],
-    signals: (resolved.signals ?? []).map(normalizeSignal)
+    signals: (resolved.signals ?? []).map(normalizeSignal),
+    evidenceSource: normalizeEvidenceSource(resolved.evidenceSource)
   };
 }
 
@@ -72,7 +85,11 @@ function normalizeTeamFocus(teamFocus, fallback) {
     assignedReview: resolved.assignedReview ?? "",
     practiceTopic: resolved.practiceTopic ?? "",
     signals: (resolved.signals ?? []).map(normalizeSignal),
-    checklist: resolved.checklist ?? []
+    checklist: resolved.checklist ?? [],
+    assignment: resolved.assignment ?? resolved.assignedReview ?? "",
+    nextTeamAction: resolved.nextTeamAction ?? null,
+    evidenceSource: normalizeEvidenceSource(resolved.evidenceSource),
+    headlineSignal: resolved.headlineSignal ?? null
   };
 }
 
@@ -96,7 +113,10 @@ export function normalizeGoalDashboard(goalDashboard) {
     ),
     recentInsights:
       Array.isArray(resolved.recentInsights) && resolved.recentInsights.length > 0
-        ? resolved.recentInsights
+        ? resolved.recentInsights.map((insight) => ({
+            ...insight,
+            basedOn: Array.isArray(insight.basedOn) ? insight.basedOn : []
+          }))
         : fallback.recentInsights,
     suggestedNextSteps:
       Array.isArray(resolved.suggestedNextSteps) && resolved.suggestedNextSteps.length > 0

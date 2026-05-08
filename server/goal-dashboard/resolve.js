@@ -112,6 +112,55 @@ function resolveAction(actionTemplate, recommendation) {
   };
 }
 
+function formatSourceLabel(sourceType, count) {
+  const noun = count === 1 ? "event" : "events";
+  return {
+    manual: `${count} manual tag${count === 1 ? "" : "s"}`,
+    vod: `${count} reviewed game${count === 1 ? "" : "s"}`,
+    scrim: `${count} scrim ${noun}`,
+    "solo-queue": `${count} ranked game${count === 1 ? "" : "s"}`
+  }[sourceType] ?? `${count} ${sourceType} ${noun}`;
+}
+
+function buildEvidenceSource(events = [], emptyLabel = "No reviewed games yet") {
+  if (events.length === 0) {
+    return {
+      summary: emptyLabel,
+      confidence: "No reviewed games yet",
+      confidenceTrend: "unknown",
+      totalEvents: 0,
+      sourceBreakdown: []
+    };
+  }
+
+  const bySource = new Map();
+  events.forEach((event) => {
+    bySource.set(event.sourceType, (bySource.get(event.sourceType) ?? 0) + 1);
+  });
+
+  const sourceBreakdown = Array.from(bySource.entries()).map(([sourceType, count]) => ({
+    sourceType,
+    count,
+    label: formatSourceLabel(sourceType, count)
+  }));
+  const totalEvents = events.length;
+  const confidence = totalEvents >= 8 ? "Medium sample" : "Low sample";
+
+  return {
+    summary: `Based on ${totalEvents} signal ${totalEvents === 1 ? "event" : "events"} · ${sourceBreakdown.map((item) => item.label).join(" + ")}`,
+    confidence,
+    confidenceTrend: totalEvents >= 8 ? "watch" : "unknown",
+    totalEvents,
+    sourceBreakdown
+  };
+}
+
+function describeInsightSignals(items = []) {
+  return items
+    .filter((item) => Number(item.value) > 0)
+    .map((item) => `${item.value} ${item.label.toLowerCase()}${Number(item.value) === 1 ? "" : "s"}`);
+}
+
 function buildInsights({ goal, evidenceTotals }) {
   if (!goal) {
     return [];
@@ -128,7 +177,11 @@ function buildInsights({ goal, evidenceTotals }) {
       title: "Known threat is the main leak",
       summary:
         "Most preventable deaths this week came from respecting visible or inferable danger, not pure mechanics.",
-      linkedGoalId: goal.id
+      linkedGoalId: goal.id,
+      basedOn: describeInsightSignals([
+        { label: "Known-danger death", value: knownDangerDeaths },
+        { label: "Greed wave death", value: evidenceTotals.get("signal-greed-wave-death") ?? 0 }
+      ])
     });
   }
 
@@ -138,7 +191,11 @@ function buildInsights({ goal, evidenceTotals }) {
       title: "Trade checks need to happen earlier",
       summary:
         "Trading errors are showing up before level 6, so the next useful block is a pre-6 trade check.",
-      linkedGoalId: goal.id
+      linkedGoalId: goal.id,
+      basedOn: describeInsightSignals([
+        { label: "Overestimated trade strength", value: badTradeReads },
+        { label: "Bad pre-6 all-in", value: evidenceTotals.get("signal-bad-pre6-allin") ?? 0 }
+      ])
     });
   }
 
@@ -148,7 +205,10 @@ function buildInsights({ goal, evidenceTotals }) {
       title: "There is already a repeatable win",
       summary:
         "Clean disengages are being logged, which gives this goal a positive behavior to reinforce.",
-      linkedGoalId: goal.id
+      linkedGoalId: goal.id,
+      basedOn: describeInsightSignals([
+        { label: "Clean disengage", value: cleanDisengages }
+      ])
     });
   }
 
@@ -167,13 +227,27 @@ export function resolveGoalDashboardState(state = {}) {
     ? findById(templateLibrary.teamFocusTemplates, teamFocusInstance.templateId)
     : null;
   const evidenceTotals = sumEvidenceBySignal(state.evidenceEvents ?? []);
+  const goalEvidenceEvents = (state.evidenceEvents ?? []).filter(
+    (event) => event.goalInstanceId && event.goalInstanceId === goalInstance?.id
+  );
+  const teamEvidenceEvents = (state.evidenceEvents ?? []).filter(
+    (event) => event.teamFocusInstanceId && event.teamFocusInstanceId === teamFocusInstance?.id
+  );
   const primaryRecommendation =
     (state.recommendations ?? []).find((recommendation) =>
       goalInstance ? recommendation.linkedGoalInstanceId === goalInstance.id : false
     ) ?? state.recommendations?.[0] ?? null;
+  const teamRecommendation =
+    (state.recommendations ?? []).find((recommendation) =>
+      teamFocusInstance ? recommendation.linkedTeamFocusInstanceId === teamFocusInstance.id : false
+    ) ?? null;
   const primaryActionTemplate =
     actionIndex.get(primaryRecommendation?.actionTemplateId) ??
     actionIndex.get(goalInstance?.selectedActionIds?.[0]) ??
+    null;
+  const teamActionTemplate =
+    actionIndex.get(teamRecommendation?.actionTemplateId) ??
+    actionIndex.get(teamFocusInstance?.selectedActionIds?.[0]) ??
     null;
   const todaysAction = resolveAction(primaryActionTemplate, primaryRecommendation);
   const goalSignals = resolveSignals(
@@ -192,6 +266,20 @@ export function resolveGoalDashboardState(state = {}) {
     evidenceTotals
   );
   const missedTargets = weeklyTargets.filter((target) => target.status === "missed").length;
+  const goalEvidenceSource =
+    goalEvidenceEvents.length > 0
+      ? buildEvidenceSource(goalEvidenceEvents)
+      : state.onboardingContext
+        ? buildEvidenceSource([], "Seeded from onboarding")
+        : buildEvidenceSource([], "No reviewed games yet");
+  const teamEvidenceSource =
+    teamEvidenceEvents.length > 0
+      ? buildEvidenceSource(teamEvidenceEvents)
+      : state.onboardingContext
+        ? buildEvidenceSource([], "Seeded from onboarding")
+        : buildEvidenceSource([], "No reviewed team evidence yet");
+  const teamHeadlineSignal = [...teamSignals]
+    .sort((left, right) => Number(right.value ?? 0) - Number(left.value ?? 0))[0] ?? null;
 
   const activePersonalGoal = goalTemplate
     ? {
@@ -205,7 +293,7 @@ export function resolveGoalDashboardState(state = {}) {
         goalStatusTrend: missedTargets > 0 ? "needs-attention" : "positive",
         trend: "Unknown",
         trendKey: "unknown",
-        confidence: "Low sample",
+        confidence: goalEvidenceSource.confidence,
         summary: goalTemplate.description,
         weeklyTargets,
         monthlyTargets: [
@@ -215,7 +303,8 @@ export function resolveGoalDashboardState(state = {}) {
         ],
         progressSummary:
           "3 preventable death patterns tagged this week; 2 clean disengages logged.",
-        signals: goalSignals
+        signals: goalSignals,
+        evidenceSource: goalEvidenceSource
       }
     : null;
 
@@ -230,7 +319,24 @@ export function resolveGoalDashboardState(state = {}) {
         practiceTopic: teamFocusTemplate.practiceTopic,
         assignedReview: teamFocusTemplate.assignedReview,
         signals: teamSignals,
-        checklist: teamFocusInstance.checklist ?? teamFocusTemplate.defaultChecklist
+        checklist: teamFocusInstance.checklist ?? teamFocusTemplate.defaultChecklist,
+        assignment: teamFocusTemplate.assignedReview,
+        nextTeamAction: teamActionTemplate
+          ? {
+              title: teamActionTemplate.title,
+              type: teamActionTemplate.type,
+              estimatedMinutes: teamActionTemplate.estimatedMinutes,
+              href: teamActionTemplate.href ?? "/team"
+            }
+          : null,
+        evidenceSource: teamEvidenceSource,
+        headlineSignal: teamHeadlineSignal
+          ? {
+              label: teamHeadlineSignal.label,
+              value: teamHeadlineSignal.value,
+              trend: teamHeadlineSignal.trend
+            }
+          : null
       }
     : null;
 

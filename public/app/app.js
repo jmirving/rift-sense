@@ -658,10 +658,33 @@ function signalCard(signal) {
   `;
 }
 
+function actionTypeLabel(type) {
+  return {
+    review: "Review",
+    drill: "Drill",
+    checklist: "Checklist",
+    lesson: "Lesson",
+    reflection: "Reflection"
+  }[type] ?? "Next";
+}
+
+function evidenceMeta(summary, confidence, trend = "unknown") {
+  if (!summary && !confidence) {
+    return "";
+  }
+
+  return `
+    <div class="evidence-meta">
+      ${summary ? `<p class="muted">${escapeHtml(summary)}</p>` : ""}
+      ${confidence ? statusBadge(confidence, trend) : ""}
+    </div>
+  `;
+}
+
 function nextStepCard(step) {
   return `
     <article class="next-step-card">
-      <p class="eyebrow">${escapeHtml(step.label ?? "Next")}${step.estimatedMinutes ? ` · ${escapeHtml(step.estimatedMinutes)} min` : ""}</p>
+      <p class="eyebrow">${escapeHtml(actionTypeLabel(step.type))} · ${escapeHtml(step.label ?? "Next")}${step.estimatedMinutes ? ` · ${escapeHtml(step.estimatedMinutes)} min` : ""}</p>
       <h3>${escapeHtml(step.title)}</h3>
       <p class="muted">${escapeHtml(step.reason ?? step.summary ?? "")}</p>
       ${step.href ? `<a class="button secondary" href="${escapeHtml(step.href)}">Open</a>` : ""}
@@ -672,7 +695,12 @@ function nextStepCard(step) {
 function insightCard(insight) {
   return `
     <article class="insight-card">
+      <p class="eyebrow">Insight</p>
       <h3>${escapeHtml(insight.title)}</h3>
+      <p class="muted">${escapeHtml(insight.summary ?? "")}</p>
+      ${Array.isArray(insight.basedOn) && insight.basedOn.length > 0
+        ? `<p class="signal-detail"><strong>Based on:</strong> ${escapeHtml(insight.basedOn.join(" + "))}</p>`
+        : ""}
     </article>
   `;
 }
@@ -819,6 +847,9 @@ async function renderHome(root, context = getRouteContext()) {
   const suggestedNextSteps = (dashboard.suggestedNextSteps ?? []).filter((step) =>
     Boolean(toAppHref(step.href, context) || !step.href)
   );
+  const goalEvidenceSource = goal.evidenceSource ?? {};
+  const teamEvidenceSource = teamFocus.evidenceSource ?? {};
+  const teamActionHref = toAppHref(teamFocus.nextTeamAction?.href ?? "/team", context) ?? teamHref;
   const focusTagline = `${goal.role ?? profile.primaryRole ?? "Player"} · ${goal.scope ?? "Personal"}`;
   const reviewHref = toAppHref("/review", context) ?? "#";
   const goalsHref = toAppHref("/goals", context) ?? "#";
@@ -853,6 +884,11 @@ async function renderHome(root, context = getRouteContext()) {
               <h3>${escapeHtml(action.title ?? "No action configured yet")}</h3>
               <a class="button" href="${escapeHtml(actionHref)}">${escapeHtml(action.ctaLabel ?? "Start review")}</a>
             </div>
+            ${evidenceMeta(
+              goalEvidenceSource.summary,
+              goalEvidenceSource.confidence,
+              goalEvidenceSource.confidenceTrend
+            )}
           </div>
           <div class="active-goal-targets">
             <p class="eyebrow">Weekly Targets</p>
@@ -877,9 +913,21 @@ async function renderHome(root, context = getRouteContext()) {
             <a class="button secondary" href="${escapeHtml(teamHref)}">Open Team Focus</a>
           </div>
           <div class="team-focus-meta">
+            <p><strong>Your assignment:</strong> ${escapeHtml(teamFocus.assignment ?? "Not set")}</p>
             <p><strong>Practice topic:</strong> ${escapeHtml(teamFocus.practiceTopic ?? "Not set")}</p>
-            <p><strong>Assigned review:</strong> ${escapeHtml(teamFocus.assignedReview ?? "Not set")}</p>
+            <p><strong>Next team action:</strong> ${escapeHtml(teamFocus.nextTeamAction?.title ?? "Not set")}</p>
+            <p><strong>Recent team signal:</strong> ${escapeHtml(teamFocus.headlineSignal ? `${teamFocus.headlineSignal.value} ${teamFocus.headlineSignal.label.toLowerCase()}${Number(teamFocus.headlineSignal.value) === 1 ? "" : "s"}` : "Not set")}</p>
           </div>
+          ${evidenceMeta(
+            teamEvidenceSource.summary,
+            teamEvidenceSource.confidence,
+            teamEvidenceSource.confidenceTrend
+          )}
+          ${teamFocus.nextTeamAction?.title ? `
+            <div class="action-row">
+              <a class="button secondary" href="${escapeHtml(teamActionHref)}">Open ${escapeHtml(actionTypeLabel(teamFocus.nextTeamAction.type).toLowerCase())}</a>
+            </div>
+          ` : ""}
         </section>
 
         <section class="panel insights-panel">
