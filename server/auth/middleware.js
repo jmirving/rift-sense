@@ -44,10 +44,24 @@ function normalizePayload(payload) {
 }
 
 function buildIdentity(auth) {
+  const claims = auth.claims ?? {};
+  const riotClaims = claims.riot && typeof claims.riot === "object" ? claims.riot : claims;
+  const puuid = typeof riotClaims?.puuid === "string" ? riotClaims.puuid.trim() : "";
+
   return {
     id: auth.subjectId,
-    displayName: typeof auth.claims?.displayName === "string" ? auth.claims.displayName : null,
-    email: typeof auth.claims?.email === "string" ? auth.claims.email : null
+    displayName: typeof claims?.displayName === "string" ? claims.displayName : null,
+    email: typeof claims?.email === "string" ? claims.email : null,
+    riot: puuid
+      ? {
+          puuid,
+          gameName: typeof riotClaims?.gameName === "string" ? riotClaims.gameName : null,
+          tagLine: typeof riotClaims?.tagLine === "string" ? riotClaims.tagLine : null,
+          platformRegion: typeof riotClaims?.platformRegion === "string" ? riotClaims.platformRegion : null,
+          routingRegion: typeof riotClaims?.routingRegion === "string" ? riotClaims.routingRegion : null,
+          verifiedAt: typeof riotClaims?.verifiedAt === "string" ? riotClaims.verifiedAt : null
+        }
+      : null
   };
 }
 

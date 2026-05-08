@@ -145,6 +145,19 @@ describe("home API", () => {
         (step) => step.href === "/library?topic=laning"
       )
     ).toBe(false);
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence).toMatchObject({
+      status: "no-riot-linked"
+    });
+  });
+
+  it("returns the seeded Riot ADC demo variant", async () => {
+    const app = await createTestApp();
+
+    const response = await request(app).get("/api/demo/home/adc");
+
+    expect(response.status).toBe(200);
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("seeded-demo");
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.candidateGames).toHaveLength(3);
   });
 
   it("returns the authenticated user's home when Nexus auth is enabled", async () => {
@@ -165,6 +178,9 @@ describe("home API", () => {
     expect(response.body.home.focusBoard).toBeUndefined();
     expect(response.body.home.goalDashboard.activePersonalGoal.title).toBe("Die Less");
     expect(response.body.home.goalDashboard.activePersonalGoal.evidenceSource.summary).toContain("Based on 5 signal events");
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence).toMatchObject({
+      status: "no-riot-linked"
+    });
   });
 
   it("ignores authenticated identity on the dedicated demo endpoint", async () => {

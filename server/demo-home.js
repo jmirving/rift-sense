@@ -1,7 +1,12 @@
 import { buildDefaultGoalDashboard } from "./goal-dashboard.js";
 
-export function buildPublicDemoHome() {
+export function buildPublicDemoHome(variant = "default") {
   const goalDashboard = buildDefaultGoalDashboard();
+  const focusArea = {
+    default: "Goal dashboard walkthrough",
+    adc: "Riot ADC evidence walkthrough",
+    "no-riot-linked": "Riot account linking blocker"
+  }[variant] ?? "Goal dashboard walkthrough";
 
   return {
     id: "demo_public_dashboard",
@@ -9,7 +14,7 @@ export function buildPublicDemoHome() {
       displayName: "Public Demo Player",
       teamName: "Nexus Demo Squad",
       primaryRole: "ADC",
-      focusArea: "Goal dashboard walkthrough"
+      focusArea
     },
     goalDashboard: {
       ...goalDashboard,

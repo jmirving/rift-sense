@@ -49,7 +49,8 @@ export function createHomeRouter({ config, userHomesRepository, contentItemsRepo
         home,
         effectiveUserId,
         source: isAuthenticatedHome ? "authenticated" : "demo",
-        contentItemsRepository
+        contentItemsRepository,
+        identity: request.identity
       })
     });
   });

@@ -64,6 +64,53 @@ describe("auth middleware", () => {
     expect(request.identity.id).toBe("usr_123");
   });
 
+  it("passes Riot identity through when the token includes Riot claims", async () => {
+    const config = loadConfig({
+      NEXUS_AUTH_ENABLED: "true",
+      NEXUS_JWT_SECRET: "test-secret",
+      NEXUS_AUTH_ISSUER: "nexus",
+      NEXUS_AUTH_AUDIENCE: "riftsense"
+    });
+    const token = jwt.sign(
+      {
+        sub: "usr_riot",
+        iss: "nexus",
+        aud: "riftsense",
+        riot: {
+          puuid: "puuid_123",
+          gameName: "Summoner",
+          tagLine: "NA1",
+          platformRegion: "NA1",
+          routingRegion: "americas"
+        }
+      },
+      "test-secret",
+      { algorithm: "HS256", expiresIn: "1h" }
+    );
+    const middleware = createRequireAuth(config);
+    const request = {
+      headers: {
+        authorization: `Bearer ${token}`
+      }
+    };
+
+    await new Promise((resolve, reject) => {
+      middleware(request, createResponse(), (error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+
+    expect(request.identity.riot).toMatchObject({
+      puuid: "puuid_123",
+      gameName: "Summoner",
+      tagLine: "NA1"
+    });
+  });
+
   it("accepts a Nexus token from the shared cookie handoff", async () => {
     const config = loadConfig({
       NEXUS_AUTH_ENABLED: "true",

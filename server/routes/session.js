@@ -25,7 +25,8 @@ export function createSessionRouter({ config }) {
         ? {
             id: request.identity.id,
             displayName: request.identity.displayName ?? null,
-            email: request.identity.email ?? null
+            email: request.identity.email ?? null,
+            riot: request.identity.riot ?? null
           }
         : null,
       accountUrl: buildAccountUrl(config.auth.portalBaseUrl),

@@ -18,11 +18,20 @@ function isDemoPath(pathname) {
 function getRouteContext() {
   const pathname = window.location.pathname;
   const demoMode = isDemoPath(pathname);
+  let homeApiUrl = "/api/home";
+
+  if (pathname === "/demo/adc") {
+    homeApiUrl = "/api/demo/home/adc";
+  } else if (pathname === "/demo/no-riot-linked") {
+    homeApiUrl = "/api/demo/home/no-riot-linked";
+  } else if (demoMode) {
+    homeApiUrl = "/api/demo/home";
+  }
 
   return {
     pathname,
     demoMode,
-    homeApiUrl: demoMode ? "/api/demo/home" : "/api/home",
+    homeApiUrl,
     requestOptions: demoMode
       ? {
           skipStoredToken: true
@@ -692,6 +701,35 @@ function nextStepCard(step) {
   `;
 }
 
+function riotEvidenceCard(riotEvidence) {
+  if (!riotEvidence) {
+    return "";
+  }
+
+  return `
+    <section class="panel riot-evidence-panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Recent Game Evidence</p>
+          <h2>${escapeHtml(riotEvidence.title ?? "Riot evidence")}</h2>
+        </div>
+        ${riotEvidence.confidence ? statusBadge(riotEvidence.confidence, riotEvidence.status === "seeded-demo" ? "watch" : "unknown") : ""}
+      </div>
+      <p class="muted">${escapeHtml(riotEvidence.summary ?? "")}</p>
+      <section class="compact-list">
+        ${(riotEvidence.candidateGames ?? []).length > 0
+          ? riotEvidence.candidateGames.slice(0, 3).map((game) => `
+            <article class="compact-row">
+              <span>${escapeHtml(`${game.champion} · ${game.queueLabel} · ${game.result}`)}</span>
+              <span class="compact-row-value">${escapeHtml(`${game.kda} · ${game.csPerMinute} cs/min`)}</span>
+            </article>
+          `).join("")
+          : '<p class="muted">No Riot candidate games are available yet.</p>'}
+      </section>
+    </section>
+  `;
+}
+
 function insightCard(insight) {
   return `
     <article class="insight-card">
@@ -847,6 +885,7 @@ async function renderHome(root, context = getRouteContext()) {
   const suggestedNextSteps = (dashboard.suggestedNextSteps ?? []).filter((step) =>
     Boolean(toAppHref(step.href, context) || !step.href)
   );
+  const riotEvidence = goal.riotEvidence ?? null;
   const goalEvidenceSource = goal.evidenceSource ?? {};
   const teamEvidenceSource = teamFocus.evidenceSource ?? {};
   const teamActionHref = toAppHref(teamFocus.nextTeamAction?.href ?? "/team", context) ?? teamHref;
@@ -958,6 +997,8 @@ async function renderHome(root, context = getRouteContext()) {
             : '<p class="muted">No goal-linked signals yet. Review a game to record the first one.</p>'}
         </section>
       </section>
+
+      ${riotEvidenceCard(riotEvidence)}
 
       <section class="panel next-steps-panel">
         <div class="panel-header">
@@ -1995,7 +2036,7 @@ export async function renderApp(root) {
   await loadSession();
 
   try {
-    if (pathname === "/" || pathname === "/demo") {
+    if (pathname === "/" || pathname === "/demo" || pathname === "/demo/adc" || pathname === "/demo/no-riot-linked") {
       await renderHome(root, context);
       bindNavControls(root);
       bindNavSectionControls(root);
