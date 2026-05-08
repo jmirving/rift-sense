@@ -261,9 +261,9 @@ function appShell(content, hero = {}) {
   const searchParams = new URLSearchParams(window.location.search);
   const isCuratorDetail = pathname.startsWith("/content/") && searchParams.get("curator") === "1";
   const heroHidden = hero.hidden === true;
-  const heroTitle = hero.title ?? "Study, organize, and publish team knowledge.";
-  const heroEyebrow = hero.eyebrow ?? "Teaching And Player Development";
-  const heroText = hero.text ?? "Browse the learning library, shape curator metadata, and keep reusable content easy to study.";
+  const heroTitle = hero.title ?? "RiftSense";
+  const heroEyebrow = hero.eyebrow ?? "Dashboard";
+  const heroText = hero.text ?? "Open goals, reviews, team focus, onboarding, or the content library.";
   const heroPills = Array.isArray(hero.pills) ? hero.pills : [];
   const heroCompact = hero.compact !== false;
 
@@ -934,7 +934,7 @@ async function renderGoalDashboardPage(root, page, context = getRouteContext()) 
     goals: {
       eyebrow: "Goals",
       title: "Active Improvement Work",
-      text: "Personal and team goals stay visible so review work connects to a concrete target.",
+      text: "Review active personal and team goals.",
       content: `
         <section class="panel active-goal-panel">
           <div class="active-goal-hero">
@@ -1197,9 +1197,9 @@ async function renderOnboarding(root, context = getRouteContext()) {
       <section class="section-heading">
         <div>
           <p class="eyebrow">${context.demoMode ? "Demo Onboarding" : "Onboarding"}</p>
-          <h2>Create structured improvement state</h2>
+          <h2>Onboarding</h2>
         </div>
-        <p class="section-copy">Choose reusable templates, accept sensible defaults, and preview the dashboard state before saving.</p>
+        <p class="section-copy">Select context, role, goal, signals, targets, first action, and optional team focus.</p>
       </section>
       <form class="onboarding-flow" id="onboarding-form">
         <section class="panel onboarding-step">
@@ -1294,8 +1294,8 @@ async function renderOnboarding(root, context = getRouteContext()) {
       </form>
     `, {
       eyebrow: context.demoMode ? "Demo Onboarding" : "Onboarding",
-      title: "Start from templates, not blank text.",
-      text: "Onboarding creates reusable goal, signal, target, action, and team-focus state for the dashboard.",
+      title: "Onboarding",
+      text: "Save active goal and team focus setup.",
       compact: true
     });
 
@@ -1485,8 +1485,8 @@ async function renderLibrary(root) {
     </section>
   `, {
     eyebrow: "Learning Library",
-    title: "Reusable material, with less friction.",
-    text: "Open published content quickly, then narrow it only when you need to.",
+    title: "Learning Library",
+    text: "Filter published content by type, topic, or view.",
     pills: [],
     compact: true
   });
@@ -1517,7 +1517,7 @@ async function renderCuratorList(root) {
         <p class="eyebrow">Curator Workspace</p>
         <h2>Content items</h2>
       </div>
-      <p class="section-copy">Curator-only library management for drafts, published assets, and grouped learning material.</p>
+      <p class="section-copy">Content records for drafts, published assets, and grouped learning material.</p>
     </section>
     <section class="panel panel-header">
       <div>
@@ -1530,8 +1530,8 @@ async function renderCuratorList(root) {
       ${items.length > 0 ? items.map((item) => contentCard(item, true)).join("") : '<p class="muted">No content has been created yet.</p>'}
     </section>
   `, {
-    title: "Shape the library before it goes live.",
-    text: "Review drafts, maintain published records, and keep grouped learning content organized for the wider team.",
+    title: "Content Items",
+    text: "Create, edit, publish, or delete content records.",
     compact: true
   });
 }
@@ -1543,7 +1543,7 @@ async function renderCreateForm(root) {
         <p class="eyebrow">Curator</p>
         <h2>Create content</h2>
       </div>
-      <p class="section-copy">Add a reusable learning asset through upload or external link, then shape its metadata for publication.</p>
+      <p class="section-copy">Upload a file or add an external URL with required metadata.</p>
     </section>
     <section class="panel">
       <p class="eyebrow">New Record</p>
@@ -1557,8 +1557,8 @@ async function renderCreateForm(root) {
       </form>
     </section>
   `, {
-    title: "Add a new asset with publish-ready context.",
-    text: "Start with an upload or external link, then add the metadata that makes the item reusable inside the library.",
+    title: "Create Content",
+    text: "Upload a file or add an external URL.",
     compact: true
   });
 
@@ -1590,8 +1590,8 @@ async function renderDetail(root) {
 
   if (!id) {
     root.innerHTML = appShell(`<p class="muted">Content item not found.</p>`, {
-      title: "Review content inside its context page.",
-      text: "Open one record at a time so the asset, metadata, and curator actions stay in one place.",
+      title: "Content Not Found",
+      text: "Check the content ID or return to the library.",
       compact: true
     });
     return;
@@ -1629,12 +1629,12 @@ async function renderDetail(root) {
       ` : ""}
     </section>
   `, curatorMode ? {
-    title: "Review the asset and refine its curator context.",
-    text: "Keep the viewer, metadata, publish status, and destructive actions together on one page.",
+    title: "Edit Content",
+    text: "Update metadata, publication status, asset, or delete the record.",
     compact: true
   } : {
-    title: "Study the asset without leaving the library.",
-    text: "Use the detail page for topic context, in-app viewing when available, and a clean fallback when the source cannot be embedded.",
+    title: "Content Detail",
+    text: "View topics and available asset actions.",
     compact: true
   });
 
@@ -2028,7 +2028,7 @@ export async function renderApp(root) {
     }
 
     root.innerHTML = appShell(`<p class="muted">Unknown route.</p>`, {
-      title: "Study, organize, and publish team knowledge.",
+      title: "RiftSense",
       compact: true
     });
     bindNavControls(root);
@@ -2036,7 +2036,7 @@ export async function renderApp(root) {
     bindSessionControls(root);
   } catch (error) {
     root.innerHTML = appShell(`<section class="panel"><p>${escapeHtml(error.message)}</p></section>`, {
-      title: "Study, organize, and publish team knowledge.",
+      title: "RiftSense",
       compact: true
     });
     bindNavControls(root);
