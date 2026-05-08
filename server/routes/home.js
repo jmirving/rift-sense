@@ -12,28 +12,7 @@ function buildFallbackHome(userId) {
       primaryRole: "Flex",
       focusArea: "Library orientation"
     },
-    focusBoard: {
-      greeting: "Work on one clear improvement target today.",
-      todayGoal: {
-        title: "Pick a focus and begin a short study block",
-        summary: "Use the library to choose one topic worth revisiting before queueing again.",
-        progressLabel: "0 of 1 completed"
-      },
-      progress: {
-        todayPercent: 0,
-        weeklyPercent: 0,
-        monthlyPercent: 0
-      },
-      weeklyGoals: [],
-      monthlyGoals: [],
-      recentGameStats: []
-    },
-    coachFeed: {
-      headline: "No coach recommendations are configured for this user yet.",
-      sections: []
-    },
-    goalDashboard: normalizeGoalDashboard(),
-    continueLearning: []
+    goalDashboard: normalizeGoalDashboard()
   };
 }
 

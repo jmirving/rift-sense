@@ -904,10 +904,10 @@ async function renderHome(root, context = getRouteContext()) {
             <h2>Goal-linked evidence</h2>
           </div>
         </div>
-        <section class="signal-grid">
+          <section class="signal-grid">
           ${(goal.signals ?? []).length > 0
             ? goal.signals.map(signalCard).join("")
-            : '<p class="muted">No recent signals yet. Review a game to create your first signal.</p>'}
+            : '<p class="muted">No goal-linked signals yet. Review a game to record the first one.</p>'}
         </section>
       </section>
 
@@ -1401,53 +1401,32 @@ async function renderOnboarding(root, context = getRouteContext()) {
   render();
 }
 
-async function renderFocusPage(root, scope) {
-  const { home } = await requestJson("/api/home");
-  const focusBoard = home.focusBoard ?? {};
-  const config = {
-    today: {
-      eyebrow: "Focus",
-      title: "Today",
-      summary: focusBoard.todayGoal?.summary ?? "No daily focus configured yet.",
-      items: focusBoard.todayGoal?.title ? [{
-        title: focusBoard.todayGoal.title,
-        progressLabel: focusBoard.todayGoal.progressLabel ?? "",
-        progressPercent: Math.max(0, Math.min(Number(focusBoard.progress?.todayPercent ?? 0), 100))
-      }] : []
-    },
-    week: {
-      eyebrow: "Focus",
-      title: "This Week",
-      summary: "Weekly focus items and progress checkpoints.",
-      items: focusBoard.weeklyGoals ?? []
-    },
-    month: {
-      eyebrow: "Focus",
-      title: "This Month",
-      summary: "Monthly focus items and longer-term goals.",
-      items: focusBoard.monthlyGoals ?? []
-    }
+async function renderFocusPage(root, scope, context = getRouteContext()) {
+  const label = {
+    today: "Focus Today",
+    week: "Focus This Week",
+    month: "Focus This Month"
   }[scope];
+  const goalsHref = context.demoMode ? "/demo/goals" : "/goals";
 
   root.innerHTML = appShell(`
     <section class="section-heading">
       <div>
-        <p class="eyebrow">${escapeHtml(config.eyebrow)}</p>
-        <h2>${escapeHtml(config.title)}</h2>
+        <p class="eyebrow">Goals</p>
+        <h2>${escapeHtml(label)}</h2>
       </div>
-      <p class="section-copy">${escapeHtml(config.summary)}</p>
+      <p class="section-copy">This view moved to Goals.</p>
     </section>
-    <section class="panel">
-      <div class="goal-list">
-        ${config.items.length > 0
-          ? config.items.map(goalItem).join("")
-          : '<p class="muted">No focus items configured yet.</p>'}
+    <section class="panel panel-slim">
+      <p class="muted">Use Goals for active goal details, weekly targets, and linked signals.</p>
+      <div class="action-row">
+        <a class="button" href="${escapeHtml(goalsHref)}">Open Goals</a>
       </div>
     </section>
   `, {
-    eyebrow: "Focus",
-    title: config.title,
-    text: config.summary,
+    eyebrow: "Goals",
+    title: label,
+    text: "This view moved to Goals.",
     compact: true
   });
 }
@@ -1993,7 +1972,7 @@ export async function renderApp(root) {
     }
 
     if (pathname === "/focus/today") {
-      await renderFocusPage(root, "today");
+      await renderFocusPage(root, "today", context);
       bindNavControls(root);
       bindNavSectionControls(root);
       bindSessionControls(root);
@@ -2001,7 +1980,7 @@ export async function renderApp(root) {
     }
 
     if (pathname === "/focus/week") {
-      await renderFocusPage(root, "week");
+      await renderFocusPage(root, "week", context);
       bindNavControls(root);
       bindNavSectionControls(root);
       bindSessionControls(root);
@@ -2009,7 +1988,7 @@ export async function renderApp(root) {
     }
 
     if (pathname === "/focus/month") {
-      await renderFocusPage(root, "month");
+      await renderFocusPage(root, "month", context);
       bindNavControls(root);
       bindNavSectionControls(root);
       bindSessionControls(root);

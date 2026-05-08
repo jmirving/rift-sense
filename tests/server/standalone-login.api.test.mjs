@@ -52,28 +52,7 @@ async function createTestApp({ authenticateWithNexusAccount } = {}) {
       teamName: "Demo Team",
       primaryRole: "Support",
       focusArea: "Demo"
-    },
-    focusBoard: {
-      greeting: "Demo home",
-      todayGoal: {
-        title: "Demo",
-        summary: "Demo",
-        progressLabel: "0 of 1 complete"
-      },
-      progress: {
-        todayPercent: 0,
-        weeklyPercent: 0,
-        monthlyPercent: 0
-      },
-      weeklyGoals: [],
-      monthlyGoals: [],
-      recentGameStats: []
-    },
-    coachFeed: {
-      headline: "Demo",
-      sections: []
-    },
-    continueLearning: []
+    }
   });
 
   await userHomesRepository.saveUserHome({
@@ -83,28 +62,7 @@ async function createTestApp({ authenticateWithNexusAccount } = {}) {
       teamName: "Dev Team",
       primaryRole: "Mid",
       focusArea: "Objective setup"
-    },
-    focusBoard: {
-      greeting: "Authenticated home",
-      todayGoal: {
-        title: "Review objective setup",
-        summary: "Open the clip and note one setup mistake.",
-        progressLabel: "2 of 3 complete"
-      },
-      progress: {
-        todayPercent: 66,
-        weeklyPercent: 40,
-        monthlyPercent: 20
-      },
-      weeklyGoals: [],
-      monthlyGoals: [],
-      recentGameStats: []
-    },
-    coachFeed: {
-      headline: "Auth coach feed",
-      sections: []
-    },
-    continueLearning: []
+    }
   });
 
   return createApp({

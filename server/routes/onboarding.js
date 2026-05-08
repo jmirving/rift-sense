@@ -18,28 +18,7 @@ function defaultHomeRecord(userId) {
       teamName: "Local Demo Squad",
       primaryRole: "ADC",
       focusArea: "Onboarding"
-    },
-    focusBoard: {
-      greeting: "Work on one clear improvement target today.",
-      todayGoal: {
-        title: "Complete onboarding",
-        summary: "Choose a template-backed goal and first action.",
-        progressLabel: "Ready to start"
-      },
-      progress: {
-        todayPercent: 0,
-        weeklyPercent: 0,
-        monthlyPercent: 0
-      },
-      weeklyGoals: [],
-      monthlyGoals: [],
-      recentGameStats: []
-    },
-    coachFeed: {
-      headline: "No coach recommendations are configured for this user yet.",
-      sections: []
-    },
-    continueLearning: []
+    }
   };
 }
 

@@ -72,47 +72,7 @@ async function createTestApp({ authEnabled = false } = {}) {
       teamName: "Demo Team",
       primaryRole: "Support",
       focusArea: "Review setup habits"
-    },
-    focusBoard: {
-      greeting: "Demo home",
-      todayGoal: {
-        title: "Study one setup clip",
-        summary: "Look at one clip before queueing.",
-        progressLabel: "1 of 2 complete"
-      },
-      progress: {
-        todayPercent: 50,
-        weeklyPercent: 25,
-        monthlyPercent: 10
-      },
-      weeklyGoals: [],
-      monthlyGoals: [],
-      recentGameStats: []
-    },
-    coachFeed: {
-      headline: "Demo coach feed",
-      sections: [
-        {
-          title: "Priority",
-          description: "Open next",
-          items: [
-            {
-              id: "itm_demo_video",
-              contentItemId: "cnt_home_video",
-              emphasis: "coach",
-              actionLabel: "Watch now"
-            }
-          ]
-        }
-      ]
-    },
-    continueLearning: [
-      {
-        id: "continue_demo_video",
-        contentItemId: "cnt_home_video",
-        progressLabel: "Resume at 02:10"
-      }
-    ]
+    }
   });
 
   await userHomesRepository.saveUserHome({
@@ -122,28 +82,7 @@ async function createTestApp({ authEnabled = false } = {}) {
       teamName: "Dev Team",
       primaryRole: "Mid",
       focusArea: "Objective setup"
-    },
-    focusBoard: {
-      greeting: "Authenticated home",
-      todayGoal: {
-        title: "Review objective setup",
-        summary: "Open the clip and note one setup mistake.",
-        progressLabel: "2 of 3 complete"
-      },
-      progress: {
-        todayPercent: 66,
-        weeklyPercent: 40,
-        monthlyPercent: 20
-      },
-      weeklyGoals: [],
-      monthlyGoals: [],
-      recentGameStats: []
-    },
-    coachFeed: {
-      headline: "Auth coach feed",
-      sections: []
-    },
-    continueLearning: []
+    }
   });
 
   return createApp({
@@ -172,7 +111,9 @@ describe("home API", () => {
     expect(response.status).toBe(200);
     expect(response.body.home.user.id).toBe("usr_demo_home");
     expect(response.body.home.user.source).toBe("demo");
-    expect(response.body.home.coachFeed.sections[0].items[0].linkedContent.href).toBe("/content/cnt_home_video");
+    expect(response.body.home.focusBoard).toBeUndefined();
+    expect(response.body.home.coachFeed).toBeUndefined();
+    expect(response.body.home.continueLearning).toBeUndefined();
     expect(response.body.home.goalDashboard.activePersonalGoal.title).toBe("Die Less");
     expect(response.body.home.goalDashboard.activePersonalGoal.templateId).toBe("goal-template-adc-die-less");
     expect(response.body.home.goalDashboard.activePersonalGoal.weeklyTargets[0]).toMatchObject({
@@ -216,7 +157,7 @@ describe("home API", () => {
     expect(response.status).toBe(200);
     expect(response.body.home.user.id).toBe("usr_local_dev");
     expect(response.body.home.user.source).toBe("authenticated");
-    expect(response.body.home.focusBoard.todayGoal.title).toBe("Review objective setup");
+    expect(response.body.home.focusBoard).toBeUndefined();
     expect(response.body.home.goalDashboard.activePersonalGoal.title).toBe("Die Less");
   });
 
