@@ -11,6 +11,64 @@ const state = {
   session: null
 };
 
+function isDemoPath(pathname) {
+  return pathname === "/demo" || pathname.startsWith("/demo/");
+}
+
+function getRouteContext() {
+  const pathname = window.location.pathname;
+  const demoMode = isDemoPath(pathname);
+
+  return {
+    pathname,
+    demoMode,
+    homeApiUrl: demoMode ? "/api/demo/home" : "/api/home",
+    requestOptions: demoMode
+      ? {
+          skipStoredToken: true
+        }
+      : undefined
+  };
+}
+
+function toAppHref(href, context = getRouteContext()) {
+  if (!href) {
+    return null;
+  }
+
+  if (!context.demoMode) {
+    return href;
+  }
+
+  if (!href.startsWith("/")) {
+    return href;
+  }
+
+  const [pathname, query = ""] = href.split("?");
+  const suffix = query ? `?${query}` : "";
+
+  if (pathname === "/") {
+    return `/demo${suffix}`;
+  }
+  if (pathname === "/goals") {
+    return `/demo/goals${suffix}`;
+  }
+  if (pathname === "/review") {
+    return `/demo/review${suffix}`;
+  }
+  if (pathname === "/training" || pathname === "/drills" || pathname === "/test") {
+    return `/demo/training${suffix}`;
+  }
+  if (pathname === "/team") {
+    return `/demo/team${suffix}`;
+  }
+  if (pathname === "/focus/today" || pathname === "/focus/week" || pathname === "/focus/month") {
+    return `/demo/goals${suffix}`;
+  }
+
+  return null;
+}
+
 function readStoredAuthToken() {
   return window.localStorage.getItem("riftsense.authToken");
 }
@@ -54,6 +112,21 @@ async function requestJson(url, options) {
 }
 
 async function loadSession() {
+  if (getRouteContext().demoMode) {
+    state.session = {
+      authEnabled: false,
+      authenticated: false,
+      user: null,
+      accountUrl: "",
+      portalBaseUrl: "",
+      manualTokenEntryAvailable: false,
+      unavailable: false,
+      error: "",
+      demoMode: true
+    };
+    return;
+  }
+
   try {
     state.session = await requestJson("/api/session", {
       headers: {
@@ -101,6 +174,18 @@ function renderSessionPanel() {
   const accountLink = session.accountUrl
     ? `<a class="button secondary" href="${escapeHtml(session.accountUrl)}">Open Nexus</a>`
     : "";
+
+  if (session.demoMode) {
+    return `
+      <section class="session-panel">
+        <div class="panel panel-slim">
+          <p class="eyebrow">Public Demo</p>
+          <h2>Seeded dashboard</h2>
+          <p class="muted">This route always shows demo data and never loads an authenticated player's home.</p>
+        </div>
+      </section>
+    `;
+  }
 
   if (!session.authEnabled) {
     return `
@@ -166,7 +251,9 @@ function renderSessionPanel() {
 }
 
 function appShell(content, hero = {}) {
-  const pathname = window.location.pathname;
+  const context = getRouteContext();
+  const pathname = context.pathname;
+  const demoMode = context.demoMode;
   const navCollapsed = window.localStorage.getItem("riftsense.navCollapsed") === "true";
   const searchParams = new URLSearchParams(window.location.search);
   const isCuratorDetail = pathname.startsWith("/content/") && searchParams.get("curator") === "1";
@@ -181,14 +268,22 @@ function appShell(content, hero = {}) {
     {
       key: "learn",
       title: "Improve",
-      items: [
-        { href: "/", label: "Dashboard", active: pathname === "/" },
-        { href: "/goals", label: "Goals", active: pathname === "/goals" || pathname.startsWith("/focus/") },
-        { href: "/review", label: "Review", active: pathname === "/review" },
-        { href: "/training", label: "Training", active: pathname === "/training" || pathname === "/drills" || pathname === "/test" },
-        { href: "/team", label: "Team", active: pathname === "/team" },
-        { href: "/library", label: "Library", active: pathname === "/library" || (pathname.startsWith("/content/") && !isCuratorDetail) }
-      ]
+      items: demoMode
+        ? [
+            { href: "/demo", label: "Dashboard", active: pathname === "/demo" },
+            { href: "/demo/goals", label: "Goals", active: pathname === "/demo/goals" },
+            { href: "/demo/review", label: "Review", active: pathname === "/demo/review" },
+            { href: "/demo/training", label: "Training", active: pathname === "/demo/training" },
+            { href: "/demo/team", label: "Team", active: pathname === "/demo/team" }
+          ]
+        : [
+            { href: "/", label: "Dashboard", active: pathname === "/" },
+            { href: "/goals", label: "Goals", active: pathname === "/goals" || pathname.startsWith("/focus/") },
+            { href: "/review", label: "Review", active: pathname === "/review" },
+            { href: "/training", label: "Training", active: pathname === "/training" || pathname === "/drills" || pathname === "/test" },
+            { href: "/team", label: "Team", active: pathname === "/team" },
+            { href: "/library", label: "Library", active: pathname === "/library" || (pathname.startsWith("/content/") && !isCuratorDetail) }
+          ]
     }
   ];
   const activeSection = navSections.find((section) => section.items.some((item) => item.active))?.key ?? "learn";
@@ -202,7 +297,7 @@ function appShell(content, hero = {}) {
               <span class="brand-mark">N</span>
               <div class="brand-copy">
                 <p class="eyebrow">Nexus Application</p>
-                <a class="wordmark" href="/">RiftSense</a>
+                <a class="wordmark" href="${escapeHtml(toAppHref("/", context) ?? "/")}">RiftSense</a>
               </div>
             </div>
             <button
@@ -639,18 +734,34 @@ function bindSourceTypeVisibility(root) {
   sync();
 }
 
-async function renderHome(root) {
-  const { home } = await requestJson("/api/home");
+async function renderHome(root, context = getRouteContext()) {
+  const { home } = await requestJson(context.homeApiUrl, context.requestOptions);
   const profile = home.user.profile ?? {};
   const dashboard = home.goalDashboard ?? {};
   const goal = dashboard.activePersonalGoal ?? {};
   const action = dashboard.todaysAction ?? {};
   const teamFocus = dashboard.activeTeamFocus ?? {};
-  const suggestedNextSteps = dashboard.suggestedNextSteps ?? [];
+  const suggestedNextSteps = (dashboard.suggestedNextSteps ?? []).filter((step) =>
+    Boolean(toAppHref(step.href, context) || !step.href)
+  );
   const focusTagline = `${goal.role ?? profile.primaryRole ?? "Player"} · ${goal.scope ?? "Personal"}`;
+  const reviewHref = toAppHref("/review", context) ?? "#";
+  const goalsHref = toAppHref("/goals", context) ?? "#";
+  const actionHref = toAppHref(action.href ?? "/review", context) ?? reviewHref;
+  const teamHref = toAppHref("/team", context) ?? "#";
+  const demoBanner = context.demoMode
+    ? `
+      <section class="panel panel-slim">
+        <p class="eyebrow">Public Demo</p>
+        <h2>Seeded MVP dashboard</h2>
+        <p class="muted">This view is fixed demo data for the ADC + team-focus scenario from the MVP spec.</p>
+      </section>
+    `
+    : "";
 
   root.innerHTML = appShell(`
     <section class="goal-dashboard-stack">
+      ${demoBanner}
       <section class="panel active-goal-panel">
         <div class="active-goal-hero">
           <div class="active-goal-copy">
@@ -670,8 +781,8 @@ async function renderHome(root) {
         <div class="active-goal-footer">
           <p class="muted">${escapeHtml(goal.progressSummary ?? "No trend summary yet. Review a game to create your first signal.")}</p>
           <div class="action-row">
-            <a class="button" href="/review">Review Goal</a>
-            <a class="button secondary" href="/goals">View Goals</a>
+            <a class="button" href="${escapeHtml(reviewHref)}">Review Goal</a>
+            <a class="button secondary" href="${escapeHtml(goalsHref)}">View Goals</a>
           </div>
         </div>
       </section>
@@ -683,7 +794,7 @@ async function renderHome(root) {
           <p class="action-time">${escapeHtml(action.estimatedMinutes ?? 0)} minutes</p>
           <p>${escapeHtml(action.reason ?? "Choose one small review action to keep momentum.")}</p>
           ${actionStepList(action.steps)}
-          <a class="button" href="${escapeHtml(action.href ?? "/review")}">${escapeHtml(action.ctaLabel ?? "Start review")}</a>
+          <a class="button" href="${escapeHtml(actionHref)}">${escapeHtml(action.ctaLabel ?? "Start review")}</a>
         </section>
 
         <section class="panel team-focus-panel">
@@ -692,7 +803,7 @@ async function renderHome(root) {
               <p class="eyebrow">Team Focus</p>
               <h2>${escapeHtml(teamFocus.title ?? "No team focus configured")}</h2>
             </div>
-            <a class="button secondary" href="/team">Open Team Focus</a>
+            <a class="button secondary" href="${escapeHtml(teamHref)}">Open Team Focus</a>
           </div>
           <p>${escapeHtml(teamFocus.summary ?? "Add a team practice topic for this week.")}</p>
           <div class="team-focus-meta">
@@ -726,7 +837,13 @@ async function renderHome(root) {
         </div>
         <section class="next-step-grid">
           ${suggestedNextSteps.length > 0
-            ? suggestedNextSteps.slice(0, 4).map(nextStepCard).join("")
+            ? suggestedNextSteps
+              .slice(0, 4)
+              .map((step) => nextStepCard({
+                ...step,
+                href: toAppHref(step.href, context)
+              }))
+              .join("")
             : '<p class="muted">No next steps yet. Add a goal or team focus to generate suggestions.</p>'}
         </section>
       </section>
@@ -736,8 +853,8 @@ async function renderHome(root) {
   });
 }
 
-async function renderGoalDashboardPage(root, page) {
-  const { home } = await requestJson("/api/home");
+async function renderGoalDashboardPage(root, page, context = getRouteContext()) {
+  const { home } = await requestJson(context.homeApiUrl, context.requestOptions);
   const dashboard = home.goalDashboard ?? {};
   const goal = dashboard.activePersonalGoal ?? {};
   const action = dashboard.todaysAction ?? {};
@@ -1422,21 +1539,22 @@ function bindNavSectionControls(root) {
 }
 
 export async function renderApp(root) {
-  const pathname = window.location.pathname;
+  const context = getRouteContext();
+  const pathname = context.pathname;
 
   await loadSession();
 
   try {
-    if (pathname === "/") {
-      await renderHome(root);
+    if (pathname === "/" || pathname === "/demo") {
+      await renderHome(root, context);
       bindNavControls(root);
       bindNavSectionControls(root);
       bindSessionControls(root);
       return;
     }
 
-    if (pathname === "/goals") {
-      await renderGoalDashboardPage(root, "goals");
+    if (pathname === "/goals" || pathname === "/demo/goals") {
+      await renderGoalDashboardPage(root, "goals", context);
       bindNavControls(root);
       bindNavSectionControls(root);
       bindSessionControls(root);
@@ -1491,24 +1609,24 @@ export async function renderApp(root) {
       return;
     }
 
-    if (pathname === "/review") {
-      await renderGoalDashboardPage(root, "review");
+    if (pathname === "/review" || pathname === "/demo/review") {
+      await renderGoalDashboardPage(root, "review", context);
       bindNavControls(root);
       bindNavSectionControls(root);
       bindSessionControls(root);
       return;
     }
 
-    if (pathname === "/training") {
-      await renderGoalDashboardPage(root, "training");
+    if (pathname === "/training" || pathname === "/demo/training") {
+      await renderGoalDashboardPage(root, "training", context);
       bindNavControls(root);
       bindNavSectionControls(root);
       bindSessionControls(root);
       return;
     }
 
-    if (pathname === "/team") {
-      await renderGoalDashboardPage(root, "team");
+    if (pathname === "/team" || pathname === "/demo/team") {
+      await renderGoalDashboardPage(root, "team", context);
       bindNavControls(root);
       bindNavSectionControls(root);
       bindSessionControls(root);

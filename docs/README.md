@@ -42,3 +42,4 @@ Current starting spec:
 - [specs/001-learning-content-library-and-ingestion.md](./specs/001-learning-content-library-and-ingestion.md)
 - [specs/001-implementation-plan.md](./specs/001-implementation-plan.md)
 - [specs/002-hosted-nexus-auth-callback.md](./specs/002-hosted-nexus-auth-callback.md)
+- [specs/003-public-demo-dashboard-route.md](./specs/003-public-demo-dashboard-route.md)

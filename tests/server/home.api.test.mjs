@@ -178,6 +178,22 @@ describe("home API", () => {
     expect(response.body.home.goalDashboard.todaysAction.title).toBe("Review last game deaths");
   });
 
+  it("returns the public demo home from the dedicated demo endpoint", async () => {
+    const app = await createTestApp();
+
+    const response = await request(app).get("/api/demo/home");
+
+    expect(response.status).toBe(200);
+    expect(response.body.home.user.id).toBe("demo_public_dashboard");
+    expect(response.body.home.user.source).toBe("demo");
+    expect(response.body.home.user.profile.displayName).toBe("Public Demo Player");
+    expect(
+      response.body.home.goalDashboard.suggestedNextSteps.some(
+        (step) => step.href === "/library?topic=laning"
+      )
+    ).toBe(false);
+  });
+
   it("returns the authenticated user's home when Nexus auth is enabled", async () => {
     const app = await createTestApp({ authEnabled: true });
     const token = jwt.sign(
@@ -195,5 +211,33 @@ describe("home API", () => {
     expect(response.body.home.user.source).toBe("authenticated");
     expect(response.body.home.focusBoard.todayGoal.title).toBe("Review objective setup");
     expect(response.body.home.goalDashboard.activePersonalGoal.title).toBe("Die Less");
+  });
+
+  it("ignores authenticated identity on the dedicated demo endpoint", async () => {
+    const app = await createTestApp({ authEnabled: true });
+    const token = jwt.sign(
+      { sub: "usr_local_dev", iss: "nexus", aud: "riftsense" },
+      "test-secret",
+      { algorithm: "HS256", expiresIn: "1h" }
+    );
+
+    const response = await request(app)
+      .get("/api/demo/home")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.home.user.id).toBe("demo_public_dashboard");
+    expect(response.body.home.user.source).toBe("demo");
+    expect(response.body.home.user.profile.displayName).toBe("Public Demo Player");
+  });
+
+  it("serves the client app from the demo route", async () => {
+    const app = await createTestApp();
+
+    const response = await request(app).get("/demo");
+
+    expect(response.status).toBe(200);
+    expect(response.text).toContain('<div id="app"></div>');
+    expect(response.text).toContain('<script type="module" src="/app/main.js"></script>');
   });
 });

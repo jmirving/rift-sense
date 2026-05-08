@@ -4,12 +4,18 @@ import path from "node:path";
 import { createOptionalAuth, createRequireAuth } from "./auth/middleware.js";
 import { createContentItemsRouter } from "./routes/content-items.js";
 import { createAuthRouter } from "./routes/auth.js";
+import { createDemoRouter } from "./routes/demo.js";
 import { createHomeRouter } from "./routes/home.js";
 import { createSessionRouter } from "./routes/session.js";
 import { ApiError, badRequest, formatErrorResponse } from "./errors.js";
 
 const clientRoutes = [
   "/",
+  "/demo",
+  "/demo/goals",
+  "/demo/review",
+  "/demo/training",
+  "/demo/team",
   "/goals",
   "/library",
   "/focus/today",
@@ -63,6 +69,13 @@ export function createApp({
     createHomeRouter({
       config,
       userHomesRepository,
+      contentItemsRepository
+    })
+  );
+
+  app.use(
+    "/api/demo",
+    createDemoRouter({
       contentItemsRepository
     })
   );
