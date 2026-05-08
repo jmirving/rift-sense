@@ -606,6 +606,36 @@ function targetChipGrid(items, emptyText) {
   `;
 }
 
+function compactTargetRow(target) {
+  const label = typeof target === "string" ? target : target.label;
+  const statusLabel = typeof target === "string" ? "Needs review" : target.statusLabel;
+  const trend = typeof target === "string" ? "unknown" : target.trend;
+  return `
+    <article class="compact-row">
+      <span>${escapeHtml(label ?? "Target")}</span>
+      ${statusBadge(statusLabel ?? "Needs review", trend)}
+    </article>
+  `;
+}
+
+function goalSignalRow(signal) {
+  return `
+    <article class="compact-row">
+      <span>${escapeHtml(signal.label)}</span>
+      <span class="compact-row-value">${escapeHtml(signal.value)} · ${escapeHtml(trendLabel(signal.trend))}</span>
+    </article>
+  `;
+}
+
+function reviewTagButton(signal) {
+  return `
+    <button class="review-tag-button" type="button">
+      <strong>${escapeHtml(signal.label)}</strong>
+      <span>${escapeHtml(signal.value)} logged</span>
+    </button>
+  `;
+}
+
 function targetList(items, emptyText) {
   return `
     <ul class="target-list">
@@ -624,7 +654,6 @@ function signalCard(signal) {
         ${statusBadge(trendLabel(signal.trend), signal.trend)}
       </div>
       <h3>${escapeHtml(signal.label)}</h3>
-      ${signal.description ? `<p class="muted signal-detail">${escapeHtml(signal.description)}</p>` : ""}
     </article>
   `;
 }
@@ -643,9 +672,7 @@ function nextStepCard(step) {
 function insightCard(insight) {
   return `
     <article class="insight-card">
-      <p class="eyebrow">Recent Insight</p>
       <h3>${escapeHtml(insight.title)}</h3>
-      <p class="muted">${escapeHtml(insight.summary)}</p>
     </article>
   `;
 }
@@ -821,11 +848,9 @@ async function renderHome(root, context = getRouteContext()) {
               ${statusBadge(`Trend: ${goal.trend ?? "Unknown"}`, goal.trendKey ?? "unknown")}
               ${statusBadge(`Confidence: ${goal.confidence ?? "Low sample"}`, "unknown")}
             </div>
-            <p>${escapeHtml(goal.summary ?? "Choose one goal to start tracking.")}</p>
             <div class="hero-next-action">
               <p class="eyebrow">Next action</p>
               <h3>${escapeHtml(action.title ?? "No action configured yet")}</h3>
-              <p class="muted">${escapeHtml(action.reason ?? "Choose one small review action to keep momentum.")}</p>
               <a class="button" href="${escapeHtml(actionHref)}">${escapeHtml(action.ctaLabel ?? "Start review")}</a>
             </div>
           </div>
@@ -835,24 +860,14 @@ async function renderHome(root, context = getRouteContext()) {
           </div>
         </div>
         <div class="active-goal-footer">
-          <p class="muted">${escapeHtml(goal.progressSummary ?? "No trend summary yet. Review a game to create your first signal.")}</p>
+          <p class="muted">${escapeHtml(goal.progressSummary ?? "No trend summary yet.")}</p>
           <div class="action-row">
-            <a class="button secondary" href="${escapeHtml(reviewHref)}">Review Goal</a>
             <a class="button secondary" href="${escapeHtml(goalsHref)}">View Goals</a>
           </div>
         </div>
       </section>
 
       <section class="dashboard-two-column">
-        <section class="panel todays-action-panel">
-          <p class="eyebrow">Today's Action</p>
-          <h2>${escapeHtml(action.title ?? "No action configured yet")}</h2>
-          <p class="action-time">${escapeHtml(action.estimatedMinutes ?? 0)} minutes</p>
-          <p>${escapeHtml(action.reason ?? "Choose one small review action to keep momentum.")}</p>
-          ${actionStepList(action.steps)}
-          <a class="button" href="${escapeHtml(actionHref)}">${escapeHtml(action.ctaLabel ?? "Start review")}</a>
-        </section>
-
         <section class="panel team-focus-panel">
           <div class="panel-header">
             <div>
@@ -861,12 +876,24 @@ async function renderHome(root, context = getRouteContext()) {
             </div>
             <a class="button secondary" href="${escapeHtml(teamHref)}">Open Team Focus</a>
           </div>
-          <p>${escapeHtml(teamFocus.summary ?? "Add a team practice topic for this week.")}</p>
           <div class="team-focus-meta">
             <p><strong>Practice topic:</strong> ${escapeHtml(teamFocus.practiceTopic ?? "Not set")}</p>
             <p><strong>Assigned review:</strong> ${escapeHtml(teamFocus.assignedReview ?? "Not set")}</p>
           </div>
-          ${teamChecklist(teamFocus.checklist)}
+        </section>
+
+        <section class="panel insights-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Insights</p>
+              <h2>Recent read</h2>
+            </div>
+          </div>
+          <section class="insight-grid">
+            ${recentInsights.length > 0
+              ? recentInsights.slice(0, 2).map(insightCard).join("")
+              : '<p class="muted">No insights yet.</p>'}
+          </section>
         </section>
       </section>
 
@@ -881,20 +908,6 @@ async function renderHome(root, context = getRouteContext()) {
           ${(goal.signals ?? []).length > 0
             ? goal.signals.map(signalCard).join("")
             : '<p class="muted">No recent signals yet. Review a game to create your first signal.</p>'}
-        </section>
-      </section>
-
-      <section class="panel insights-panel">
-        <div class="panel-header">
-          <div>
-            <p class="eyebrow">Insights</p>
-            <h2>What the evidence means</h2>
-          </div>
-        </div>
-        <section class="insight-grid">
-          ${recentInsights.length > 0
-            ? recentInsights.map(insightCard).join("")
-            : '<p class="muted">No insights yet. Review a game to create enough evidence for a short summary.</p>'}
         </section>
       </section>
 
@@ -929,63 +942,109 @@ async function renderGoalDashboardPage(root, page, context = getRouteContext()) 
   const goal = dashboard.activePersonalGoal ?? {};
   const action = dashboard.todaysAction ?? {};
   const teamFocus = dashboard.activeTeamFocus ?? {};
+  const recentInsights = dashboard.recentInsights ?? [];
 
   const pages = {
     goals: {
       eyebrow: "Goals",
-      title: "Active Improvement Work",
-      text: "Review active personal and team goals.",
+      title: "Goal Settings",
+      text: "Targets, signals, and linked work.",
       content: `
-        <section class="panel active-goal-panel">
-          <div class="active-goal-hero">
-            <div class="active-goal-copy">
-              <p class="eyebrow">Personal Goal</p>
-              <h3>${escapeHtml(goal.title ?? "No active goal yet")}</h3>
-              <p>${escapeHtml(goal.summary ?? "Choose one goal to start tracking.")}</p>
+        <section class="goal-management-layout">
+          <article class="panel goal-roster-panel">
+            <p class="eyebrow">Active</p>
+            <h3>${escapeHtml(goal.title ?? "No active goal yet")}</h3>
+            <div class="badge-row">
+              ${statusBadge(goal.goalStatus ?? "No data yet", goal.goalStatusTrend ?? "unknown")}
+              <span class="context-badge">${escapeHtml(goal.role ?? "Player")} · ${escapeHtml(goal.scope ?? "Personal")}</span>
             </div>
-            <div>
-              <p class="eyebrow">Monthly Targets</p>
-              ${targetList(goal.monthlyTargets, "No monthly targets configured yet.")}
-            </div>
-          </div>
-        </section>
-        <section class="panel recent-signals-panel">
-          <p class="eyebrow">Signals</p>
-          <h3>What this goal tracks</h3>
-          <section class="signal-grid">
-            ${(goal.signals ?? []).length > 0
-              ? goal.signals.map(signalCard).join("")
-              : '<p class="muted">No signals configured yet.</p>'}
-          </section>
+          </article>
+          <article class="panel">
+            <p class="eyebrow">Weekly Targets</p>
+            <section class="compact-list">
+              ${(goal.weeklyTargets ?? []).length > 0
+                ? goal.weeklyTargets.map(compactTargetRow).join("")
+                : '<p class="muted">No weekly targets configured yet.</p>'}
+            </section>
+          </article>
+          <article class="panel">
+            <p class="eyebrow">Monthly Targets</p>
+            ${targetList(goal.monthlyTargets, "No monthly targets configured yet.")}
+          </article>
+          <article class="panel">
+            <p class="eyebrow">Tracked Signals</p>
+            <section class="compact-list">
+              ${(goal.signals ?? []).length > 0
+                ? goal.signals.map(goalSignalRow).join("")
+                : '<p class="muted">No signals configured yet.</p>'}
+            </section>
+          </article>
+          <article class="panel">
+            <p class="eyebrow">Linked Action</p>
+            <h3>${escapeHtml(action.title ?? "No action configured")}</h3>
+            <p class="action-time">${escapeHtml(action.estimatedMinutes ?? 0)} minutes</p>
+            <a class="button secondary" href="${escapeHtml(toAppHref(action.href ?? "/review", context) ?? "#")}">Open Action</a>
+          </article>
+          <article class="panel">
+            <p class="eyebrow">Team Link</p>
+            <h3>${escapeHtml(teamFocus.title ?? "No team focus configured")}</h3>
+            <p class="muted">${escapeHtml(teamFocus.practiceTopic ?? "No practice topic configured.")}</p>
+          </article>
         </section>
       `
     },
     review: {
       eyebrow: "Review",
       title: action.title ?? "Review",
-      text: action.reason ?? "Use review moments to turn games into evidence.",
+      text: "Checklist and tags for the next review.",
       content: `
-        <section class="panel todays-action-panel">
-          <p class="eyebrow">Review Block</p>
-          <h3>${escapeHtml(action.title ?? "No review action configured")}</h3>
-          <p class="action-time">${escapeHtml(action.estimatedMinutes ?? 0)} minutes</p>
-          ${actionStepList(action.steps)}
-        </section>
-        <section class="panel recent-signals-panel">
-          <p class="eyebrow">Tag Against</p>
-          <h3>${escapeHtml(goal.title ?? "Active goal")}</h3>
-          <section class="signal-grid">
-            ${(goal.signals ?? []).length > 0
-              ? goal.signals.map(signalCard).join("")
-              : '<p class="muted">No signals configured yet.</p>'}
-          </section>
+        <section class="review-workspace-layout">
+          <article class="panel review-run-panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Review Block</p>
+                <h3>${escapeHtml(action.title ?? "No review action configured")}</h3>
+              </div>
+              <p class="action-time">${escapeHtml(action.estimatedMinutes ?? 0)} minutes</p>
+            </div>
+            ${actionStepList(action.steps)}
+          </article>
+          <article class="panel review-tags-panel">
+            <p class="eyebrow">Tag Against</p>
+            <h3>${escapeHtml(goal.title ?? "Active goal")}</h3>
+            <section class="review-tag-grid">
+              ${(goal.signals ?? []).length > 0
+                ? goal.signals.map(reviewTagButton).join("")
+                : '<p class="muted">No signals configured yet.</p>'}
+            </section>
+          </article>
+          <article class="panel">
+            <p class="eyebrow">Recent Read</p>
+            <section class="compact-list">
+              ${recentInsights.length > 0
+                ? recentInsights.map((insight) => `
+                  <article class="compact-row">
+                    <span>${escapeHtml(insight.title)}</span>
+                  </article>
+                `).join("")
+                : '<p class="muted">No insights yet.</p>'}
+            </section>
+          </article>
+          <article class="panel">
+            <p class="eyebrow">Targets</p>
+            <section class="compact-list">
+              ${(goal.weeklyTargets ?? []).length > 0
+                ? goal.weeklyTargets.map(compactTargetRow).join("")
+                : '<p class="muted">No weekly targets configured yet.</p>'}
+            </section>
+          </article>
         </section>
       `
     },
     training: {
       eyebrow: "Training",
-      title: "Small Practice Blocks",
-      text: "Training stays tied to the active goal instead of becoming a generic content grid.",
+      title: "Practice Blocks",
+      text: "Decision tree and pre-game reminder.",
       content: `
         <section class="panel">
           <p class="eyebrow">Decision Tree</p>
@@ -1000,14 +1059,13 @@ async function renderGoalDashboardPage(root, page, context = getRouteContext()) 
         <section class="panel">
           <p class="eyebrow">Pre-game Reminder</p>
           <h3>${escapeHtml(goal.title ?? "Active goal")}</h3>
-          <p>${escapeHtml(goal.summary ?? "Choose one goal to start tracking.")}</p>
         </section>
       `
     },
     team: {
       eyebrow: "Team",
       title: teamFocus.title ?? "Team Focus",
-      text: teamFocus.summary ?? "Team practice work will appear here.",
+      text: "Practice topic, review item, checklist, and signals.",
       content: `
         <section class="panel team-focus-panel">
           <p class="eyebrow">Practice Topic</p>

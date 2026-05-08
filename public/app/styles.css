@@ -656,7 +656,11 @@ p {
 .onboarding-step,
 .onboarding-preview,
 .option-grid,
-.segmented-options {
+.segmented-options,
+.goal-management-layout,
+.review-workspace-layout,
+.compact-list,
+.review-tag-grid {
   display: grid;
   gap: 16px;
 }
@@ -665,9 +669,14 @@ p {
   gap: 20px;
 }
 
-.dashboard-two-column {
+.dashboard-two-column,
+.review-workspace-layout {
   grid-template-columns: minmax(0, 0.95fr) minmax(320px, 1.05fr);
   align-items: stretch;
+}
+
+.goal-management-layout {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .active-goal-panel,
@@ -808,6 +817,54 @@ p {
 
 .team-focus-meta strong {
   color: var(--text);
+}
+
+.compact-list {
+  gap: 10px;
+}
+
+.compact-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+.compact-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.compact-row-value {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.review-run-panel {
+  grid-row: span 2;
+}
+
+.review-tag-grid {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.review-tag-button {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  padding: 14px;
+  cursor: default;
+}
+
+.review-tag-button span {
+  color: var(--muted);
+  font-size: 0.86rem;
 }
 
 .signal-grid,
@@ -1113,6 +1170,8 @@ body.nav-collapsed .session-panel {
   .library-filter-form,
   .onboarding-submit,
   .focus-board-head,
+  .goal-management-layout,
+  .review-workspace-layout,
   .dashboard-two-column,
   .active-goal-hero,
   .active-goal-footer,
