@@ -14,7 +14,7 @@ import { createLocalAssetStore } from "../../server/storage/local-assets.js";
 
 const tempDirectories = [];
 
-async function createTestApp({ authenticateWithNexusAccount } = {}) {
+async function createTestApp({ authenticateWithNexusAccount, fetchSharedProfile } = {}) {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rift-sense-standalone-login-"));
   tempDirectories.push(tempRoot);
 
@@ -75,7 +75,8 @@ async function createTestApp({ authenticateWithNexusAccount } = {}) {
         return item;
       }
     },
-    authenticateWithNexusAccount
+    authenticateWithNexusAccount,
+    fetchSharedProfile
   });
 }
 
@@ -100,6 +101,18 @@ describe("standalone RiftSense login", () => {
 
   it("signs in through Nexus canonical auth and establishes a RiftSense session", async () => {
     const app = await createTestApp({
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_local_dev",
+          riotGameName: "3nderWiggin",
+          riotTagline: "NA1",
+          riotPuuid: "puuid_local_dev_3nderwiggin",
+          primaryRole: "ADC",
+          secondaryRoles: ["Support"],
+          preferredTeamId: null,
+          activeTeamId: null
+        };
+      },
       async authenticateWithNexusAccount() {
         const accessToken = jwt.sign(
           {
@@ -146,6 +159,8 @@ describe("standalone RiftSense login", () => {
     expect(sessionResponse.body.authenticated).toBe(true);
     expect(sessionResponse.body.user.id).toBe("usr_local_dev");
     expect(sessionResponse.body.user.displayName).toBe("Local Dev User");
+    expect(sessionResponse.body.user.profile.riotPuuid).toBe("puuid_local_dev_3nderwiggin");
+    expect(sessionResponse.body.user.riot.puuid).toBe("puuid_local_dev_3nderwiggin");
 
     const homeResponse = await request(app)
       .get("/api/home")
@@ -154,6 +169,7 @@ describe("standalone RiftSense login", () => {
     expect(homeResponse.status).toBe(200);
     expect(homeResponse.body.home.user.id).toBe("usr_local_dev");
     expect(homeResponse.body.home.user.source).toBe("authenticated");
+    expect(homeResponse.body.home.user.profile.riotPuuid).toBe("puuid_local_dev_3nderwiggin");
   });
 
   it("surfaces invalid standalone credentials intentionally", async () => {

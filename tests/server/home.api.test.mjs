@@ -14,7 +14,7 @@ import { createLocalAssetStore } from "../../server/storage/local-assets.js";
 
 const tempDirectories = [];
 
-async function createTestApp({ authEnabled = false } = {}) {
+async function createTestApp({ authEnabled = false, fetchSharedProfile } = {}) {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rift-sense-home-api-"));
   tempDirectories.push(tempRoot);
 
@@ -94,7 +94,8 @@ async function createTestApp({ authEnabled = false } = {}) {
       async ensureDeckPreview(item) {
         return item;
       }
-    }
+    },
+    fetchSharedProfile
   });
 }
 
@@ -161,7 +162,21 @@ describe("home API", () => {
   });
 
   it("returns the authenticated user's home when Nexus auth is enabled", async () => {
-    const app = await createTestApp({ authEnabled: true });
+    const app = await createTestApp({
+      authEnabled: true,
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_local_dev",
+          riotGameName: "3nderWiggin",
+          riotTagline: "NA1",
+          riotPuuid: "puuid_local_dev_3nderwiggin",
+          primaryRole: "ADC",
+          secondaryRoles: ["Support"],
+          preferredTeamId: null,
+          activeTeamId: null
+        };
+      }
+    });
     const token = jwt.sign(
       { sub: "usr_local_dev", iss: "nexus", aud: "riftsense" },
       "test-secret",
@@ -179,8 +194,9 @@ describe("home API", () => {
     expect(response.body.home.goalDashboard.activePersonalGoal.title).toBe("Die Less");
     expect(response.body.home.goalDashboard.activePersonalGoal.evidenceSource.summary).toContain("Based on 5 signal events");
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence).toMatchObject({
-      status: "no-riot-linked"
+      status: "riot-linked-pending"
     });
+    expect(response.body.home.user.profile.riotPuuid).toBe("puuid_local_dev_3nderwiggin");
   });
 
   it("ignores authenticated identity on the dedicated demo endpoint", async () => {

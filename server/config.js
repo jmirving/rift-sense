@@ -42,6 +42,23 @@ function deriveAppLoginUrl(env, portalBaseUrl) {
   }
 }
 
+function deriveSharedProfileUrl(env, portalBaseUrl) {
+  const explicit = normalizeUrl(env.NEXUS_SHARED_PROFILE_URL ?? "");
+  if (explicit) {
+    return explicit;
+  }
+
+  if (!portalBaseUrl) {
+    return "";
+  }
+
+  try {
+    return new URL("/api/me/profile", portalBaseUrl).toString();
+  } catch {
+    return "";
+  }
+}
+
 export function loadConfig(env = process.env) {
   const storageRoot = path.resolve(projectRoot, env.RIFTSENSE_STORAGE_ROOT ?? "storage");
   const maxUploadBytes = Number.parseInt(String(env.RIFTSENSE_MAX_UPLOAD_BYTES ?? ""), 10);
@@ -80,6 +97,7 @@ export function loadConfig(env = process.env) {
             : "",
       portalBaseUrl,
       appLoginUrl: deriveAppLoginUrl(env, portalBaseUrl),
+      sharedProfileUrl: deriveSharedProfileUrl(env, portalBaseUrl),
       allowManualTokenEntry: env.NODE_ENV !== "production"
     }
   };

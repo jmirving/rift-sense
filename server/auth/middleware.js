@@ -79,6 +79,7 @@ export function createRequireAuth(config) {
       }
 
       const payload = verifyAccessToken(token, config);
+      request.accessToken = token;
       request.auth = normalizePayload(payload);
       request.identity = buildIdentity(request.auth);
       next();
@@ -103,6 +104,7 @@ export function createOptionalAuth(config) {
       }
 
       const payload = verifyAccessToken(token, config);
+      request.accessToken = token;
       request.auth = normalizePayload(payload);
       request.identity = buildIdentity(request.auth);
       next();

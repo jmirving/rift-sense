@@ -1,5 +1,7 @@
 import express from "express";
 
+import { buildSharedProfileIdentity, resolveSharedProfile } from "../auth/shared-profile.js";
+
 function buildAccountUrl(portalBaseUrl) {
   if (typeof portalBaseUrl !== "string" || !portalBaseUrl.trim()) {
     return "";
@@ -12,11 +14,19 @@ function buildAccountUrl(portalBaseUrl) {
   }
 }
 
-export function createSessionRouter({ config }) {
+export function createSessionRouter({ config, fetchSharedProfile }) {
   const router = express.Router();
 
-  router.get("/", (request, response) => {
+  router.get("/", async (request, response) => {
     const authenticated = Boolean(request.identity?.id);
+    const sharedProfile = authenticated
+      ? await resolveSharedProfile({
+          request,
+          config,
+          fetchSharedProfileImpl: fetchSharedProfile
+        })
+      : null;
+    const riot = sharedProfile ? buildSharedProfileIdentity(sharedProfile) : request.identity?.riot ?? null;
 
     response.json({
       authEnabled: config.auth.enabled,
@@ -26,7 +36,8 @@ export function createSessionRouter({ config }) {
             id: request.identity.id,
             displayName: request.identity.displayName ?? null,
             email: request.identity.email ?? null,
-            riot: request.identity.riot ?? null
+            riot,
+            profile: sharedProfile
           }
         : null,
       accountUrl: buildAccountUrl(config.auth.portalBaseUrl),

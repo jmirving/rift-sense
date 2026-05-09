@@ -12,7 +12,14 @@ export async function buildHomePayload({
     user: {
       id: effectiveUserId,
       source,
-      profile: home.profile,
+      profile: {
+        ...home.profile,
+        primaryRole: identity?.profile?.primaryRole ?? home.profile?.primaryRole ?? null,
+        secondaryRoles: identity?.profile?.secondaryRoles ?? [],
+        riotGameName: identity?.profile?.riotGameName ?? null,
+        riotTagline: identity?.profile?.riotTagline ?? null,
+        riotPuuid: identity?.profile?.riotPuuid ?? null
+      },
       riot: identity?.riot ?? null
     },
     goalDashboard: applyRiotEvidenceToDashboard({

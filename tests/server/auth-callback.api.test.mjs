@@ -14,7 +14,7 @@ import { createLocalAssetStore } from "../../server/storage/local-assets.js";
 
 const tempDirectories = [];
 
-async function createTestApp({ redeemLaunchGrant } = {}) {
+async function createTestApp({ redeemLaunchGrant, fetchSharedProfile } = {}) {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rift-sense-auth-callback-"));
   tempDirectories.push(tempRoot);
 
@@ -76,7 +76,8 @@ async function createTestApp({ redeemLaunchGrant } = {}) {
         return item;
       }
     },
-    redeemLaunchGrant
+    redeemLaunchGrant,
+    fetchSharedProfile
   });
 }
 
@@ -112,6 +113,16 @@ describe("hosted auth callback", () => {
               userId: "usr_local_dev",
               email: "localdev@nexus.test",
               displayName: "Local Dev User"
+            },
+            profile: {
+              userId: "usr_local_dev",
+              riotGameName: "3nderWiggin",
+              riotTagline: "NA1",
+              riotPuuid: "puuid_local_dev_3nderwiggin",
+              primaryRole: "ADC",
+              secondaryRoles: ["Support"],
+              preferredTeamId: null,
+              activeTeamId: null
             }
           }
         };
@@ -131,6 +142,8 @@ describe("hosted auth callback", () => {
     expect(homeResponse.status).toBe(200);
     expect(homeResponse.body.home.user.id).toBe("usr_local_dev");
     expect(homeResponse.body.home.user.source).toBe("authenticated");
+    expect(homeResponse.body.home.user.profile.riotPuuid).toBe("puuid_local_dev_3nderwiggin");
+    expect(homeResponse.body.home.user.riot.puuid).toBe("puuid_local_dev_3nderwiggin");
   });
 
   it("returns an intentional error page when the grant is missing", async () => {

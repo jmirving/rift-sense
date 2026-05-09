@@ -2,6 +2,7 @@ import express from "express";
 import path from "node:path";
 
 import { createOptionalAuth, createRequireAuth } from "./auth/middleware.js";
+import { fetchSharedProfile as defaultFetchSharedProfile } from "./auth/shared-profile.js";
 import { createContentItemsRouter } from "./routes/content-items.js";
 import { createAuthRouter } from "./routes/auth.js";
 import { createDemoRouter } from "./routes/demo.js";
@@ -43,7 +44,8 @@ export function createApp({
   assetStore,
   previewService,
   redeemLaunchGrant,
-  authenticateWithNexusAccount
+  authenticateWithNexusAccount,
+  fetchSharedProfile = defaultFetchSharedProfile
 }) {
   const app = express();
   const requireAuth = createRequireAuth(config);
@@ -67,14 +69,15 @@ export function createApp({
     })
   );
 
-  app.use("/api/session", createSessionRouter({ config }));
+  app.use("/api/session", createSessionRouter({ config, fetchSharedProfile }));
 
   app.use(
     "/api/home",
     createHomeRouter({
       config,
       userHomesRepository,
-      contentItemsRepository
+      contentItemsRepository,
+      fetchSharedProfile
     })
   );
 

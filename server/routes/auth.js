@@ -3,6 +3,7 @@ import express from "express";
 import { authenticateWithNexusAccount as defaultAuthenticateWithNexusAccount } from "../auth/app-login.js";
 import { clearCookie, serializeCookie } from "../auth/cookies.js";
 import { redeemLaunchGrant as defaultRedeemLaunchGrant } from "../auth/exchange.js";
+import { PROFILE_CACHE_COOKIE, signSharedProfile } from "../auth/shared-profile.js";
 import { verifyAccessToken } from "../auth/tokens.js";
 import { ApiError, formatErrorResponse } from "../errors.js";
 import { requireNonEmptyString, requireObject } from "../http/validation.js";
@@ -55,6 +56,29 @@ function buildSessionCookie(token, payload, config) {
 
 function clearSessionCookie(config) {
   return clearCookie(config.auth.sessionCookieName, {
+    path: "/",
+    httpOnly: true,
+    sameSite: "Lax",
+    secure: config.nodeEnv === "production"
+  });
+}
+
+function buildSharedProfileCookie(profile, userId, config) {
+  return serializeCookie(
+    PROFILE_CACHE_COOKIE,
+    signSharedProfile(profile, userId, config),
+    {
+      path: "/",
+      httpOnly: true,
+      sameSite: "Lax",
+      secure: config.nodeEnv === "production",
+      maxAge: 60 * 60 * 12
+    }
+  );
+}
+
+function clearSharedProfileCookie(config) {
+  return clearCookie(PROFILE_CACHE_COOKIE, {
     path: "/",
     httpOnly: true,
     sameSite: "Lax",
@@ -246,7 +270,12 @@ export function createAuthRouter({
         throw new Error("Nexus login user payload did not match token subject.");
       }
 
-      response.setHeader("Set-Cookie", buildSessionCookie(accessToken, payload, config));
+      const cookies = [buildSessionCookie(accessToken, payload, config)];
+      if (authentication.payload?.profile && typeof authentication.payload.profile === "object") {
+        cookies.push(buildSharedProfileCookie(authentication.payload.profile, payload.sub, config));
+      }
+
+      response.setHeader("Set-Cookie", cookies);
       sendApiResponse(response, 200, {
         authenticated: true,
         user: {
@@ -358,7 +387,12 @@ export function createAuthRouter({
             : "/"
       );
 
-      response.setHeader("Set-Cookie", buildSessionCookie(accessToken, payload, config));
+      const cookies = [buildSessionCookie(accessToken, payload, config)];
+      if (exchange.payload?.profile && typeof exchange.payload.profile === "object") {
+        cookies.push(buildSharedProfileCookie(exchange.payload.profile, payload.sub, config));
+      }
+
+      response.setHeader("Set-Cookie", cookies);
       response.redirect(303, returnTo);
       logAuthEvent({
         outcome: "authenticated",
@@ -384,7 +418,10 @@ export function createAuthRouter({
   });
 
   router.post("/logout", (request, response) => {
-    response.setHeader("Set-Cookie", clearSessionCookie(config));
+    response.setHeader("Set-Cookie", [
+      clearSessionCookie(config),
+      clearSharedProfileCookie(config)
+    ]);
 
     if ((request.headers.accept || "").includes("application/json")) {
       response.status(204).end();

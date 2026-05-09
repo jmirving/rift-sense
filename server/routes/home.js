@@ -1,5 +1,6 @@
 import express from "express";
 
+import { buildSharedProfileIdentity, resolveSharedProfile } from "../auth/shared-profile.js";
 import { normalizeGoalDashboard } from "../goal-dashboard.js";
 import { buildHomePayload } from "./home-response.js";
 
@@ -32,7 +33,12 @@ async function resolveHomeRecord({ request, config, userHomesRepository }) {
   };
 }
 
-export function createHomeRouter({ config, userHomesRepository, contentItemsRepository }) {
+export function createHomeRouter({
+  config,
+  userHomesRepository,
+  contentItemsRepository,
+  fetchSharedProfile
+}) {
   const router = express.Router();
 
   router.get("/", async (request, response) => {
@@ -43,6 +49,20 @@ export function createHomeRouter({ config, userHomesRepository, contentItemsRepo
     });
     const isAuthenticatedHome =
       Boolean(request.identity?.id) && request.identity.id === effectiveUserId;
+    const sharedProfile = isAuthenticatedHome
+      ? await resolveSharedProfile({
+          request,
+          config,
+          fetchSharedProfileImpl: fetchSharedProfile
+        })
+      : null;
+    const identity = isAuthenticatedHome
+      ? {
+          ...request.identity,
+          riot: sharedProfile ? buildSharedProfileIdentity(sharedProfile) : request.identity?.riot ?? null,
+          profile: sharedProfile
+        }
+      : request.identity;
 
     response.json({
       home: await buildHomePayload({
@@ -50,7 +70,7 @@ export function createHomeRouter({ config, userHomesRepository, contentItemsRepo
         effectiveUserId,
         source: isAuthenticatedHome ? "authenticated" : "demo",
         contentItemsRepository,
-        identity: request.identity
+        identity
       })
     });
   });
