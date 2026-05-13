@@ -233,7 +233,7 @@ function renderSessionPanel() {
 
   const intro = session.unavailable
     ? session.error || "Session is unavailable right now."
-    : "Use your Nexus or DraftEngine account to sign in.";
+    : "Use your Nexus account to sign in.";
 
   return `
     <section class="session-panel">
@@ -310,7 +310,7 @@ function appShell(content, hero = {}) {
             <div class="brand-lockup">
               <span class="brand-mark">N</span>
               <div class="brand-copy">
-                <p class="eyebrow">Nexus Application</p>
+                <p class="eyebrow">Nexus App</p>
                 <a class="wordmark" href="${escapeHtml(toAppHref("/", context) ?? "/")}">RiftSense</a>
               </div>
             </div>
@@ -324,7 +324,7 @@ function appShell(content, hero = {}) {
               title="${navCollapsed ? "Expand sidebar" : "Collapse sidebar"}"
             >${navCollapsed ? "▶" : "◀"}</button>
           </div>
-          <p class="nav-meta">League learning workflows inside the shared Nexus navigation.</p>
+          <p class="nav-meta">Open dashboard, review, training, team, or library.</p>
           <div class="side-nav-sections">
             ${navSections.map((section) => `
               <details
