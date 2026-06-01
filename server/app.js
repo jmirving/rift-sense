@@ -9,6 +9,7 @@ import { createDemoRouter } from "./routes/demo.js";
 import { createHomeRouter } from "./routes/home.js";
 import { createOnboardingRouter } from "./routes/onboarding.js";
 import { createSessionRouter } from "./routes/session.js";
+import { resolveRecentGames as defaultResolveRecentGames } from "./riot/recent-games.js";
 import { ApiError, badRequest, formatErrorResponse } from "./errors.js";
 
 const clientRoutes = [
@@ -45,7 +46,9 @@ export function createApp({
   previewService,
   redeemLaunchGrant,
   authenticateWithNexusAccount,
-  fetchSharedProfile = defaultFetchSharedProfile
+  fetchSharedProfile = defaultFetchSharedProfile,
+  resolveRecentGames = defaultResolveRecentGames,
+  fetchImpl = fetch
 }) {
   const app = express();
   const requireAuth = createRequireAuth(config);
@@ -77,7 +80,9 @@ export function createApp({
       config,
       userHomesRepository,
       contentItemsRepository,
-      fetchSharedProfile
+      fetchSharedProfile,
+      resolveRecentGames,
+      fetchImpl
     })
   );
 

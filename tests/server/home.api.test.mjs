@@ -14,7 +14,7 @@ import { createLocalAssetStore } from "../../server/storage/local-assets.js";
 
 const tempDirectories = [];
 
-async function createTestApp({ authEnabled = false, fetchSharedProfile } = {}) {
+async function createTestApp({ authEnabled = false, fetchSharedProfile, resolveRecentGames } = {}) {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rift-sense-home-api-"));
   tempDirectories.push(tempRoot);
 
@@ -95,7 +95,8 @@ async function createTestApp({ authEnabled = false, fetchSharedProfile } = {}) {
         return item;
       }
     },
-    fetchSharedProfile
+    fetchSharedProfile,
+    resolveRecentGames
   });
 }
 
@@ -194,9 +195,190 @@ describe("home API", () => {
     expect(response.body.home.goalDashboard.activePersonalGoal.title).toBe("Die Less");
     expect(response.body.home.goalDashboard.activePersonalGoal.evidenceSource.summary).toContain("Based on 5 signal events");
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence).toMatchObject({
-      status: "riot-linked-pending"
+      status: "riot-linked-unavailable"
     });
+    expect(response.body.home.goalDashboard.activePersonalGoal.role).toBe("ADC");
+    expect(response.body.home.user.profile.primaryRole).toBe("ADC");
+    expect(response.body.home.user.profile.riotGameName).toBe("3nderWiggin");
+    expect(response.body.home.user.profile.riotTagline).toBe("NA1");
     expect(response.body.home.user.profile.riotPuuid).toBe("puuid_local_dev_3nderwiggin");
+  });
+
+  it("uses shared profile fields instead of local defaults when authenticated", async () => {
+    const app = await createTestApp({
+      authEnabled: true,
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_local_dev",
+          riotGameName: "RoleSwap",
+          riotTagline: "NA1",
+          riotPuuid: null,
+          primaryRole: null,
+          secondaryRoles: ["Support"],
+          preferredTeamId: "team-1",
+          activeTeamId: "team-2"
+        };
+      }
+    });
+    const token = jwt.sign(
+      { sub: "usr_local_dev", iss: "nexus", aud: "riftsense" },
+      "test-secret",
+      { algorithm: "HS256", expiresIn: "1h" }
+    );
+
+    const response = await request(app)
+      .get("/api/home")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.home.user.profile.primaryRole).toBeNull();
+    expect(response.body.home.user.profile.riotPuuid).toBeNull();
+    expect(response.body.home.user.profile.riotGameName).toBe("RoleSwap");
+    expect(response.body.home.user.profile.preferredTeamId).toBe("team-1");
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("no-riot-linked");
+  });
+
+  it("returns setup state when Riot account is linked without a primary role", async () => {
+    const app = await createTestApp({
+      authEnabled: true,
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_local_dev",
+          riotGameName: "3nderWiggin",
+          riotTagline: "NA1",
+          riotPuuid: "puuid_local_dev_3nderwiggin",
+          primaryRole: null,
+          secondaryRoles: ["Support"]
+        };
+      }
+    });
+    const token = jwt.sign(
+      { sub: "usr_local_dev", iss: "nexus", aud: "riftsense" },
+      "test-secret",
+      { algorithm: "HS256", expiresIn: "1h" }
+    );
+
+    const response = await request(app)
+      .get("/api/home")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("riot-setup-needed");
+    expect(response.body.home.user.profile.primaryRole).toBeNull();
+  });
+
+  it("returns linked-but-unavailable state when Riot retrieval cannot run", async () => {
+    const app = await createTestApp({
+      authEnabled: true,
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_local_dev",
+          riotGameName: "3nderWiggin",
+          riotTagline: "NA1",
+          riotPuuid: "puuid_local_dev_3nderwiggin",
+          primaryRole: "ADC",
+          secondaryRoles: ["Support"]
+        };
+      },
+      async resolveRecentGames() {
+        return {
+          status: "unavailable",
+          sourceLabel: "Riot account linked",
+          message: "Riot account linked. Recent games are temporarily unavailable.",
+          games: []
+        };
+      }
+    });
+    const token = jwt.sign(
+      { sub: "usr_local_dev", iss: "nexus", aud: "riftsense" },
+      "test-secret",
+      { algorithm: "HS256", expiresIn: "1h" }
+    );
+
+    const response = await request(app)
+      .get("/api/home")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("riot-linked-unavailable");
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.sourceLabel).toBe("Riot account linked");
+  });
+
+  it("returns scored recent games for authenticated Riot-linked users", async () => {
+    const app = await createTestApp({
+      authEnabled: true,
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_local_dev",
+          riotGameName: "3nderWiggin",
+          riotTagline: "NA1",
+          riotPuuid: "puuid_local_dev_3nderwiggin",
+          primaryRole: "ADC",
+          secondaryRoles: ["Support"]
+        };
+      },
+      async resolveRecentGames() {
+        return {
+          status: "available",
+          sourceLabel: "Riot recent games",
+          message: "Recent games loaded from Riot.",
+          games: [
+            {
+              matchId: "NA1_1",
+              playedAt: "2026-06-01T05:00:00.000Z",
+              queueId: 420,
+              queueLabel: "Ranked Solo/Duo",
+              championId: 202,
+              championName: "Jhin",
+              role: "ADC",
+              roleConfidence: "high",
+              result: "Loss",
+              kills: 8,
+              deaths: 5,
+              assists: 6,
+              csPerMinute: 8.1,
+              gameDurationSeconds: 1860,
+              sourceMetadata: { queueBucket: "ranked" }
+            },
+            {
+              matchId: "NA1_2",
+              playedAt: "2026-05-20T05:00:00.000Z",
+              queueId: 430,
+              queueLabel: "Normal Blind",
+              championId: 103,
+              championName: "Ahri",
+              role: "MID",
+              roleConfidence: "high",
+              result: "Win",
+              kills: 3,
+              deaths: 0,
+              assists: 8,
+              csPerMinute: 7.2,
+              gameDurationSeconds: 1720,
+              sourceMetadata: { queueBucket: "normal" }
+            }
+          ]
+        };
+      }
+    });
+    const token = jwt.sign(
+      { sub: "usr_local_dev", iss: "nexus", aud: "riftsense" },
+      "test-secret",
+      { algorithm: "HS256", expiresIn: "1h" }
+    );
+
+    const response = await request(app)
+      .get("/api/home")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("recent-games-ready");
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.candidateGames[0]).toMatchObject({
+      matchId: "NA1_1",
+      championName: "Jhin",
+      confidenceLabel: "high"
+    });
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.candidateGames[0].relevanceReason).toContain("ADC role match");
   });
 
   it("ignores authenticated identity on the dedicated demo endpoint", async () => {

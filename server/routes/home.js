@@ -37,7 +37,9 @@ export function createHomeRouter({
   config,
   userHomesRepository,
   contentItemsRepository,
-  fetchSharedProfile
+  fetchSharedProfile,
+  resolveRecentGames,
+  fetchImpl
 }) {
   const router = express.Router();
 
@@ -70,7 +72,10 @@ export function createHomeRouter({
         effectiveUserId,
         source: isAuthenticatedHome ? "authenticated" : "demo",
         contentItemsRepository,
-        identity
+        identity,
+        config,
+        fetchImpl,
+        resolveRecentGames
       })
     });
   });

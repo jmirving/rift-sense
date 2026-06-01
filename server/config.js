@@ -99,6 +99,21 @@ export function loadConfig(env = process.env) {
       appLoginUrl: deriveAppLoginUrl(env, portalBaseUrl),
       sharedProfileUrl: deriveSharedProfileUrl(env, portalBaseUrl),
       allowManualTokenEntry: env.NODE_ENV !== "production"
+    },
+    riot: {
+      apiKey:
+        typeof env.RIFTSENSE_RIOT_API_KEY === "string" && env.RIFTSENSE_RIOT_API_KEY.trim()
+          ? env.RIFTSENSE_RIOT_API_KEY.trim()
+          : "",
+      routingRegion:
+        typeof env.RIFTSENSE_RIOT_ROUTING_REGION === "string" && env.RIFTSENSE_RIOT_ROUTING_REGION.trim()
+          ? env.RIFTSENSE_RIOT_ROUTING_REGION.trim()
+          : "americas",
+      platformRegion:
+        typeof env.RIFTSENSE_RIOT_PLATFORM_REGION === "string" && env.RIFTSENSE_RIOT_PLATFORM_REGION.trim()
+          ? env.RIFTSENSE_RIOT_PLATFORM_REGION.trim()
+          : "na1",
+      matchCount: parsePort(env.RIFTSENSE_RIOT_MATCH_COUNT, 8)
     }
   };
 }

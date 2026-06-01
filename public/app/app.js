@@ -706,12 +706,14 @@ function riotEvidenceCard(riotEvidence) {
     return "";
   }
 
+  const sourceLabel = riotEvidence.sourceLabel ? `<p class="eyebrow">${escapeHtml(riotEvidence.sourceLabel)}</p>` : "";
   return `
     <section class="panel riot-evidence-panel">
       <div class="panel-header">
         <div>
           <p class="eyebrow">Recent Game Evidence</p>
           <h2>${escapeHtml(riotEvidence.title ?? "Riot evidence")}</h2>
+          ${sourceLabel}
         </div>
         ${riotEvidence.confidence ? statusBadge(riotEvidence.confidence, riotEvidence.status === "seeded-demo" ? "watch" : "unknown") : ""}
       </div>
@@ -720,8 +722,10 @@ function riotEvidenceCard(riotEvidence) {
         ${(riotEvidence.candidateGames ?? []).length > 0
           ? riotEvidence.candidateGames.slice(0, 3).map((game) => `
             <article class="compact-row">
-              <span>${escapeHtml(`${game.champion} · ${game.queueLabel} · ${game.result}`)}</span>
-              <span class="compact-row-value">${escapeHtml(`${game.kda} · ${game.csPerMinute} cs/min`)}</span>
+              <span>${escapeHtml(`${game.champion ?? game.championName ?? "Unknown champion"} · ${game.queueLabel} · ${game.result}`)}</span>
+              <span class="compact-row-value">${escapeHtml(`${game.kda} · ${game.csPerMinute ?? "?"} cs/min`)}</span>
+              <span class="muted">${escapeHtml(game.relevanceReason ?? "")}</span>
+              <span class="muted">${escapeHtml((game.confidenceLabel ?? "").toUpperCase())}</span>
             </article>
           `).join("")
           : '<p class="muted">No Riot candidate games are available yet.</p>'}

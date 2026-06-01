@@ -27,6 +27,18 @@ export function createSessionRouter({ config, fetchSharedProfile }) {
         })
       : null;
     const riot = sharedProfile ? buildSharedProfileIdentity(sharedProfile) : request.identity?.riot ?? null;
+    const profile = authenticated
+      ? {
+          userId: sharedProfile?.userId ?? request.identity.id,
+          riotGameName: sharedProfile?.riotGameName ?? null,
+          riotTagline: sharedProfile?.riotTagline ?? null,
+          riotPuuid: sharedProfile?.riotPuuid ?? null,
+          primaryRole: sharedProfile?.primaryRole ?? null,
+          secondaryRoles: Array.isArray(sharedProfile?.secondaryRoles) ? sharedProfile.secondaryRoles : [],
+          preferredTeamId: sharedProfile?.preferredTeamId ?? null,
+          activeTeamId: sharedProfile?.activeTeamId ?? null
+        }
+      : null;
 
     response.json({
       authEnabled: config.auth.enabled,
@@ -37,7 +49,7 @@ export function createSessionRouter({ config, fetchSharedProfile }) {
             displayName: request.identity.displayName ?? null,
             email: request.identity.email ?? null,
             riot,
-            profile: sharedProfile
+            profile
           }
         : null,
       accountUrl: buildAccountUrl(config.auth.portalBaseUrl),

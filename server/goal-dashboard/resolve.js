@@ -282,13 +282,14 @@ export function resolveGoalDashboardState(state = {}) {
     .sort((left, right) => Number(right.value ?? 0) - Number(left.value ?? 0))[0] ?? null;
 
   const activePersonalGoal = goalTemplate
-    ? {
+      ? {
         id: goalInstance.id,
         templateId: goalTemplate.id,
         title: goalTemplate.title,
         scope: goalTemplate.scope,
         role: goalTemplate.role,
         status: goalInstance.status,
+        activeSince: goalInstance.activeSince,
         goalStatus: missedTargets > 0 ? "Needs attention" : "On track",
         goalStatusTrend: missedTargets > 0 ? "needs-attention" : "positive",
         trend: "Unknown",

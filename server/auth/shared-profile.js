@@ -7,16 +7,20 @@ const PROFILE_CACHE_COOKIE = "riftsense_shared_profile";
 
 function normalizeSharedProfile(profile, userId = null) {
   const source = profile && typeof profile === "object" ? profile : {};
+  const normalizeOptionalString = (value) =>
+    typeof value === "string" && value.trim() ? value.trim() : null;
 
   return {
-    userId: typeof source.userId === "string" ? source.userId : userId,
-    riotGameName: typeof source.riotGameName === "string" ? source.riotGameName : null,
-    riotTagline: typeof source.riotTagline === "string" ? source.riotTagline : null,
-    riotPuuid: typeof source.riotPuuid === "string" ? source.riotPuuid : null,
-    primaryRole: typeof source.primaryRole === "string" ? source.primaryRole : null,
-    secondaryRoles: Array.isArray(source.secondaryRoles) ? source.secondaryRoles : [],
-    preferredTeamId: typeof source.preferredTeamId === "string" ? source.preferredTeamId : null,
-    activeTeamId: typeof source.activeTeamId === "string" ? source.activeTeamId : null
+    userId: normalizeOptionalString(source.userId) ?? userId,
+    riotGameName: normalizeOptionalString(source.riotGameName),
+    riotTagline: normalizeOptionalString(source.riotTagline),
+    riotPuuid: normalizeOptionalString(source.riotPuuid),
+    primaryRole: normalizeOptionalString(source.primaryRole),
+    secondaryRoles: Array.isArray(source.secondaryRoles)
+      ? source.secondaryRoles.filter((value) => typeof value === "string" && value.trim()).map((value) => value.trim())
+      : [],
+    preferredTeamId: normalizeOptionalString(source.preferredTeamId),
+    activeTeamId: normalizeOptionalString(source.activeTeamId)
   };
 }
 
