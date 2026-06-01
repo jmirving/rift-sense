@@ -50,6 +50,7 @@ export async function buildHomePayload({
       profile,
       riot: identity?.riot ?? null
     },
+    setupGuide: home.setupGuide ?? null,
     goalDashboard: await applyRiotEvidenceToDashboard({
       goalDashboard: normalizeGoalDashboard(home.goalDashboard),
       identity,

@@ -105,32 +105,19 @@ afterEach(async () => {
 });
 
 describe("home API", () => {
-  it("returns the demo home when no user is authenticated", async () => {
+  it("returns a public home payload when no user is authenticated", async () => {
     const app = await createTestApp();
 
     const response = await request(app).get("/api/home");
 
     expect(response.status).toBe(200);
-    expect(response.body.home.user.id).toBe("usr_demo_home");
-    expect(response.body.home.user.source).toBe("demo");
-    expect(response.body.home.focusBoard).toBeUndefined();
-    expect(response.body.home.coachFeed).toBeUndefined();
-    expect(response.body.home.continueLearning).toBeUndefined();
-    expect(response.body.home.goalDashboard.activePersonalGoal.title).toBe("Die Less");
-    expect(response.body.home.goalDashboard.activePersonalGoal.templateId).toBe("goal-template-adc-die-less");
-    expect(response.body.home.goalDashboard.activePersonalGoal.weeklyTargets[0]).toMatchObject({
-      signalId: "signal-bad-2v2-death",
-      status: "on-track"
+    expect(response.body.home.user.id).toBeNull();
+    expect(response.body.home.user.source).toBe("public");
+    expect(response.body.home.publicEntry).toMatchObject({
+      aboutHref: "/about",
+      demoHref: "/demo"
     });
-    expect(response.body.home.goalDashboard.activePersonalGoal.evidenceSource.summary).toContain("Based on 5 signal events");
-    expect(response.body.home.goalDashboard.activePersonalGoal.evidenceSource.confidence).toBe("Low sample");
-    expect(response.body.home.goalDashboard.activeTeamFocus.title).toBe("Dragon Setup");
-    expect(response.body.home.goalDashboard.activeTeamFocus.assignment).toBe("Should bot wave be dropped before dragon?");
-    expect(response.body.home.goalDashboard.activeTeamFocus.nextTeamAction.title).toBe("Refresh Dragon Setup checklist");
-    expect(response.body.home.goalDashboard.todaysAction.title).toBe("Review last game deaths");
-    expect(response.body.home.goalDashboard.todaysAction.templateId).toBe("action-death-review-v1");
-    expect(response.body.home.goalDashboard.recentInsights.length).toBeGreaterThan(0);
-    expect(response.body.home.goalDashboard.recentInsights[0].basedOn.length).toBeGreaterThan(0);
+    expect(response.body.home.goalDashboard).toBeNull();
   });
 
   it("returns the public demo home from the dedicated demo endpoint", async () => {
@@ -202,6 +189,44 @@ describe("home API", () => {
     expect(response.body.home.user.profile.riotGameName).toBe("3nderWiggin");
     expect(response.body.home.user.profile.riotTagline).toBe("NA1");
     expect(response.body.home.user.profile.riotPuuid).toBe("puuid_local_dev_3nderwiggin");
+  });
+
+  it("returns an authenticated empty home instead of the demo home when no saved home exists", async () => {
+    const app = await createTestApp({
+      authEnabled: true,
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_new_auth",
+          riotGameName: "FreshPlayer",
+          riotTagline: "NA1",
+          riotPuuid: null,
+          primaryRole: null,
+          secondaryRoles: []
+        };
+      }
+    });
+    const token = jwt.sign(
+      { sub: "usr_new_auth", iss: "nexus", aud: "riftsense", displayName: "Fresh Player" },
+      "test-secret",
+      { algorithm: "HS256", expiresIn: "1h" }
+    );
+
+    const response = await request(app)
+      .get("/api/home")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.home.user.id).toBe("usr_new_auth");
+    expect(response.body.home.user.source).toBe("authenticated");
+    expect(response.body.home.user.profile.riotGameName).toBe("FreshPlayer");
+    expect(response.body.home.user.profile.primaryRole).toBeNull();
+    expect(response.body.home.setupGuide).toMatchObject({
+      status: "setup-needed",
+      href: "/onboarding"
+    });
+    expect(response.body.home.goalDashboard.activePersonalGoal.goalStatus).toBe("Setup needed");
+    expect(response.body.home.goalDashboard.todaysAction.href).toBe("/onboarding");
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("no-riot-linked");
   });
 
   it("uses shared profile fields instead of local defaults when authenticated", async () => {
@@ -409,6 +434,18 @@ describe("home API", () => {
     expect(response.text).toContain('<script type="module" src="/app/main.js"></script>');
   });
 
+  it("serves the client app from the public root and about routes", async () => {
+    const app = await createTestApp();
+
+    const homeResponse = await request(app).get("/");
+    const aboutResponse = await request(app).get("/about");
+
+    expect(homeResponse.status).toBe(200);
+    expect(homeResponse.text).toContain('<div id="app"></div>');
+    expect(aboutResponse.status).toBe(200);
+    expect(aboutResponse.text).toContain('<div id="app"></div>');
+  });
+
   it("serves the client app from onboarding routes", async () => {
     const app = await createTestApp();
 
@@ -457,12 +494,7 @@ describe("home API", () => {
 
     const homeResponse = await request(app).get("/api/home");
     expect(homeResponse.status).toBe(200);
-    expect(homeResponse.body.home.goalDashboard.activePersonalGoal.signals.map((signal) => signal.id)).toEqual([
-      "signal-known-danger-death",
-      "signal-clean-disengage"
-    ]);
-    expect(homeResponse.body.home.goalDashboard.activePersonalGoal.evidenceSource.summary).toBe("Seeded from onboarding");
-    expect(homeResponse.body.home.goalDashboard.activePersonalGoal.evidenceSource.confidence).toBe("No reviewed games yet");
+    expect(homeResponse.body.home.user.source).toBe("public");
   });
 
   it("saves onboarding to the authenticated user when auth is enabled", async () => {

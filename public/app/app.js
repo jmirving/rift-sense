@@ -40,6 +40,10 @@ function getRouteContext() {
   };
 }
 
+function isPublicPath(pathname) {
+  return pathname === "/" || pathname === "/about";
+}
+
 function toAppHref(href, context = getRouteContext()) {
   if (!href) {
     return null;
@@ -266,6 +270,8 @@ function appShell(content, hero = {}) {
   const context = getRouteContext();
   const pathname = context.pathname;
   const demoMode = context.demoMode;
+  const session = getSessionState();
+  const publicMode = !demoMode && !session.authenticated && isPublicPath(pathname);
   const navCollapsed = window.localStorage.getItem("riftsense.navCollapsed") === "true";
   const searchParams = new URLSearchParams(window.location.search);
   const isCuratorDetail = pathname.startsWith("/content/") && searchParams.get("curator") === "1";
@@ -279,8 +285,14 @@ function appShell(content, hero = {}) {
   const navSections = [
     {
       key: "learn",
-      title: "Improve",
-      items: demoMode
+      title: publicMode ? "Explore" : "Improve",
+      items: publicMode
+        ? [
+            { href: "/", label: "Home", active: pathname === "/" },
+            { href: "/about", label: "About", active: pathname === "/about" },
+            { href: "/demo", label: "Demo", active: pathname === "/demo" }
+          ]
+        : demoMode
         ? [
             { href: "/demo", label: "Dashboard", active: pathname === "/demo" },
             { href: "/demo/goals", label: "Goals", active: pathname === "/demo/goals" },
@@ -324,7 +336,7 @@ function appShell(content, hero = {}) {
               title="${navCollapsed ? "Expand sidebar" : "Collapse sidebar"}"
             >${navCollapsed ? "▶" : "◀"}</button>
           </div>
-          <p class="nav-meta">Open dashboard, review, training, team, or library.</p>
+          <p class="nav-meta">${escapeHtml(publicMode ? "Open the public home, About page, or demo." : "Open dashboard, review, training, team, or library.")}</p>
           <div class="side-nav-sections">
             ${navSections.map((section) => `
               <details
@@ -880,6 +892,40 @@ function bindSourceTypeVisibility(root) {
 
 async function renderHome(root, context = getRouteContext()) {
   const { home } = await requestJson(context.homeApiUrl, context.requestOptions);
+  if (home.user?.source === "public") {
+    root.innerHTML = appShell(`
+      <section class="goal-dashboard-stack">
+        <section class="panel active-goal-panel">
+          <p class="eyebrow">RiftSense</p>
+          <h2>${escapeHtml(home.publicEntry?.title ?? "RiftSense")}</h2>
+          <p class="muted">${escapeHtml(home.publicEntry?.summary ?? "")}</p>
+          <div class="action-row">
+            <a class="button" href="${escapeHtml(home.publicEntry?.signInHref ?? "/#session-login-form")}">${escapeHtml(home.publicEntry?.signInLabel ?? "Continue with Nexus")}</a>
+            <a class="button secondary" href="${escapeHtml(home.publicEntry?.aboutHref ?? "/about")}">About</a>
+            <a class="button secondary" href="${escapeHtml(home.publicEntry?.demoHref ?? "/demo")}">Demo</a>
+          </div>
+        </section>
+        <section class="dashboard-two-column">
+          <section class="panel">
+            <p class="eyebrow">What It Does</p>
+            <h2>Turn recent games into goal-linked review work</h2>
+            <p class="muted">RiftSense uses Nexus identity, Riot account data, and active goals to surface review candidates and next actions.</p>
+          </section>
+          <section class="panel">
+            <p class="eyebrow">Start Here</p>
+            <h2>Sign in or open the seeded demo</h2>
+            <p class="muted">Use Nexus sign-in for your own setup, or open the demo to inspect the current ADC evidence flow.</p>
+          </section>
+        </section>
+      </section>
+    `, {
+      eyebrow: "Public Home",
+      title: "RiftSense",
+      text: "Review goals, recent games, and team focus from a Nexus-authenticated workflow."
+    });
+    return;
+  }
+
   const profile = home.user.profile ?? {};
   const dashboard = home.goalDashboard ?? {};
   const goal = dashboard.activePersonalGoal ?? {};
@@ -907,10 +953,21 @@ async function renderHome(root, context = getRouteContext()) {
       </section>
     `
     : "";
+  const setupGuide = home.setupGuide
+    ? `
+      <section class="panel panel-slim">
+        <p class="eyebrow">${escapeHtml(home.setupGuide.status === "setup-needed" ? "Setup" : "Next")}</p>
+        <h2>${escapeHtml(home.setupGuide.title ?? "Setup needed")}</h2>
+        <p class="muted">${escapeHtml(home.setupGuide.summary ?? "")}</p>
+        ${home.setupGuide.href ? `<a class="button" href="${escapeHtml(toAppHref(home.setupGuide.href, context) ?? home.setupGuide.href)}">${escapeHtml(home.setupGuide.label ?? "Open setup")}</a>` : ""}
+      </section>
+    `
+    : "";
 
   root.innerHTML = appShell(`
     <section class="goal-dashboard-stack">
       ${demoBanner}
+      ${setupGuide}
       <section class="panel active-goal-panel">
         <div class="active-goal-hero">
           <div class="active-goal-copy">
@@ -1029,7 +1086,65 @@ async function renderHome(root, context = getRouteContext()) {
   });
 }
 
+function renderPublicAbout(root) {
+  root.innerHTML = appShell(`
+    <section class="goal-dashboard-stack">
+      <section class="panel active-goal-panel">
+        <p class="eyebrow">About</p>
+        <h2>RiftSense is a goal-driven League review workspace</h2>
+        <p class="muted">It uses Nexus-authenticated identity, shared Riot profile fields, and RiftSense-owned recent-game evidence to help players focus review work against active goals.</p>
+        <div class="action-row">
+          <a class="button" href="/#session-login-form">Continue with Nexus</a>
+          <a class="button secondary" href="/demo">View Demo</a>
+        </div>
+      </section>
+      <section class="dashboard-two-column">
+        <section class="panel">
+          <p class="eyebrow">Current Scope</p>
+          <h2>Goals, evidence, and setup</h2>
+          <p class="muted">Authenticated players can save setup, see goal-linked evidence states, and review Riot recent-game candidates when Riot identity and RiftSense config are available.</p>
+        </section>
+        <section class="panel">
+          <p class="eyebrow">Access</p>
+          <h2>Public About and Demo</h2>
+          <p class="muted">About and Demo stay public. Enter the authenticated app when you are ready to save setup and use your own profile.</p>
+        </section>
+      </section>
+    </section>
+  `, {
+    eyebrow: "About",
+    title: "RiftSense",
+    text: "A public overview of the RiftSense workflow."
+  });
+}
+
+function renderAuthRequiredPage(root, title, summary) {
+  root.innerHTML = appShell(`
+    <section class="goal-dashboard-stack">
+      <section class="panel active-goal-panel">
+        <p class="eyebrow">Sign In Required</p>
+        <h2>${escapeHtml(title)}</h2>
+        <p class="muted">${escapeHtml(summary)}</p>
+        <div class="action-row">
+          <a class="button" href="/#session-login-form">Continue with Nexus</a>
+          <a class="button secondary" href="/demo">View Demo</a>
+          <a class="button secondary" href="/about">About</a>
+        </div>
+      </section>
+    </section>
+  `, {
+    eyebrow: "Access",
+    title,
+    text: summary
+  });
+}
+
 async function renderGoalDashboardPage(root, page, context = getRouteContext()) {
+  if (!context.demoMode && !getSessionState().authenticated) {
+    renderAuthRequiredPage(root, "Sign in to open RiftSense", "This area uses your authenticated setup and review state.");
+    return;
+  }
+
   const { home } = await requestJson(context.homeApiUrl, context.requestOptions);
   const dashboard = home.goalDashboard ?? {};
   const goal = dashboard.activePersonalGoal ?? {};
@@ -1270,6 +1385,11 @@ function onboardingPreview({ state, templates }) {
 }
 
 async function renderOnboarding(root, context = getRouteContext()) {
+  if (!context.demoMode && !getSessionState().authenticated) {
+    renderAuthRequiredPage(root, "Sign in to start setup", "RiftSense setup is saved to your authenticated account.");
+    return;
+  }
+
   const { templates } = await requestJson("/api/onboarding/options", {
     skipStoredToken: context.demoMode
   });
@@ -2040,6 +2160,14 @@ export async function renderApp(root) {
   await loadSession();
 
   try {
+    if (pathname === "/about") {
+      renderPublicAbout(root);
+      bindNavControls(root);
+      bindNavSectionControls(root);
+      bindSessionControls(root);
+      return;
+    }
+
     if (pathname === "/" || pathname === "/demo" || pathname === "/demo/adc" || pathname === "/demo/no-riot-linked") {
       await renderHome(root, context);
       bindNavControls(root);
