@@ -320,7 +320,7 @@ function appShell(content, hero = {}) {
         <nav class="nav-shell">
           <div class="nav-header">
             <div class="brand-lockup">
-              <img class="brand-mark" src="/favicon.png" alt="RiftSense" />
+              <img class="brand-mark" src="/riftsense.png" alt="RiftSense" />
               <div class="brand-copy">
                 <p class="eyebrow">RiftSense</p>
                 <a class="wordmark" href="${escapeHtml(toAppHref("/", context) ?? "/")}">RiftSense</a>
