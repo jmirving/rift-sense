@@ -320,9 +320,9 @@ function appShell(content, hero = {}) {
         <nav class="nav-shell">
           <div class="nav-header">
             <div class="brand-lockup">
-              <span class="brand-mark">N</span>
+              <img class="brand-mark" src="/riftsense.png" alt="RiftSense" />
               <div class="brand-copy">
-                <p class="eyebrow">Nexus App</p>
+                <p class="eyebrow">RiftSense</p>
                 <a class="wordmark" href="${escapeHtml(toAppHref("/", context) ?? "/")}">RiftSense</a>
               </div>
             </div>
