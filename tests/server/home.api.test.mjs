@@ -143,7 +143,7 @@ describe("home API", () => {
       )
     ).toBe(false);
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence).toMatchObject({
-      status: "no-riot-linked"
+      status: "riot_account_not_linked"
     });
   });
 
@@ -190,7 +190,7 @@ describe("home API", () => {
     expect(response.body.home.goalDashboard.activePersonalGoal.title).toBe("Die Less");
     expect(response.body.home.goalDashboard.activePersonalGoal.evidenceSource.summary).toContain("Based on 5 signal events");
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence).toMatchObject({
-      status: "riot-linked-unavailable"
+      status: "riot_access_not_configured"
     });
     expect(response.body.home.goalDashboard.activePersonalGoal.role).toBe("ADC");
     expect(response.body.home.user.profile.primaryRole).toBe("ADC");
@@ -234,7 +234,7 @@ describe("home API", () => {
     });
     expect(response.body.home.goalDashboard.activePersonalGoal.goalStatus).toBe("Setup needed");
     expect(response.body.home.goalDashboard.todaysAction.href).toBe("/onboarding");
-    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("no-riot-linked");
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("riot_account_not_linked");
   });
 
   it("uses shared profile fields instead of local defaults when authenticated", async () => {
@@ -268,10 +268,10 @@ describe("home API", () => {
     expect(response.body.home.user.profile.riotPuuid).toBeNull();
     expect(response.body.home.user.profile.riotGameName).toBe("RoleSwap");
     expect(response.body.home.user.profile.preferredTeamId).toBe("team-1");
-    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("no-riot-linked");
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("riot_account_not_linked");
   });
 
-  it("returns setup state when Riot account is linked without a primary role", async () => {
+  it("does not block Riot status when account is linked without a primary role", async () => {
     const app = await createTestApp({
       authEnabled: true,
       async fetchSharedProfile() {
@@ -296,7 +296,7 @@ describe("home API", () => {
       .set("Authorization", `Bearer ${token}`);
 
     expect(response.status).toBe(200);
-    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("riot-setup-needed");
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("riot_access_not_configured");
     expect(response.body.home.user.profile.primaryRole).toBeNull();
   });
 
@@ -315,7 +315,7 @@ describe("home API", () => {
       },
       async resolveRecentGames() {
         return {
-          status: "unavailable",
+          status: "recent_games_unavailable",
           sourceLabel: "Riot account linked",
           message: "Riot account linked. Recent games are temporarily unavailable.",
           games: []
@@ -333,7 +333,7 @@ describe("home API", () => {
       .set("Authorization", `Bearer ${token}`);
 
     expect(response.status).toBe(200);
-    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("riot-linked-unavailable");
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("recent_games_unavailable");
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.sourceLabel).toBe("Riot account linked");
   });
 
@@ -352,7 +352,7 @@ describe("home API", () => {
       },
       async resolveRecentGames() {
         return {
-          status: "available",
+          status: "all_recent_games_ready",
           sourceLabel: "Riot recent games",
           message: "Recent games loaded from Riot.",
           games: [
@@ -405,7 +405,7 @@ describe("home API", () => {
       .set("Authorization", `Bearer ${token}`);
 
     expect(response.status).toBe(200);
-    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("recent-games-ready");
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("all_recent_games_ready");
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.candidateGames[0]).toMatchObject({
       matchId: "NA1_1",
       championName: "Jhin",

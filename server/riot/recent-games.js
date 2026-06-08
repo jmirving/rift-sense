@@ -3,6 +3,7 @@ import { parseDeathReviewEvidence } from "./death-review.js";
 import { parseTempoConversionEvidence } from "./tempo-conversion.js";
 
 const DEFAULT_MATCH_COUNT = 8;
+const inFlightMatchPreparations = new Set();
 
 const QUEUE_LABELS = new Map([
   [400, "Normal Draft"],
@@ -165,12 +166,53 @@ export function normalizeRecentGame(matchPayload, riotPuuid) {
 
 function buildUnavailableResult(code, message) {
   return {
-    status: "unavailable",
+    status: code === "riot-config-missing" || code === "riot-auth-failed"
+      ? "riot_access_not_configured"
+      : "recent_games_unavailable",
     code,
     sourceLabel: "Riot account linked",
     message,
-    games: []
+    games: [],
+    readyCount: 0,
+    preparingCount: 0,
+    failedCount: 0
   };
+}
+
+export function deriveRecentGamesStatus({
+  riotPuuid,
+  apiKey,
+  matchIdsKnown,
+  readyCount = 0,
+  preparingCount = 0,
+  failedCount = 0,
+  unavailable = false
+}) {
+  if (!riotPuuid) {
+    return "riot_account_not_linked";
+  }
+  if (!apiKey) {
+    return "riot_access_not_configured";
+  }
+  if (unavailable) {
+    return failedCount > 0 ? "parse_failed_retry_available" : "recent_games_unavailable";
+  }
+  if (!matchIdsKnown) {
+    return "checking_recent_games";
+  }
+  if (readyCount > 0 && preparingCount > 0) {
+    return "some_games_ready";
+  }
+  if (readyCount > 0) {
+    return "all_recent_games_ready";
+  }
+  if (preparingCount > 0) {
+    return "games_found_parsing";
+  }
+  if (failedCount > 0) {
+    return "parse_failed_retry_available";
+  }
+  return "recent_games_unavailable";
 }
 
 function parseMatchEvidence(matchPayload, matchTimeline, perspective) {
@@ -259,6 +301,38 @@ async function resolveStoredMatch({ matchId, riotPuuid, riotMatchesRepository, r
   return rawRecord.summaryJson;
 }
 
+function prepareMatchesInBackground({ matchIds, riotPuuid, headers, fetchImpl, recentGamesConfig, riotMatchesRepository }) {
+  const queuedMatchIds = matchIds.filter((matchId) => {
+    const key = `${riotPuuid}:${matchId}`;
+    if (inFlightMatchPreparations.has(key)) {
+      return false;
+    }
+    inFlightMatchPreparations.add(key);
+    return true;
+  });
+
+  if (queuedMatchIds.length === 0) {
+    return;
+  }
+
+  Promise.allSettled(
+    queuedMatchIds.map((matchId) =>
+      fetchAndStoreMatch({
+        matchId,
+        riotPuuid,
+        headers,
+        fetchImpl,
+        recentGamesConfig,
+        riotMatchesRepository
+      })
+    )
+  )
+    .catch(() => {})
+    .finally(() => {
+      queuedMatchIds.forEach((matchId) => inFlightMatchPreparations.delete(`${riotPuuid}:${matchId}`));
+    });
+}
+
 async function fetchAndStoreMatch({ matchId, riotPuuid, headers, fetchImpl, recentGamesConfig, riotMatchesRepository }) {
   const summary = await fetchJson(
     `https://${recentGamesConfig.routingRegion}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchId)}`,
@@ -303,11 +377,14 @@ export async function resolveRecentGames({
   const riotPuuid = normalizeString(profile?.riotPuuid ?? identity?.riot?.puuid);
   if (!riotPuuid) {
     return {
-      status: "not-linked",
+      status: "riot_account_not_linked",
       code: "riot-account-not-linked",
       sourceLabel: "No Riot account linked",
       message: "Link a Riot account in Nexus to pull recent games.",
-      games: []
+      games: [],
+      readyCount: 0,
+      preparingCount: 0,
+      failedCount: 0
     };
   }
 
@@ -332,11 +409,65 @@ export async function resolveRecentGames({
     const matchIds = await fetchJson(idsUrl, { headers }, fetchImpl);
     if (!Array.isArray(matchIds) || matchIds.length === 0) {
       return {
-        status: "available",
-        code: "ok",
+        status: "recent_games_unavailable",
+        code: "no-recent-games",
         sourceLabel: "Riot recent games",
         message: "No recent games found for the linked Riot account.",
-        games: []
+        games: [],
+        readyCount: 0,
+        preparingCount: 0,
+        failedCount: 0
+      };
+    }
+
+    if (riotMatchesRepository) {
+      const storedMatches = await Promise.all(
+        matchIds.map(async (matchId) => ({
+          matchId,
+          summary: await resolveStoredMatch({
+            matchId,
+            riotPuuid,
+            riotMatchesRepository,
+            recentGamesConfig
+          })
+        }))
+      );
+      const missingMatchIds = storedMatches
+        .filter((entry) => !entry.summary)
+        .map((entry) => entry.matchId);
+      const games = storedMatches
+        .map((entry) => entry.summary)
+        .filter(Boolean)
+        .map((summary) => normalizeRecentGame(summary, riotPuuid))
+        .filter(Boolean);
+
+      prepareMatchesInBackground({
+        matchIds: missingMatchIds,
+        riotPuuid,
+        headers,
+        fetchImpl,
+        recentGamesConfig,
+        riotMatchesRepository
+      });
+
+      return {
+        status: deriveRecentGamesStatus({
+          riotPuuid,
+          apiKey: recentGamesConfig.apiKey,
+          matchIdsKnown: true,
+          readyCount: games.length,
+          preparingCount: missingMatchIds.length
+        }),
+        code: "ok",
+        sourceLabel: "Riot recent games",
+        message: games.length > 0
+          ? "Recent games loaded from cache while newer matches are prepared."
+          : "Recent games found. Match details are being prepared.",
+        games,
+        readyCount: games.length,
+        preparingCount: missingMatchIds.length,
+        failedCount: 0,
+        discoveredCount: matchIds.length
       };
     }
 
@@ -365,18 +496,26 @@ export async function resolveRecentGames({
       .filter(Boolean);
 
     if (games.length === 0) {
-      return buildUnavailableResult(
-        "riot-match-data-unavailable",
-        "Riot account linked. Recent games could not be loaded right now."
-      );
+      return {
+        ...buildUnavailableResult(
+          "riot-match-data-unavailable",
+          "Riot account linked. Recent games could not be loaded right now."
+        ),
+        status: "parse_failed_retry_available",
+        failedCount: settledMatches.filter((result) => result.status === "rejected").length
+      };
     }
 
     return {
-      status: "available",
+      status: "all_recent_games_ready",
       code: "ok",
       sourceLabel: "Riot recent games",
       message: "Recent games loaded from Riot.",
-      games
+      games,
+      readyCount: games.length,
+      preparingCount: 0,
+      failedCount: settledMatches.filter((result) => result.status === "rejected").length,
+      discoveredCount: matchIds.length
     };
   } catch (error) {
     return buildUnavailableResult(

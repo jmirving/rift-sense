@@ -30,26 +30,11 @@ function mapConfidenceLabel(label) {
 
 function buildNoRiotLinkedEvidence() {
   return {
-    status: "no-riot-linked",
+    status: "riot_account_not_linked",
     title: "Riot account not linked",
     summary: "Link a Riot account in Nexus to pull recent games for this goal.",
     confidence: "Setup needed",
     sourceLabel: "No Riot account linked",
-    candidateGames: []
-  };
-}
-
-function buildRoleSetupEvidence(riotIdentity) {
-  const handle = riotIdentity.gameName && riotIdentity.tagLine
-    ? `${riotIdentity.gameName}#${riotIdentity.tagLine}`
-    : "Linked Riot account";
-
-  return {
-    status: "riot-setup-needed",
-    title: "Riot role setup needed",
-    summary: `${handle} is linked. Add a primary role in Nexus so RiftSense can rank games with higher confidence.`,
-    confidence: "Low confidence",
-    sourceLabel: "Riot account linked",
     candidateGames: []
   };
 }
@@ -120,38 +105,74 @@ function buildSeededDemoEvidence() {
   };
 }
 
+function statusTitle(status, readyCount) {
+  return {
+    riot_access_not_configured: "Riot access not configured",
+    checking_recent_games: "Checking recent games",
+    recent_games_unavailable: "Recent games unavailable",
+    games_found_parsing: "Preparing recent games",
+    some_games_ready: `${readyCount} ${readyCount === 1 ? "game" : "games"} ready`,
+    all_recent_games_ready: `${readyCount} ${readyCount === 1 ? "game" : "games"} ready`,
+    parse_failed_retry_available: "Recent game parsing failed"
+  }[status] ?? "Recent games unavailable";
+}
+
+function readinessSummary(recentGamesResult, fallbackMessage) {
+  const readyCount = Number(recentGamesResult.readyCount ?? recentGamesResult.games?.length ?? 0);
+  const preparingCount = Number(recentGamesResult.preparingCount ?? 0);
+  const readiness = `${readyCount} ${readyCount === 1 ? "game" : "games"} ready · ${preparingCount} ${preparingCount === 1 ? "game" : "games"} still being prepared`;
+
+  if (["some_games_ready", "games_found_parsing"].includes(recentGamesResult.status)) {
+    return readiness;
+  }
+  if (recentGamesResult.status === "all_recent_games_ready") {
+    return `${readyCount} ${readyCount === 1 ? "game is" : "games are"} ready.`;
+  }
+
+  return fallbackMessage;
+}
+
 function buildUnavailableEvidence(riotIdentity, recentGamesResult) {
   const handle = riotIdentity.gameName && riotIdentity.tagLine
     ? `${riotIdentity.gameName}#${riotIdentity.tagLine}`
     : "Linked Riot account";
+  const readyCount = Number(recentGamesResult.readyCount ?? recentGamesResult.games?.length ?? 0);
 
   return {
-    status: "riot-linked-unavailable",
-    title: "Recent games unavailable",
-    summary: `${handle} is linked. ${recentGamesResult.message}`,
+    status: recentGamesResult.status,
+    title: statusTitle(recentGamesResult.status, readyCount),
+    summary: readinessSummary(recentGamesResult, `${handle} is linked. ${recentGamesResult.message}`),
     confidence: "Pending",
     sourceLabel: recentGamesResult.sourceLabel ?? "Riot account linked",
-    candidateGames: []
+    candidateGames: [],
+    readyCount,
+    preparingCount: Number(recentGamesResult.preparingCount ?? 0),
+    failedCount: Number(recentGamesResult.failedCount ?? 0)
   };
 }
 
-function buildAvailableEvidence(candidateGames) {
+function buildAvailableEvidence(candidateGames, recentGamesResult) {
   const topConfidence = candidateGames[0]?.confidenceLabel ?? "low";
   const sourceLabel = candidateGames[0]?.sourceLabel ?? "Riot recent games";
+  const readyCount = Number(recentGamesResult.readyCount ?? candidateGames.length);
+  const preparingCount = Number(recentGamesResult.preparingCount ?? 0);
+  const status = recentGamesResult.status ?? (preparingCount > 0 ? "some_games_ready" : "all_recent_games_ready");
 
   return {
-    status: "recent-games-ready",
-    title:
+    status,
+    title: statusTitle(status, readyCount),
+    summary: readinessSummary(
+      { ...recentGamesResult, readyCount, preparingCount },
       candidateGames.length > 0
-        ? `${candidateGames.length} candidate games selected`
-        : "No relevant candidate games found",
-    summary:
-      candidateGames.length > 0
-        ? `Sorted from recent Riot matches for the active goal.`
-        : "Recent games were found, but none scored as strong candidates yet.",
+        ? "Recent games are ready for review."
+        : "Recent games were found, but none scored as strong candidates yet."
+    ),
     confidence: mapConfidenceLabel(topConfidence),
     sourceLabel,
-    candidateGames
+    candidateGames,
+    readyCount,
+    preparingCount,
+    failedCount: Number(recentGamesResult.failedCount ?? 0)
   };
 }
 
@@ -180,8 +201,6 @@ export async function applyRiotEvidenceToDashboard({
     const riotIdentity = normalizeRiotIdentity(identity, profile);
     if (!riotIdentity) {
       riotEvidence = buildNoRiotLinkedEvidence();
-    } else if (!profile?.primaryRole) {
-      riotEvidence = buildRoleSetupEvidence(riotIdentity);
     } else {
       const recentGamesResult = await resolveRecentGames({
         identity,
@@ -190,22 +209,25 @@ export async function applyRiotEvidenceToDashboard({
         riotMatchesRepository,
         fetchImpl
       }).catch(() => ({
-        status: "unavailable",
+        status: "recent_games_unavailable",
         sourceLabel: "Riot account linked",
         message: "Riot account linked. Recent games are temporarily unavailable.",
-        games: []
+        games: [],
+        readyCount: 0,
+        preparingCount: 0,
+        failedCount: 0
       }));
 
-      if (recentGamesResult.status !== "available") {
+      const candidateGames = scoreRecentGames({
+        games: recentGamesResult.games,
+        goal: goalDashboard.activePersonalGoal,
+        profile
+      });
+
+      if (candidateGames.length === 0) {
         riotEvidence = buildUnavailableEvidence(riotIdentity, recentGamesResult);
       } else {
-        riotEvidence = buildAvailableEvidence(
-          scoreRecentGames({
-            games: recentGamesResult.games,
-            goal: goalDashboard.activePersonalGoal,
-            profile
-          })
-        );
+        riotEvidence = buildAvailableEvidence(candidateGames, recentGamesResult);
       }
     }
   }

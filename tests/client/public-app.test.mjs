@@ -98,4 +98,82 @@ describe("public app routes", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith("/api/session", expect.any(Object));
   });
+
+  it("renders partial Riot parser readiness without hiding ready games", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: {
+              id: "usr_1",
+              source: "authenticated",
+              profile: { primaryRole: "ADC" }
+            },
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Die Less",
+                scope: "Personal",
+                role: "ADC",
+                goalStatus: "Needs review",
+                goalStatusTrend: "unknown",
+                trend: "Unknown",
+                trendKey: "unknown",
+                confidence: "Low sample",
+                progressSummary: "",
+                weeklyTargets: [],
+                signals: [],
+                evidenceSource: {},
+                riotEvidence: {
+                  status: "some_games_ready",
+                  title: "1 game ready",
+                  summary: "1 game ready · 2 games still being prepared",
+                  confidence: "High confidence",
+                  sourceLabel: "Riot recent games",
+                  readyCount: 1,
+                  preparingCount: 2,
+                  candidateGames: [
+                    {
+                      championName: "Jhin",
+                      queueLabel: "Ranked Solo/Duo",
+                      result: "Loss",
+                      kda: "8/5/6",
+                      csPerMinute: 8.1,
+                      relevanceReason: "ADC role match",
+                      confidenceLabel: "high"
+                    }
+                  ]
+                }
+              },
+              todaysAction: { title: "Review deaths", href: "/review", ctaLabel: "Start review" },
+              activeTeamFocus: { title: "Team setup", evidenceSource: {} },
+              recentInsights: [],
+              suggestedNextSteps: []
+            }
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("1 game ready");
+    expect(document.body.textContent).toContain("2 games still being prepared");
+    expect(document.body.textContent).toContain("Jhin · Ranked Solo/Duo · Loss");
+    expect(document.querySelector('a[href="/review"]')?.textContent).toContain("Review");
+  });
 });

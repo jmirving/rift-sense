@@ -5,7 +5,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createRiotMatchesRepository } from "../../server/repositories/riot-matches.js";
-import { normalizeRecentGame, resolveRecentGames, scoreRecentGames } from "../../server/riot/recent-games.js";
+import {
+  deriveRecentGamesStatus,
+  normalizeRecentGame,
+  resolveRecentGames,
+  scoreRecentGames
+} from "../../server/riot/recent-games.js";
 
 const tempDirectories = [];
 
@@ -26,7 +31,30 @@ afterEach(async () => {
   await Promise.all(tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
+async function waitFor(assertion, { attempts = 20, delayMs = 10 } = {}) {
+  let lastError;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await assertion();
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw lastError;
+}
+
 describe("riot recent-games service", () => {
+  it("derives non-blocking recent game parser statuses", () => {
+    expect(deriveRecentGamesStatus({ riotPuuid: null, apiKey: "key" })).toBe("riot_account_not_linked");
+    expect(deriveRecentGamesStatus({ riotPuuid: "puuid_1", apiKey: "" })).toBe("riot_access_not_configured");
+    expect(deriveRecentGamesStatus({ riotPuuid: "puuid_1", apiKey: "key", matchIdsKnown: false })).toBe("checking_recent_games");
+    expect(deriveRecentGamesStatus({ riotPuuid: "puuid_1", apiKey: "key", matchIdsKnown: true, preparingCount: 2 })).toBe("games_found_parsing");
+    expect(deriveRecentGamesStatus({ riotPuuid: "puuid_1", apiKey: "key", matchIdsKnown: true, readyCount: 1, preparingCount: 1 })).toBe("some_games_ready");
+    expect(deriveRecentGamesStatus({ riotPuuid: "puuid_1", apiKey: "key", matchIdsKnown: true, readyCount: 2 })).toBe("all_recent_games_ready");
+    expect(deriveRecentGamesStatus({ riotPuuid: "puuid_1", apiKey: "key", matchIdsKnown: true, failedCount: 1 })).toBe("parse_failed_retry_available");
+  });
+
   it("normalizes a Riot match payload into the internal recent game shape", () => {
     const normalized = normalizeRecentGame(
       {
@@ -88,7 +116,7 @@ describe("riot recent-games service", () => {
       }
     });
 
-    expect(result.status).toBe("unavailable");
+    expect(result.status).toBe("riot_access_not_configured");
     expect(result.code).toBe("riot-config-missing");
   });
 
@@ -151,7 +179,7 @@ describe("riot recent-games service", () => {
       fetchImpl
     });
 
-    expect(result.status).toBe("available");
+    expect(result.status).toBe("all_recent_games_ready");
     expect(result.games).toHaveLength(1);
     expect(result.games[0]).toMatchObject({
       matchId: "NA1_1",
@@ -162,7 +190,7 @@ describe("riot recent-games service", () => {
     expect(calls.some((url) => url.endsWith("/matches/NA1_1/timeline"))).toBe(true);
   });
 
-  it("stores raw match data and user perspective while fetching recent games", async () => {
+  it("starts uncached match preparation without blocking recent game status", async () => {
     const repository = await createRiotRepository();
 
     const fetchImpl = async (url) => {
@@ -211,7 +239,7 @@ describe("riot recent-games service", () => {
       };
     };
 
-    await resolveRecentGames({
+    const result = await resolveRecentGames({
       profile: {
         riotPuuid: "puuid_1"
       },
@@ -226,7 +254,14 @@ describe("riot recent-games service", () => {
       fetchImpl
     });
 
-    await expect(repository.getRawMatchData("NA1_2")).resolves.toMatchObject({
+    expect(result).toMatchObject({
+      status: "games_found_parsing",
+      readyCount: 0,
+      preparingCount: 1,
+      games: []
+    });
+
+    await waitFor(async () => expect(await repository.getRawMatchData("NA1_2")).toMatchObject({
       matchId: "NA1_2",
       summaryJson: {
         metadata: {
@@ -238,8 +273,8 @@ describe("riot recent-games service", () => {
           matchId: "NA1_2"
         }
       }
-    });
-    await expect(repository.getUserMatchPerspective("NA1_2", "puuid_1")).resolves.toMatchObject({
+    }));
+    await waitFor(async () => expect(await repository.getUserMatchPerspective("NA1_2", "puuid_1")).toMatchObject({
       matchId: "NA1_2",
       puuid: "puuid_1",
       participantId: 4,
@@ -249,7 +284,7 @@ describe("riot recent-games service", () => {
       individualPosition: "BOTTOM",
       duration: 1800,
       parseStatus: "raw_data_available"
-    });
+    }));
   });
 
   it("reuses fresh stored raw match data without re-fetching match payloads", async () => {
@@ -312,7 +347,7 @@ describe("riot recent-games service", () => {
       fetchImpl
     });
 
-    expect(result.status).toBe("available");
+    expect(result.status).toBe("all_recent_games_ready");
     expect(result.games[0]).toMatchObject({
       matchId: "NA1_cached",
       championName: "Caitlyn"

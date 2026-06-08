@@ -825,6 +825,24 @@ p {
   gap: 10px;
 }
 
+.riot-readiness {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.riot-readiness span {
+  width: fit-content;
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
 .compact-row {
   display: flex;
   justify-content: space-between;
@@ -842,6 +860,16 @@ p {
 .compact-row-value {
   color: var(--muted);
   white-space: nowrap;
+}
+
+.compact-row-main {
+  min-width: 180px;
+}
+
+.compact-row-action {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 12px;
 }
 
 .review-run-panel {

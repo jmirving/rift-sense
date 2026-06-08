@@ -713,12 +713,41 @@ function nextStepCard(step) {
   `;
 }
 
-function riotEvidenceCard(riotEvidence) {
+function riotStatusTrend(status) {
+  if (status === "all_recent_games_ready" || status === "some_games_ready") {
+    return "positive";
+  }
+  if (status === "games_found_parsing" || status === "checking_recent_games") {
+    return "watch";
+  }
+  if (status === "parse_failed_retry_available" || status === "recent_games_unavailable") {
+    return "needs-attention";
+  }
+  return "unknown";
+}
+
+function riotReadinessLine(riotEvidence) {
+  if (!riotEvidence || !Number.isFinite(Number(riotEvidence.readyCount))) {
+    return "";
+  }
+
+  const readyCount = Number(riotEvidence.readyCount);
+  const preparingCount = Number(riotEvidence.preparingCount ?? 0);
+  return `
+    <div class="riot-readiness" aria-live="polite">
+      <span>${escapeHtml(`${readyCount} ${readyCount === 1 ? "game" : "games"} ready`)}</span>
+      <span>${escapeHtml(`${preparingCount} ${preparingCount === 1 ? "game" : "games"} still being prepared`)}</span>
+    </div>
+  `;
+}
+
+function riotEvidenceCard(riotEvidence, context = {}) {
   if (!riotEvidence) {
     return "";
   }
 
   const sourceLabel = riotEvidence.sourceLabel ? `<p class="eyebrow">${escapeHtml(riotEvidence.sourceLabel)}</p>` : "";
+  const reviewHref = toAppHref("/review", context) ?? "/review";
   return `
     <section class="panel riot-evidence-panel">
       <div class="panel-header">
@@ -727,17 +756,19 @@ function riotEvidenceCard(riotEvidence) {
           <h2>${escapeHtml(riotEvidence.title ?? "Riot evidence")}</h2>
           ${sourceLabel}
         </div>
-        ${riotEvidence.confidence ? statusBadge(riotEvidence.confidence, riotEvidence.status === "seeded-demo" ? "watch" : "unknown") : ""}
+        ${riotEvidence.confidence ? statusBadge(riotEvidence.confidence, riotEvidence.status === "seeded-demo" ? "watch" : riotStatusTrend(riotEvidence.status)) : ""}
       </div>
       <p class="muted">${escapeHtml(riotEvidence.summary ?? "")}</p>
+      ${riotReadinessLine(riotEvidence)}
       <section class="compact-list">
         ${(riotEvidence.candidateGames ?? []).length > 0
           ? riotEvidence.candidateGames.slice(0, 3).map((game) => `
             <article class="compact-row">
-              <span>${escapeHtml(`${game.champion ?? game.championName ?? "Unknown champion"} · ${game.queueLabel} · ${game.result}`)}</span>
+              <span class="compact-row-main">${escapeHtml(`${game.champion ?? game.championName ?? "Unknown champion"} · ${game.queueLabel} · ${game.result}`)}</span>
               <span class="compact-row-value">${escapeHtml(`${game.kda} · ${game.csPerMinute ?? "?"} cs/min`)}</span>
               <span class="muted">${escapeHtml(game.relevanceReason ?? "")}</span>
               <span class="muted">${escapeHtml((game.confidenceLabel ?? "").toUpperCase())}</span>
+              <a class="button secondary compact-row-action" href="${escapeHtml(reviewHref)}">Review</a>
             </article>
           `).join("")
           : '<p class="muted">No Riot candidate games are available yet.</p>'}
@@ -1059,7 +1090,7 @@ async function renderHome(root, context = getRouteContext()) {
         </section>
       </section>
 
-      ${riotEvidenceCard(riotEvidence)}
+      ${riotEvidenceCard(riotEvidence, context)}
 
       <section class="panel next-steps-panel">
         <div class="panel-header">
