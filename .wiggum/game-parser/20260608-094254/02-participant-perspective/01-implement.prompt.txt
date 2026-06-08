@@ -1,0 +1,30 @@
+You are working in the RiftSense repository.
+
+Implement participant perspective resolution for a stored match.
+
+Goal:
+Given match summary, match timeline if needed, and a user's PUUID, RiftSense should resolve the participantId and user-facing match metadata needed by deterministic parsers.
+
+Requirements:
+- Search the repository first for existing Riot participant, PUUID, and match parsing code.
+- Implement a reusable function/module that resolves:
+  - puuid
+  - participantId
+  - championName
+  - teamId
+  - teamPosition
+  - individualPosition
+  - gameCreation/gameStart/gameEnd/duration if available
+- The function must return a clear typed result or structured error.
+- Error cases:
+  - missing summary
+  - participant not found
+  - invalid match shape
+- Add tests for:
+  - successful participant resolution
+  - missing participant
+  - missing or invalid summary shape
+- Wire this into ingestion/storage if an obvious integration point exists.
+- Do not implement death review or other evidence parsing yet.
+
+Run the relevant tests.

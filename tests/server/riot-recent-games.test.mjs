@@ -7,7 +7,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createRiotMatchesRepository } from "../../server/repositories/riot-matches.js";
 import {
   deriveRecentGamesStatus,
+  MAX_NEW_MATCHES_TO_QUEUE_PER_REFRESH,
   normalizeRecentGame,
+  RECENT_MATCH_LOOKUP_LIMIT,
   resolveRecentGames,
   scoreRecentGames
 } from "../../server/riot/recent-games.js";
@@ -118,6 +120,33 @@ describe("riot recent-games service", () => {
 
     expect(result.status).toBe("riot_access_not_configured");
     expect(result.code).toBe("riot-config-missing");
+  });
+
+  it("uses the documented default recent match lookup limit", async () => {
+    const calls = [];
+    const result = await resolveRecentGames({
+      profile: {
+        riotPuuid: "puuid_1"
+      },
+      config: {
+        riot: {
+          apiKey: "riot-key",
+          routingRegion: "americas"
+        }
+      },
+      fetchImpl: async (url) => {
+        calls.push(url);
+        return {
+          ok: true,
+          async json() {
+            return [];
+          }
+        };
+      }
+    });
+
+    expect(result.code).toBe("no-recent-games");
+    expect(calls[0]).toContain(`count=${RECENT_MATCH_LOOKUP_LIMIT}`);
   });
 
   it("fetches and normalizes recent games from mocked Riot endpoints", async () => {
@@ -283,8 +312,89 @@ describe("riot recent-games service", () => {
       teamPosition: "BOTTOM",
       individualPosition: "BOTTOM",
       duration: 1800,
-      parseStatus: "raw_data_available"
+      parseStatus: "parsed"
     }));
+  });
+
+  it("queues at most the documented number of new matches per repository-backed refresh", async () => {
+    const repository = await createRiotRepository();
+    const matchIds = Array.from({ length: MAX_NEW_MATCHES_TO_QUEUE_PER_REFRESH + 2 }, (_, index) => `NA1_${index + 10}`);
+    const fetchedMatchIds = [];
+
+    const fetchImpl = async (url) => {
+      if (url.includes("/ids?")) {
+        return {
+          ok: true,
+          async json() {
+            return matchIds;
+          }
+        };
+      }
+
+      const matchId = url.match(/\/matches\/([^/]+)/)?.[1];
+      fetchedMatchIds.push(decodeURIComponent(matchId));
+
+      if (url.endsWith("/timeline")) {
+        return {
+          ok: true,
+          async json() {
+            return { metadata: { matchId: decodeURIComponent(matchId) }, info: { frames: [] } };
+          }
+        };
+      }
+
+      return {
+        ok: true,
+        async json() {
+          return {
+            metadata: {
+              matchId: decodeURIComponent(matchId)
+            },
+            info: {
+              queueId: 420,
+              gameDuration: 1800,
+              participants: [
+                {
+                  puuid: "puuid_1",
+                  participantId: 4,
+                  championName: "Ashe",
+                  teamId: 100,
+                  teamPosition: "BOTTOM",
+                  individualPosition: "BOTTOM",
+                  win: true
+                }
+              ]
+            }
+          };
+        }
+      };
+    };
+
+    const result = await resolveRecentGames({
+      profile: {
+        riotPuuid: "puuid_1"
+      },
+      config: {
+        riot: {
+          apiKey: "riot-key",
+          routingRegion: "americas"
+        }
+      },
+      riotMatchesRepository: repository,
+      fetchImpl
+    });
+
+    expect(result.preparingCount).toBe(MAX_NEW_MATCHES_TO_QUEUE_PER_REFRESH);
+    await waitFor(async () => {
+      const uniqueFetchedMatchIds = [...new Set(fetchedMatchIds)];
+      expect(uniqueFetchedMatchIds).toHaveLength(MAX_NEW_MATCHES_TO_QUEUE_PER_REFRESH);
+      expect(uniqueFetchedMatchIds).toEqual(matchIds.slice(0, MAX_NEW_MATCHES_TO_QUEUE_PER_REFRESH));
+      await Promise.all(
+        matchIds
+          .slice(0, MAX_NEW_MATCHES_TO_QUEUE_PER_REFRESH)
+          .map(async (matchId) => expect(await repository.getRawMatchData(matchId)).toMatchObject({ matchId }))
+      );
+    });
   });
 
   it("reuses fresh stored raw match data without re-fetching match payloads", async () => {

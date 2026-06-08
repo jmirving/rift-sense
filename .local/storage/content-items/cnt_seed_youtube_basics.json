@@ -1,0 +1,28 @@
+{
+  "id": "cnt_seed_youtube_basics",
+  "title": "Wave Control Basics",
+  "description": "Starter YouTube lesson for lane state management.",
+  "contentType": "video",
+  "sourceType": "external_url",
+  "status": "published",
+  "topicTags": [
+    "wave-management",
+    "laning"
+  ],
+  "patchSensitive": true,
+  "grouping": {
+    "groupKey": "fundamentals",
+    "groupLabel": "Fundamentals",
+    "order": 1
+  },
+  "asset": {
+    "kind": "external-link",
+    "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "provider": "youtube"
+  },
+  "viewer": null,
+  "createdAt": "2026-03-25T17:21:25.224Z",
+  "updatedAt": "2026-03-25T17:21:25.224Z",
+  "publishedAt": "2026-03-25T17:21:25.224Z",
+  "archivedAt": null
+}

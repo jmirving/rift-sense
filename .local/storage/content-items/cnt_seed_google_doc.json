@@ -1,0 +1,28 @@
+{
+  "id": "cnt_seed_google_doc",
+  "title": "Practice Review Template",
+  "description": "Google Doc template for post-block review notes.",
+  "contentType": "document",
+  "sourceType": "external_url",
+  "status": "published",
+  "topicTags": [
+    "review",
+    "team-process"
+  ],
+  "patchSensitive": false,
+  "grouping": {
+    "groupKey": "operations",
+    "groupLabel": "Operations",
+    "order": 1
+  },
+  "asset": {
+    "kind": "external-link",
+    "url": "https://docs.google.com/document/d/1k0example/edit",
+    "provider": "google"
+  },
+  "viewer": null,
+  "createdAt": "2026-03-25T17:21:25.224Z",
+  "updatedAt": "2026-03-25T17:21:25.224Z",
+  "publishedAt": "2026-03-25T17:21:25.224Z",
+  "archivedAt": null
+}

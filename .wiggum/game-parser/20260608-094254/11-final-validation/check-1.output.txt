@@ -1,0 +1,24 @@
+PASS
+
+Evidence reviewed:
+- Tracked diff in `server/config.js`, `server/riot/recent-games.js`, `tests/server/riot-recent-games.test.mjs`
+- Required docs: `docs/game-data-ingestion.md`, `docs/game-parser-deterministic-evaluation.md`, `docs/game-evidence-goal-linking.md`
+- Relevant parser/linking modules and tests
+
+Commands run:
+- `git status --short && git branch --show-current`
+- `git diff --stat`
+- `git diff -- server/config.js server/riot/recent-games.js tests/server/riot-recent-games.test.mjs`
+- `npm test -- --run tests/server/riot-recent-games.test.mjs`
+- `npm test`
+- `npm run`
+- `git diff --check`
+
+Validation:
+- Targeted Riot recent-games tests passed: 9/9
+- Full suite passed: 19 files, 90 tests
+- No lint/build/typecheck scripts are present in `package.json`
+- `git diff --check` passed
+
+Failures found:
+- None. No human decision required.

@@ -1,0 +1,18 @@
+Implemented and pushed to `main`.
+
+Changed:
+- Added `server/riot/tempo-conversion.js`
+- Wired parsed match evidence into stored Riot perspectives in `server/riot/recent-games.js`
+- Added coverage in `tests/server/riot-tempo-conversion.test.mjs`
+
+Covered cases:
+- kill into tower/plate/objective conversion
+- objective into player death
+- Baron into immediate player death
+- enemy cross-map trade
+
+Verification:
+- `npx vitest run tests/server/riot-tempo-conversion.test.mjs tests/server/riot-death-review.test.mjs tests/server/riot-recent-games.test.mjs` passed
+- `npm test` passed: 13 files, 63 tests
+
+Commit: `718ca9d Add tempo conversion parser`

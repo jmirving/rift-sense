@@ -1,0 +1,18 @@
+Implemented, committed, and pushed to `main`.
+
+What changed:
+- Added file-backed Riot match storage for raw summary/timeline by `matchId`.
+- Added user match perspective storage keyed by `matchId + puuid`.
+- Wired storage through app startup and Riot recent-games evidence path.
+- `resolveRecentGames` now reuses fresh stored raw match data and avoids refetching match/timeline payloads.
+- Added focused tests for raw/perspective dedupe and cache reuse.
+- Stabilized one date-sensitive home API fixture.
+
+Verification:
+- `npx vitest run tests/server/riot-recent-games.test.mjs tests/server/riot-matches.repository.test.mjs`
+- `npm test`
+
+Commit pushed:
+- `44dcd86 Store raw Riot match data`
+
+Untracked pre-existing local files remain untouched.

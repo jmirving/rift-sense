@@ -1,0 +1,26 @@
+FAIL
+
+Evidence reviewed:
+- `server/riot/tempo-conversion.js`
+- `tests/server/riot-tempo-conversion.test.mjs`
+- `server/riot/recent-games.js`
+- Task requirements in `scripts/wiggum-game-parser-loop.sh`
+
+Commands run:
+- `git status --short`
+- `git diff --stat`
+- `rg -n "tempo|conversion|parser|04-tempo" .`
+- `npm test -- tests/server/riot-tempo-conversion.test.mjs`
+- `npm test -- tests/server/riot-tempo-conversion.test.mjs tests/server/riot-death-review.test.mjs tests/server/home.api.test.mjs`
+
+Validation result:
+- Targeted tempo parser tests pass: 4/4.
+- Related server tests pass: 23/23.
+
+Failure found:
+- `TURRET_PLATE_DESTROYED` ownership is likely wrong for real Riot timeline events when no `killerId` or `participantId` exists. In [server/riot/tempo-conversion.js](/home/jirving/projects/lol/rift-sense/server/riot/tempo-conversion.js:95), only `BUILDING_KILL` flips `teamId` to the opposing team. Tower plate events commonly use `teamId` for the turret’s owning team, so plate conversions can be credited to the wrong side. Existing tests mask this by adding `killerId` to the plate event.
+
+Exact fix instructions:
+- Update `eventOwnerTeam` so `TURRET_PLATE_DESTROYED` with only `teamId` is credited to `opposingTeamId(participantIndex, event.teamId)`.
+- Add a regression test where a player kill is followed by `{ type: "TURRET_PLATE_DESTROYED", teamId: 200 }` with no `killerId`, and assert it appears in `playerTeamGains`.
+- Re-run the same test commands.

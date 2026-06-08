@@ -1,0 +1,23 @@
+PASS
+
+Evidence reviewed:
+- Task prompt in `.wiggum/.../08-objective-setup-exit-parser/01-implement.prompt.txt`
+- Commit `4dbf065` on `main` / `origin/main`
+- Parser: `server/riot/objective-setup-exit.js`
+- Wiring: `server/riot/recent-games.js`
+- Goal subscriptions: `server/goal-types/system-goal-types.js`
+- Tests: `tests/server/riot-objective-setup-exit.test.mjs`
+
+Commands run:
+- `git status --short --untracked-files=all`
+- `git log --oneline -5 --decorate`
+- `git show --stat --oneline HEAD`
+- `npm test -- tests/server/riot-objective-setup-exit.test.mjs tests/server/riot-tempo-conversion.test.mjs tests/server/goal-types.repository.test.mjs`
+- `npm test`
+
+Validation:
+- Relevant tests passed: 3 files, 11 tests.
+- Full suite passed: 16 files, 78 tests.
+
+Failures found:
+- None.

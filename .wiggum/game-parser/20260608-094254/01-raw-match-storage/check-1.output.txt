@@ -1,0 +1,22 @@
+PASS
+
+Evidence reviewed:
+- Task requirements in `scripts/wiggum-game-parser-loop.sh`.
+- Implementation in `server/repositories/riot-matches.js`, `server/riot/recent-games.js`, app wiring/config.
+- Tests in `tests/server/riot-matches.repository.test.mjs` and `tests/server/riot-recent-games.test.mjs`.
+- Latest commit: `44dcd86 Store raw Riot match data`.
+
+Commands run:
+- `git status --short`
+- `rg -n "01-raw-match-storage|raw match|match storage|raw_match|raw matches" .`
+- `npm test -- --run tests/server/riot-matches.repository.test.mjs tests/server/riot-recent-games.test.mjs`
+- `npm test -- --run`
+- `git diff -- ...`
+- `git log --oneline -5`
+
+Failures found:
+- None. Focused tests passed: 2 files, 9 tests.
+- Full suite passed: 10 files, 52 tests.
+
+Notes:
+- Working tree has unrelated untracked files, but no tracked diff in the reviewed implementation files.

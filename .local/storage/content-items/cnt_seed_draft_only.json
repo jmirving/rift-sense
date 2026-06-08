@@ -1,0 +1,28 @@
+{
+  "id": "cnt_seed_draft_only",
+  "title": "Patch 15.x Mid Lane Notes",
+  "description": "Draft content item showing curator-only state.",
+  "contentType": "deck",
+  "sourceType": "external_url",
+  "status": "draft",
+  "topicTags": [
+    "mid-lane",
+    "patch-notes"
+  ],
+  "patchSensitive": true,
+  "grouping": {
+    "groupKey": "meta-updates",
+    "groupLabel": "Meta Updates",
+    "order": 1
+  },
+  "asset": {
+    "kind": "external-link",
+    "url": "https://docs.google.com/presentation/d/1k0example/edit",
+    "provider": "google"
+  },
+  "viewer": null,
+  "createdAt": "2026-03-25T17:21:25.224Z",
+  "updatedAt": "2026-03-25T17:21:25.224Z",
+  "publishedAt": null,
+  "archivedAt": null
+}

@@ -6,7 +6,8 @@ import { parseObjectiveSetupExitEvidence } from "./objective-setup-exit.js";
 import { parseTempoConversionEvidence } from "./tempo-conversion.js";
 import { parseVisionInformationEvidence } from "./vision-information.js";
 
-const DEFAULT_MATCH_COUNT = 8;
+export const RECENT_MATCH_LOOKUP_LIMIT = 10;
+export const MAX_NEW_MATCHES_TO_QUEUE_PER_REFRESH = 5;
 const inFlightMatchPreparations = new Set();
 
 const QUEUE_LABELS = new Map([
@@ -44,7 +45,7 @@ function buildRecentGamesConfig(config) {
     apiKey: normalizeString(config?.riot?.apiKey),
     routingRegion: normalizeString(config?.riot?.routingRegion) ?? "americas",
     platformRegion: normalizeString(config?.riot?.platformRegion) ?? "na1",
-    matchCount: Number.isInteger(config?.riot?.matchCount) ? config.riot.matchCount : DEFAULT_MATCH_COUNT,
+    matchCount: Number.isInteger(config?.riot?.matchCount) ? config.riot.matchCount : RECENT_MATCH_LOOKUP_LIMIT,
     matchDataMaxAgeMs: Number.isFinite(config?.riot?.matchDataMaxAgeMs)
       ? config.riot.matchDataMaxAgeMs
       : null
@@ -260,13 +261,17 @@ async function savePerspective(
   }
 
   const resolved = resolveParticipantPerspective(matchPayload, matchTimeline, riotPuuid);
+  const parsedEvidence = resolved.ok
+    ? parseMatchEvidence(matchPayload, matchTimeline, { ...resolved.value, matchId })
+    : [];
+  const finalParseStatus = resolved.ok && parseStatus === "raw_data_available" ? "parsed" : parseStatus;
   const perspective = resolved.ok
     ? {
         ...resolved.value,
         matchId,
-        parseStatus,
+        parseStatus: finalParseStatus,
         parseStatusReason,
-        parsedEvidence: parseMatchEvidence(matchPayload, matchTimeline, { ...resolved.value, matchId })
+        parsedEvidence
       }
     : {
         matchId,
@@ -310,14 +315,18 @@ async function resolveStoredMatch({ matchId, riotPuuid, riotMatchesRepository, r
 }
 
 function prepareMatchesInBackground({ matchIds, riotPuuid, headers, fetchImpl, recentGamesConfig, riotMatchesRepository }) {
-  const queuedMatchIds = matchIds.filter((matchId) => {
-    const key = `${riotPuuid}:${matchId}`;
-    if (inFlightMatchPreparations.has(key)) {
-      return false;
+  const queuedMatchIds = [];
+  for (const matchId of matchIds) {
+    if (queuedMatchIds.length >= MAX_NEW_MATCHES_TO_QUEUE_PER_REFRESH) {
+      break;
     }
-    inFlightMatchPreparations.add(key);
-    return true;
-  });
+
+    const key = `${riotPuuid}:${matchId}`;
+    if (!inFlightMatchPreparations.has(key)) {
+      inFlightMatchPreparations.add(key);
+      queuedMatchIds.push(matchId);
+    }
+  }
 
   if (queuedMatchIds.length === 0) {
     return;
@@ -443,6 +452,7 @@ export async function resolveRecentGames({
       const missingMatchIds = storedMatches
         .filter((entry) => !entry.summary)
         .map((entry) => entry.matchId);
+      const queuedMatchIds = missingMatchIds.slice(0, MAX_NEW_MATCHES_TO_QUEUE_PER_REFRESH);
       const games = storedMatches
         .map((entry) => entry.summary)
         .filter(Boolean)
@@ -450,7 +460,7 @@ export async function resolveRecentGames({
         .filter(Boolean);
 
       prepareMatchesInBackground({
-        matchIds: missingMatchIds,
+        matchIds: queuedMatchIds,
         riotPuuid,
         headers,
         fetchImpl,
@@ -464,7 +474,7 @@ export async function resolveRecentGames({
           apiKey: recentGamesConfig.apiKey,
           matchIdsKnown: true,
           readyCount: games.length,
-          preparingCount: missingMatchIds.length
+          preparingCount: queuedMatchIds.length
         }),
         code: "ok",
         sourceLabel: "Riot recent games",
@@ -473,7 +483,7 @@ export async function resolveRecentGames({
           : "Recent games found. Match details are being prepared.",
         games,
         readyCount: games.length,
-        preparingCount: missingMatchIds.length,
+        preparingCount: queuedMatchIds.length,
         failedCount: 0,
         discoveredCount: matchIds.length
       };

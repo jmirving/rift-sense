@@ -1,0 +1,36 @@
+You are checking task '04-tempo-conversion-parser' in the RiftSense repository.
+
+Inspect the repository changes and verify whether the task is complete.
+
+Your first line must be exactly one of:
+
+PASS
+FAIL
+HUMAN_REQUIRED
+
+Use PASS only if:
+- the task requirements are implemented,
+- relevant tests/validation pass,
+- no obvious regression remains.
+
+Use FAIL if:
+- code/docs/tests need more work,
+- the issue is fixable without a product decision,
+- you can give concrete fix instructions.
+
+Use HUMAN_REQUIRED only if:
+- a product decision is strictly required,
+- required secrets/access are missing,
+- repository state is ambiguous in a way an agent cannot safely resolve,
+- the requested behavior conflicts with existing product architecture.
+
+After the first line, include:
+- evidence reviewed,
+- commands run,
+- failures found,
+- exact fix instructions if FAIL,
+- exact human question if HUMAN_REQUIRED.
+
+Do not use HUMAN_REQUIRED for ordinary implementation bugs.
+Do not use HUMAN_REQUIRED because work is large.
+Do not use HUMAN_REQUIRED because tests failed if the failure is fixable.

@@ -1,0 +1,16 @@
+Implemented and pushed deterministic death review parsing to `main`.
+
+Changed:
+- Added [server/riot/death-review.js](/home/jirving/projects/lol/rift-sense/server/riot/death-review.js)
+- Added [tests/server/riot-death-review.test.mjs](/home/jirving/projects/lol/rift-sense/tests/server/riot-death-review.test.mjs)
+
+What it does:
+- Parses user `CHAMPION_KILL` deaths by `victimId`
+- Captures timestamp, killer/assists, position, grouped damage received/dealt, prior frame context, and nearby before/after events
+- Emits deterministic generic tags and review questions
+- Keeps post-death level-ups/objectives as aftermath only
+
+Verification:
+- `npm test` passed: 12 files, 59 tests
+- Commit: `06b35cb Implement deterministic death review parser`
+- Pushed to `origin/main`

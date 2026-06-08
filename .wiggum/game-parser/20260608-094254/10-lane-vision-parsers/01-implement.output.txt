@@ -1,0 +1,14 @@
+Implemented and pushed to `main`.
+
+Changed:
+- Added deterministic pre-14 lane pressure parser: CS/XP/gold/level deltas, plates, lane deaths, repeat gank and conversion tags.
+- Added cautious vision/information parser: ward placement/kill activity, objective/death windows, control ward/support/carry push review prompts.
+- Wired both into Riot recent-game evidence parsing.
+- Expanded system goal tag subscriptions for new lane and vision tags.
+- Added focused tests for lane deltas, plate conversion, death/objective without recent ward activity, and cautious vision confidence/wording.
+
+Verification:
+- `npx vitest run tests/server/riot-lane-pressure.test.mjs tests/server/riot-vision-information.test.mjs tests/server/goal-types.repository.test.mjs tests/server/riot-recent-games.test.mjs`
+- `npm test`
+
+Both passed. Commit: `53e03f2` (`Add lane pressure and vision evidence parsers`).

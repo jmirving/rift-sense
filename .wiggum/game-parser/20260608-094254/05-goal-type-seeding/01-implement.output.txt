@@ -1,0 +1,15 @@
+Implemented, committed, and pushed to `main`.
+
+What changed:
+- Added persisted `goal-types` JSON repository.
+- Added system goal type seed definitions for all 7 requested parser evidence categories.
+- Seed runs on server startup and local MVP startup.
+- `/api/onboarding/options` now returns `systemGoalTypes` separately from active goal templates.
+- No active user goals are auto-created.
+- Added idempotency/no-duplicate tests.
+
+Verification:
+- `npm test -- tests/server/goal-types.repository.test.mjs tests/server/home.api.test.mjs`
+- Passed: 2 files, 19 tests.
+
+Commit: `6d472e4 Seed parser evidence goal types` pushed to `origin/main`.

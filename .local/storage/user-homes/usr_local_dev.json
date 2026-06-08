@@ -1,0 +1,100 @@
+{
+  "id": "usr_local_dev",
+  "profile": {
+    "displayName": "Local Dev User",
+    "teamName": "RiftSense Dev Squad",
+    "primaryRole": "Mid",
+    "focusArea": "Mid-game map setups"
+  },
+  "focusBoard": {
+    "greeting": "Authenticated users should feel the home page change around their current work, not just their identity.",
+    "todayGoal": {
+      "title": "Sharpen first Herald setup decisions",
+      "summary": "Review one setup clip, one note template, and track whether your early roam timing stays disciplined tonight.",
+      "progressLabel": "2 of 4 tasks completed"
+    },
+    "progress": {
+      "todayPercent": 52,
+      "weeklyPercent": 68,
+      "monthlyPercent": 41
+    },
+    "weeklyGoals": [
+      {
+        "title": "Herald setup reps",
+        "progressLabel": "4 of 6 complete",
+        "progressPercent": 67
+      },
+      {
+        "title": "Review uploads",
+        "progressLabel": "3 of 4 complete",
+        "progressPercent": 75
+      }
+    ],
+    "monthlyGoals": [
+      {
+        "title": "Macro quiz cadence",
+        "progressLabel": "5 of 10 complete",
+        "progressPercent": 50
+      }
+    ],
+    "recentGameStats": [
+      {
+        "label": "Roam conversion",
+        "value": "61%",
+        "trend": "+7%",
+        "note": "Best this month"
+      },
+      {
+        "label": "Vision before objectives",
+        "value": "73%",
+        "trend": "+5%",
+        "note": "Good direction"
+      },
+      {
+        "label": "Unforced lane deaths",
+        "value": "1.4",
+        "trend": "-0.3",
+        "note": "Keep stable"
+      }
+    ]
+  },
+  "coachFeed": {
+    "headline": "This authenticated view shows the shape of a future user-specific home without requiring live Nexus profile or assignment services.",
+    "sections": [
+      {
+        "title": "Priority Now",
+        "description": "Open these before queueing.",
+        "items": [
+          {
+            "id": "dev_wave_video",
+            "contentItemId": "cnt_seed_youtube_basics",
+            "summary": "Focus on how tempo is preserved through the crash and reset cycle.",
+            "emphasis": "coach",
+            "actionLabel": "Watch clip"
+          }
+        ]
+      },
+      {
+        "title": "Team Focus",
+        "description": "Shared team reminders for this block.",
+        "items": [
+          {
+            "id": "dev_team_focus",
+            "title": "Prep objective setups in reviews",
+            "summary": "This slot is where team-level assignments or linked quizzes would land once those systems exist.",
+            "emphasis": "team",
+            "actionLabel": "See library",
+            "href": "/library"
+          }
+        ]
+      }
+    ]
+  },
+  "continueLearning": [
+    {
+      "id": "continue_template",
+      "contentItemId": "cnt_seed_google_doc",
+      "progressLabel": "Reviewed today"
+    }
+  ]
+}

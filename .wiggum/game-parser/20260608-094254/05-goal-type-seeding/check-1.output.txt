@@ -1,0 +1,20 @@
+PASS
+
+Evidence reviewed:
+- Task text for `05-goal-type-seeding`.
+- Commit `6d472e4 Seed parser evidence goal types`.
+- `server/goal-types/system-goal-types.js` defines all 7 requested system goal types with IDs, titles, descriptions, `ANY`, evidence categories, tag subscriptions, review questions, and system flags.
+- `server/repositories/goal-types.js` persists goal types locally.
+- Startup/local MVP seed goal types without creating active user goals.
+- Onboarding options return active system goal type options.
+- Tests cover idempotent seeding, no duplicate goal types, and no active user goal creation.
+
+Commands run:
+- `git status --short`
+- `rg -n "05-goal-type-seeding|goal type|goal_type|goalType|GoalType|goal types|type seeding" .`
+- `git show --stat --oneline HEAD`
+- `npm test -- --run tests/server/goal-types.repository.test.mjs tests/server/home.api.test.mjs`
+- `npm test`
+
+Failures found:
+- None. Full suite passed: 14 files, 66 tests.

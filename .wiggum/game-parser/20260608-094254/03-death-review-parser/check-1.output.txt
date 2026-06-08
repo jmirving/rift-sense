@@ -1,0 +1,21 @@
+PASS
+
+Evidence reviewed:
+- Task definition in `scripts/wiggum-game-parser-loop.sh`
+- Commit `06b35cb Implement deterministic death review parser`
+- `server/riot/death-review.js`
+- `tests/server/riot-death-review.test.mjs`
+- Working tree status: no tracked task changes pending; only untracked local/docs/tooling files present.
+
+Commands run:
+- `git status --short`
+- `git log --oneline --stat -3 -- server/riot/death-review.js tests/server/riot-death-review.test.mjs`
+- `npx vitest run tests/server/riot-death-review.test.mjs`
+- `npm test`
+
+Validation:
+- Targeted death review tests passed: 2/2
+- Full test suite passed: 59/59 across 12 files
+
+Failures found:
+- None.

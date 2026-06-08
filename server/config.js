@@ -116,7 +116,7 @@ export function loadConfig(env = process.env) {
         typeof env.RIFTSENSE_RIOT_PLATFORM_REGION === "string" && env.RIFTSENSE_RIOT_PLATFORM_REGION.trim()
           ? env.RIFTSENSE_RIOT_PLATFORM_REGION.trim()
           : "na1",
-      matchCount: parsePort(env.RIFTSENSE_RIOT_MATCH_COUNT, 8),
+      matchCount: parsePort(env.RIFTSENSE_RIOT_MATCH_COUNT, 10),
       matchDataMaxAgeMs: Number.parseInt(String(env.RIFTSENSE_RIOT_MATCH_DATA_MAX_AGE_MS ?? ""), 10)
     }
   };

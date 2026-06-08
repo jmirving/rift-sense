@@ -1,0 +1,31 @@
+You are working in the RiftSense repository.
+
+Implement system goal type seeding for parser evidence categories.
+
+Goal:
+RiftSense should have goal type options corresponding to deterministic evidence categories, without requiring users to already have active goals.
+
+Requirements:
+- Search existing goal models, seed data, UI options, migrations, tests, and docs.
+- Add or extend system goal type definitions for:
+  - death_review
+  - tempo_conversion
+  - objective_setup_exit
+  - fight_participation
+  - map_state_safety
+  - lane_pressure_conversion
+  - vision_information
+- Each goal type should define:
+  - stable id
+  - title
+  - description
+  - role applicability, with ANY for general goals
+  - evidence categories
+  - tag subscriptions
+  - default review questions
+  - system-created flag if the data model supports it
+- Do not auto-create active user goals.
+- Add tests ensuring seed is idempotent and does not duplicate goal types.
+- If no goal persistence exists yet, create the smallest structure consistent with the repo.
+
+Run the relevant tests.

@@ -1,0 +1,28 @@
+You are working in the RiftSense repository.
+
+Implement non-blocking parser status UI and API behavior.
+
+Goal:
+Users should not be locked in a loading state while RiftSense discovers, fetches, or parses recent matches.
+
+Requirements:
+- Search existing routes/pages/components for recent games, Riot account status, and match review surfaces.
+- Add or update user-visible states:
+  - riot_account_not_linked
+  - riot_access_not_configured
+  - checking_recent_games
+  - recent_games_unavailable
+  - games_found_parsing
+  - some_games_ready
+  - all_recent_games_ready
+  - parse_failed_retry_available
+- UI should show partial readiness:
+  - X games ready
+  - Y games still being prepared
+- Refresh should respect existing Riot/cache cooldown conventions.
+- Do not block the page on parsing multiple matches.
+- If only one match is ready, the user should still be able to review it.
+- Add tests for status derivation if possible.
+- Add UI tests only if the repo already has appropriate infrastructure.
+
+Run the relevant tests.
