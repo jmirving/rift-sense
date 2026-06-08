@@ -59,8 +59,11 @@ export const SYSTEM_GOAL_TYPES = [
     roleApplicability: ["ANY"],
     evidenceCategories: ["objective_setup_exit"],
     tagSubscriptions: [
+      "objective_setup_present",
       "objective_setup_missing",
+      "objective_taken_cleanly",
       "objective_taken_but_exit_failed",
+      "objective_contested_and_lost",
       "post_major_objective_death",
       "enemy_objective_crossmap_trade"
     ],
