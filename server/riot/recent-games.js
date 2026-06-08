@@ -1,5 +1,6 @@
 import { resolveParticipantPerspective } from "./participant-perspective.js";
 import { parseDeathReviewEvidence } from "./death-review.js";
+import { parseFightParticipationEvidence } from "./fight-participation.js";
 import { parseObjectiveSetupExitEvidence } from "./objective-setup-exit.js";
 import { parseTempoConversionEvidence } from "./tempo-conversion.js";
 
@@ -223,6 +224,7 @@ function parseMatchEvidence(matchPayload, matchTimeline, perspective) {
 
   return [
     ...parseDeathReviewEvidence({ matchSummary: matchPayload, matchTimeline, perspective }),
+    ...parseFightParticipationEvidence({ matchSummary: matchPayload, matchTimeline, perspective }),
     ...parseObjectiveSetupExitEvidence({ matchSummary: matchPayload, matchTimeline, perspective }),
     ...parseTempoConversionEvidence({ matchSummary: matchPayload, matchTimeline, perspective })
   ];

@@ -83,11 +83,15 @@ export const SYSTEM_GOAL_TYPES = [
     roleApplicability: ["ANY"],
     evidenceCategories: ["fight_participation"],
     tagSubscriptions: [
+      "present_for_fight",
       "late_to_fight",
       "absent_from_fight",
       "died_before_fight",
+      "cleaned_up_after_fight",
       "high_damage_losing_fight",
-      "low_damage_death"
+      "low_damage_death",
+      "front_to_back_participation_possible",
+      "isolated_from_team"
     ],
     defaultReviewQuestions: [
       "Was the fight supposed to be contested, traded, delayed, or given?",
