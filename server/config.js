@@ -72,6 +72,7 @@ export function loadConfig(env = process.env) {
     publicDir: path.resolve(projectRoot, "public"),
     storageRoot,
     contentItemsDir: path.resolve(storageRoot, "content-items"),
+    goalTypesDir: path.resolve(storageRoot, "goal-types"),
     userHomesDir: path.resolve(storageRoot, "user-homes"),
     riotRawMatchesDir: path.resolve(storageRoot, "riot-matches", "raw"),
     riotMatchPerspectivesDir: path.resolve(storageRoot, "riot-matches", "perspectives"),

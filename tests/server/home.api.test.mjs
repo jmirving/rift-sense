@@ -8,7 +8,9 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createApp } from "../../server/app.js";
 import { loadConfig } from "../../server/config.js";
+import { seedSystemGoalTypes } from "../../server/goal-types/system-goal-types.js";
 import { createContentItemsRepository } from "../../server/repositories/content-items.js";
+import { createGoalTypesRepository } from "../../server/repositories/goal-types.js";
 import { createUserHomesRepository } from "../../server/repositories/user-homes.js";
 import { createLocalAssetStore } from "../../server/storage/local-assets.js";
 
@@ -32,6 +34,9 @@ async function createTestApp({ authEnabled = false, fetchSharedProfile, resolveR
   const contentItemsRepository = createContentItemsRepository({
     contentItemsDir: config.contentItemsDir
   });
+  const goalTypesRepository = createGoalTypesRepository({
+    goalTypesDir: config.goalTypesDir
+  });
   const userHomesRepository = createUserHomesRepository({
     userHomesDir: config.userHomesDir
   });
@@ -40,6 +45,8 @@ async function createTestApp({ authEnabled = false, fetchSharedProfile, resolveR
   });
 
   await contentItemsRepository.initialize();
+  await goalTypesRepository.initialize();
+  await seedSystemGoalTypes(goalTypesRepository);
   await userHomesRepository.initialize();
   await assetStore.initialize();
 
@@ -88,6 +95,7 @@ async function createTestApp({ authEnabled = false, fetchSharedProfile, resolveR
   return createApp({
     config,
     contentItemsRepository,
+    goalTypesRepository,
     userHomesRepository,
     assetStore,
     previewService: {
@@ -466,6 +474,20 @@ describe("home API", () => {
     expect(response.status).toBe(200);
     expect(response.body.templates.goalTemplates[0].id).toBe("goal-template-adc-die-less");
     expect(response.body.templates.teamFocusTemplates[0].id).toBe("team-focus-template-dragon-setup");
+    expect(response.body.systemGoalTypes.map((goalType) => goalType.id)).toEqual([
+      "death_review",
+      "fight_participation",
+      "lane_pressure_conversion",
+      "map_state_safety",
+      "objective_setup_exit",
+      "tempo_conversion",
+      "vision_information"
+    ]);
+    expect(response.body.systemGoalTypes[0]).toMatchObject({
+      createdBySystem: true,
+      isActiveOption: true,
+      roleApplicability: ["ANY"]
+    });
   });
 
   it("saves onboarding to the local demo user when auth is disabled", async () => {

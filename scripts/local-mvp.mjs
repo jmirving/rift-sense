@@ -2,7 +2,9 @@ import path from "node:path";
 
 import { loadConfig } from "../server/config.js";
 import { buildDefaultGoalDashboard } from "../server/goal-dashboard.js";
+import { seedSystemGoalTypes } from "../server/goal-types/system-goal-types.js";
 import { createContentItemsRepository } from "../server/repositories/content-items.js";
+import { createGoalTypesRepository } from "../server/repositories/goal-types.js";
 import { createUserHomesRepository } from "../server/repositories/user-homes.js";
 import { startServer } from "../server/index.js";
 
@@ -335,10 +337,15 @@ async function seedStorageIfEmpty(env) {
   const repository = createContentItemsRepository({
     contentItemsDir: config.contentItemsDir
   });
+  const goalTypesRepository = createGoalTypesRepository({
+    goalTypesDir: config.goalTypesDir
+  });
   const userHomesRepository = createUserHomesRepository({
     userHomesDir: config.userHomesDir
   });
   await repository.initialize();
+  await goalTypesRepository.initialize();
+  await seedSystemGoalTypes(goalTypesRepository);
   await userHomesRepository.initialize();
 
   const existingItems = await repository.listContentItems();

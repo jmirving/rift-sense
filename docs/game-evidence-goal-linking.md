@@ -262,6 +262,8 @@ function findGoalCoverageGaps(parsedEvidence, goalTypes) {
 Initial behavior:
 
 - Seed known system goal types at deploy or startup if they are missing.
+- Persist system goal type options under the local `goal-types` repository.
+- Return active system goal type options from onboarding metadata without creating active user goals.
 - If parsed evidence is uncovered, create an inactive system goal type option when the category is stable.
 - If the category or tag is experimental, record a suggestion for review instead of showing it immediately.
 - Never block parsing because goal type coverage is missing.

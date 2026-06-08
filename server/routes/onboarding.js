@@ -5,6 +5,7 @@ import {
   getTemplateLibrary,
   normalizeGoalDashboard
 } from "../goal-dashboard.js";
+import { getSystemGoalTypes } from "../goal-types/system-goal-types.js";
 import { badRequest } from "../errors.js";
 
 const VALID_CONTEXTS = new Set(["personal", "team", "both"]);
@@ -81,13 +82,18 @@ function validateTemplateIds(body, library) {
   };
 }
 
-export function createOnboardingRouter({ config, userHomesRepository }) {
+export function createOnboardingRouter({ config, goalTypesRepository, userHomesRepository }) {
   const router = express.Router();
   const requireAuth = config.requireAuth;
 
-  router.get("/options", (_request, response) => {
+  router.get("/options", async (_request, response) => {
+    const systemGoalTypes = goalTypesRepository
+      ? await goalTypesRepository.listGoalTypes({ activeOption: true })
+      : getSystemGoalTypes().filter((goalType) => goalType.isActiveOption);
+
     response.json({
-      templates: getTemplateLibrary()
+      templates: getTemplateLibrary(),
+      systemGoalTypes
     });
   });
 

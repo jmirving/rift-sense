@@ -42,6 +42,7 @@ const clientRoutes = [
 export function createApp({
   config,
   contentItemsRepository,
+  goalTypesRepository,
   userHomesRepository,
   riotMatchesRepository,
   assetStore,
@@ -103,6 +104,7 @@ export function createApp({
         ...config,
         requireAuth
       },
+      goalTypesRepository,
       userHomesRepository
     })
   );
