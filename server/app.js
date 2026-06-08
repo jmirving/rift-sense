@@ -43,6 +43,7 @@ export function createApp({
   config,
   contentItemsRepository,
   userHomesRepository,
+  riotMatchesRepository,
   assetStore,
   previewService,
   redeemLaunchGrant,
@@ -83,6 +84,7 @@ export function createApp({
       contentItemsRepository,
       fetchSharedProfile,
       resolveRecentGames,
+      riotMatchesRepository,
       fetchImpl
     })
   );

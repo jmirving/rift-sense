@@ -1,6 +1,30 @@
-import { describe, expect, it } from "vitest";
+import os from "node:os";
+import path from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
 
+import { afterEach, describe, expect, it } from "vitest";
+
+import { createRiotMatchesRepository } from "../../server/repositories/riot-matches.js";
 import { normalizeRecentGame, resolveRecentGames, scoreRecentGames } from "../../server/riot/recent-games.js";
+
+const tempDirectories = [];
+
+async function createRiotRepository() {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rift-sense-riot-service-"));
+  tempDirectories.push(tempRoot);
+
+  const repository = createRiotMatchesRepository({
+    rawMatchesDir: path.resolve(tempRoot, "raw"),
+    perspectivesDir: path.resolve(tempRoot, "perspectives")
+  });
+  await repository.initialize();
+
+  return repository;
+}
+
+afterEach(async () => {
+  await Promise.all(tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 
 describe("riot recent-games service", () => {
   it("normalizes a Riot match payload into the internal recent game shape", () => {
@@ -135,6 +159,162 @@ describe("riot recent-games service", () => {
       championName: "Jinx"
     });
     expect(calls[0]).toContain("/by-puuid/puuid_1/ids");
+    expect(calls.some((url) => url.endsWith("/matches/NA1_1/timeline"))).toBe(true);
+  });
+
+  it("stores raw match data and user perspective while fetching recent games", async () => {
+    const repository = await createRiotRepository();
+
+    const fetchImpl = async (url) => {
+      if (url.includes("/ids?")) {
+        return {
+          ok: true,
+          async json() {
+            return ["NA1_2"];
+          }
+        };
+      }
+
+      if (url.endsWith("/matches/NA1_2/timeline")) {
+        return {
+          ok: true,
+          async json() {
+            return { metadata: { matchId: "NA1_2" }, info: { frames: [] } };
+          }
+        };
+      }
+
+      return {
+        ok: true,
+        async json() {
+          return {
+            metadata: {
+              matchId: "NA1_2"
+            },
+            info: {
+              queueId: 420,
+              gameDuration: 1800,
+              participants: [
+                {
+                  puuid: "puuid_1",
+                  participantId: 4,
+                  championName: "Ashe",
+                  teamId: 100,
+                  teamPosition: "BOTTOM",
+                  win: true
+                }
+              ]
+            }
+          };
+        }
+      };
+    };
+
+    await resolveRecentGames({
+      profile: {
+        riotPuuid: "puuid_1"
+      },
+      config: {
+        riot: {
+          apiKey: "riot-key",
+          routingRegion: "americas",
+          matchCount: 1
+        }
+      },
+      riotMatchesRepository: repository,
+      fetchImpl
+    });
+
+    await expect(repository.getRawMatchData("NA1_2")).resolves.toMatchObject({
+      matchId: "NA1_2",
+      summaryJson: {
+        metadata: {
+          matchId: "NA1_2"
+        }
+      },
+      timelineJson: {
+        metadata: {
+          matchId: "NA1_2"
+        }
+      }
+    });
+    await expect(repository.getUserMatchPerspective("NA1_2", "puuid_1")).resolves.toMatchObject({
+      matchId: "NA1_2",
+      puuid: "puuid_1",
+      participantId: 4,
+      championName: "Ashe",
+      teamId: 100,
+      teamPosition: "BOTTOM",
+      parseStatus: "raw_data_available"
+    });
+  });
+
+  it("reuses fresh stored raw match data without re-fetching match payloads", async () => {
+    const repository = await createRiotRepository();
+    await repository.saveRawMatchData({
+      matchId: "NA1_cached",
+      summaryJson: {
+        metadata: {
+          matchId: "NA1_cached"
+        },
+        info: {
+          queueId: 420,
+          gameDuration: 1800,
+          participants: [
+            {
+              puuid: "puuid_1",
+              participantId: 2,
+              championName: "Caitlyn",
+              teamId: 100,
+              teamPosition: "BOTTOM",
+              win: true
+            }
+          ]
+        }
+      },
+      timelineJson: {
+        metadata: {
+          matchId: "NA1_cached"
+        }
+      }
+    });
+
+    const calls = [];
+    const fetchImpl = async (url) => {
+      calls.push(url);
+      if (url.includes("/ids?")) {
+        return {
+          ok: true,
+          async json() {
+            return ["NA1_cached"];
+          }
+        };
+      }
+
+      throw new Error("match payload should not be fetched");
+    };
+
+    const result = await resolveRecentGames({
+      profile: {
+        riotPuuid: "puuid_1"
+      },
+      config: {
+        riot: {
+          apiKey: "riot-key",
+          routingRegion: "americas",
+          matchCount: 1
+        }
+      },
+      riotMatchesRepository: repository,
+      fetchImpl
+    });
+
+    expect(result.status).toBe("available");
+    expect(result.games[0]).toMatchObject({
+      matchId: "NA1_cached",
+      championName: "Caitlyn"
+    });
+    expect(calls).toHaveLength(1);
   });
 
   it("scores and sorts candidate games by role, timing, queue, and deaths for Die Less", () => {

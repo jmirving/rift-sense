@@ -35,7 +35,10 @@ function buildRecentGamesConfig(config) {
     apiKey: normalizeString(config?.riot?.apiKey),
     routingRegion: normalizeString(config?.riot?.routingRegion) ?? "americas",
     platformRegion: normalizeString(config?.riot?.platformRegion) ?? "na1",
-    matchCount: Number.isInteger(config?.riot?.matchCount) ? config.riot.matchCount : DEFAULT_MATCH_COUNT
+    matchCount: Number.isInteger(config?.riot?.matchCount) ? config.riot.matchCount : DEFAULT_MATCH_COUNT,
+    matchDataMaxAgeMs: Number.isFinite(config?.riot?.matchDataMaxAgeMs)
+      ? config.riot.matchDataMaxAgeMs
+      : null
   };
 }
 
@@ -112,12 +115,51 @@ function inferRole(participant) {
   return { role: null, roleConfidence: "low" };
 }
 
+function findParticipant(matchPayload, riotPuuid) {
+  return Array.isArray(matchPayload?.info?.participants)
+    ? matchPayload.info.participants.find((entry) => entry?.puuid === riotPuuid) ?? null
+    : null;
+}
+
+function buildUserMatchPerspective(matchPayload, riotPuuid, parseStatus = "raw_data_available", parseStatusReason = null) {
+  const matchId = normalizeString(matchPayload?.metadata?.matchId);
+  const participant = findParticipant(matchPayload, riotPuuid);
+
+  if (!matchId) {
+    return null;
+  }
+
+  if (!participant) {
+    return {
+      matchId,
+      puuid: riotPuuid,
+      participantId: null,
+      championName: null,
+      teamId: null,
+      teamPosition: null,
+      parseStatus: "parse_failed",
+      parseStatusReason: "participant_not_found"
+    };
+  }
+
+  return {
+    matchId,
+    puuid: riotPuuid,
+    participantId: Number.isFinite(Number(participant?.participantId))
+      ? Number(participant.participantId)
+      : null,
+    championName: normalizeString(participant?.championName),
+    teamId: Number.isFinite(Number(participant?.teamId)) ? Number(participant.teamId) : null,
+    teamPosition: normalizeString(participant?.teamPosition ?? participant?.individualPosition),
+    parseStatus,
+    parseStatusReason
+  };
+}
+
 export function normalizeRecentGame(matchPayload, riotPuuid) {
   const info = matchPayload?.info ?? null;
   const metadata = matchPayload?.metadata ?? null;
-  const participant = Array.isArray(info?.participants)
-    ? info.participants.find((entry) => entry?.puuid === riotPuuid)
-    : null;
+  const participant = findParticipant(matchPayload, riotPuuid);
 
   if (!participant || !metadata?.matchId) {
     return null;
@@ -174,10 +216,72 @@ async function fetchJson(url, options, fetchImpl) {
   return response.json();
 }
 
+async function savePerspective(riotMatchesRepository, matchPayload, riotPuuid, parseStatus, parseStatusReason = null) {
+  const perspective = buildUserMatchPerspective(matchPayload, riotPuuid, parseStatus, parseStatusReason);
+  if (perspective) {
+    await riotMatchesRepository?.saveUserMatchPerspective?.(perspective);
+  }
+}
+
+async function resolveStoredMatch({ matchId, riotPuuid, riotMatchesRepository, recentGamesConfig }) {
+  if (!riotMatchesRepository) {
+    return null;
+  }
+
+  const rawRecord = await riotMatchesRepository.getRawMatchData(matchId);
+  const isFresh = rawRecord
+    ? await riotMatchesRepository.hasFreshRawMatchData(matchId, {
+        maxAgeMs: recentGamesConfig.matchDataMaxAgeMs
+      })
+    : false;
+
+  if (!isFresh) {
+    return null;
+  }
+
+  await savePerspective(riotMatchesRepository, rawRecord.summaryJson, riotPuuid, "raw_data_available");
+  return rawRecord.summaryJson;
+}
+
+async function fetchAndStoreMatch({ matchId, riotPuuid, headers, fetchImpl, recentGamesConfig, riotMatchesRepository }) {
+  const summary = await fetchJson(
+    `https://${recentGamesConfig.routingRegion}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchId)}`,
+    { headers },
+    fetchImpl
+  );
+
+  let timeline = null;
+  let parseStatus = "fetching_timeline";
+  let parseStatusReason = null;
+  try {
+    timeline = await fetchJson(
+      `https://${recentGamesConfig.routingRegion}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchId)}/timeline`,
+      { headers },
+      fetchImpl
+    );
+    parseStatus = "raw_data_available";
+  } catch (error) {
+    parseStatus = "parse_failed";
+    parseStatusReason = "missing_timeline";
+  }
+
+  if (riotMatchesRepository && timeline) {
+    await riotMatchesRepository.saveRawMatchData({
+      matchId: summary?.metadata?.matchId ?? matchId,
+      summaryJson: summary,
+      timelineJson: timeline
+    });
+  }
+
+  await savePerspective(riotMatchesRepository, summary, riotPuuid, parseStatus, parseStatusReason);
+  return summary;
+}
+
 export async function resolveRecentGames({
   identity,
   profile,
   config,
+  riotMatchesRepository,
   fetchImpl = fetch
 }) {
   const riotPuuid = normalizeString(profile?.riotPuuid ?? identity?.riot?.puuid);
@@ -221,12 +325,21 @@ export async function resolveRecentGames({
     }
 
     const settledMatches = await Promise.allSettled(
-      matchIds.map((matchId) =>
-        fetchJson(
-          `https://${recentGamesConfig.routingRegion}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchId)}`,
-          { headers },
-          fetchImpl
-        )
+      matchIds.map(async (matchId) =>
+        (await resolveStoredMatch({
+          matchId,
+          riotPuuid,
+          riotMatchesRepository,
+          recentGamesConfig
+        })) ??
+        fetchAndStoreMatch({
+          matchId,
+          riotPuuid,
+          headers,
+          fetchImpl,
+          recentGamesConfig,
+          riotMatchesRepository
+        })
       )
     );
 

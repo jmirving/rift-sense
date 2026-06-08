@@ -350,7 +350,7 @@ describe("home API", () => {
           games: [
             {
               matchId: "NA1_1",
-              playedAt: "2026-06-01T05:00:00.000Z",
+              playedAt: "2026-06-08T05:00:00.000Z",
               queueId: 420,
               queueLabel: "Ranked Solo/Duo",
               championId: 202,

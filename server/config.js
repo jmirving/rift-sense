@@ -73,6 +73,8 @@ export function loadConfig(env = process.env) {
     storageRoot,
     contentItemsDir: path.resolve(storageRoot, "content-items"),
     userHomesDir: path.resolve(storageRoot, "user-homes"),
+    riotRawMatchesDir: path.resolve(storageRoot, "riot-matches", "raw"),
+    riotMatchPerspectivesDir: path.resolve(storageRoot, "riot-matches", "perspectives"),
     assetsDir: path.resolve(storageRoot, "assets"),
     demoUserId: env.RIFTSENSE_DEMO_USER_ID ?? "usr_local_guest",
     maxUploadBytes:
@@ -113,7 +115,8 @@ export function loadConfig(env = process.env) {
         typeof env.RIFTSENSE_RIOT_PLATFORM_REGION === "string" && env.RIFTSENSE_RIOT_PLATFORM_REGION.trim()
           ? env.RIFTSENSE_RIOT_PLATFORM_REGION.trim()
           : "na1",
-      matchCount: parsePort(env.RIFTSENSE_RIOT_MATCH_COUNT, 8)
+      matchCount: parsePort(env.RIFTSENSE_RIOT_MATCH_COUNT, 8),
+      matchDataMaxAgeMs: Number.parseInt(String(env.RIFTSENSE_RIOT_MATCH_DATA_MAX_AGE_MS ?? ""), 10)
     }
   };
 }

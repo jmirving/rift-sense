@@ -135,6 +135,7 @@ export function createHomeRouter({
   contentItemsRepository,
   fetchSharedProfile,
   resolveRecentGames,
+  riotMatchesRepository,
   fetchImpl
 }) {
   const router = express.Router();
@@ -171,7 +172,8 @@ export function createHomeRouter({
         identity,
         config,
         fetchImpl,
-        resolveRecentGames
+        resolveRecentGames,
+        riotMatchesRepository
       })
     });
   });

@@ -4,6 +4,7 @@ import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createPreviewService } from "./previews.js";
 import { createContentItemsRepository } from "./repositories/content-items.js";
+import { createRiotMatchesRepository } from "./repositories/riot-matches.js";
 import { createUserHomesRepository } from "./repositories/user-homes.js";
 import { createLocalAssetStore } from "./storage/local-assets.js";
 
@@ -15,6 +16,10 @@ export async function startServer(env = process.env) {
   const userHomesRepository = createUserHomesRepository({
     userHomesDir: config.userHomesDir
   });
+  const riotMatchesRepository = createRiotMatchesRepository({
+    rawMatchesDir: config.riotRawMatchesDir,
+    perspectivesDir: config.riotMatchPerspectivesDir
+  });
   const assetStore = createLocalAssetStore({
     assetsDir: config.assetsDir
   });
@@ -22,12 +27,14 @@ export async function startServer(env = process.env) {
 
   await contentItemsRepository.initialize();
   await userHomesRepository.initialize();
+  await riotMatchesRepository.initialize();
   await assetStore.initialize();
 
   const app = createApp({
     config,
     contentItemsRepository,
     userHomesRepository,
+    riotMatchesRepository,
     assetStore,
     previewService
   });

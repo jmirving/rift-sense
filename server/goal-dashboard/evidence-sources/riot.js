@@ -163,6 +163,7 @@ export async function applyRiotEvidenceToDashboard({
   profile,
   config,
   fetchImpl,
+  riotMatchesRepository,
   resolveRecentGames = defaultResolveRecentGames
 }) {
   if (!goalDashboard?.activePersonalGoal) {
@@ -186,6 +187,7 @@ export async function applyRiotEvidenceToDashboard({
         identity,
         profile,
         config,
+        riotMatchesRepository,
         fetchImpl
       }).catch(() => ({
         status: "unavailable",
