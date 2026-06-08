@@ -103,7 +103,7 @@ function eventOwnerTeam(event, participantIndex) {
     return participantOwnerTeam;
   }
 
-  if (event.type === "BUILDING_KILL") {
+  if (event.type === "BUILDING_KILL" || event.type === "TURRET_PLATE_DESTROYED") {
     return opposingTeamId(participantIndex, normalizeNumber(event.teamId));
   }
 

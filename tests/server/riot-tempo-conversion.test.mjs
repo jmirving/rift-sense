@@ -86,6 +86,17 @@ describe("tempo conversion parser", () => {
     expect(evidence.tags.map((tag) => tag.id)).toEqual(["clean_conversion"]);
   });
 
+  it("credits turret plates with only turret teamId to the opposing team", () => {
+    const evidence = evidenceFor("kill", [
+      { eventId: "kill", type: "CHAMPION_KILL", timestamp: 100_000, killerId: 1, victimId: 6 },
+      { eventId: "plate", type: "TURRET_PLATE_DESTROYED", timestamp: 112_000, teamId: 200 }
+    ]);
+
+    expect(evidence.facts.playerTeamGains.map((event) => event.eventId)).toEqual(["plate"]);
+    expect(evidence.facts.enemyTeamGains).toEqual([]);
+    expect(evidence.facts.conversionResult).toBe("clean");
+  });
+
   it("detects objective into player death", () => {
     const evidence = evidenceFor("dragon", [
       { eventId: "dragon", type: "ELITE_MONSTER_KILL", timestamp: 200_000, killerId: 3, monsterType: "DRAGON" },
