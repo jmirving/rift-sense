@@ -201,6 +201,7 @@ describe("riot recent-games service", () => {
                   championName: "Ashe",
                   teamId: 100,
                   teamPosition: "BOTTOM",
+                  individualPosition: "BOTTOM",
                   win: true
                 }
               ]
@@ -245,6 +246,8 @@ describe("riot recent-games service", () => {
       championName: "Ashe",
       teamId: 100,
       teamPosition: "BOTTOM",
+      individualPosition: "BOTTOM",
+      duration: 1800,
       parseStatus: "raw_data_available"
     });
   });

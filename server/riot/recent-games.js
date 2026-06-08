@@ -1,3 +1,5 @@
+import { resolveParticipantPerspective } from "./participant-perspective.js";
+
 const DEFAULT_MATCH_COUNT = 8;
 
 const QUEUE_LABELS = new Map([
@@ -121,41 +123,6 @@ function findParticipant(matchPayload, riotPuuid) {
     : null;
 }
 
-function buildUserMatchPerspective(matchPayload, riotPuuid, parseStatus = "raw_data_available", parseStatusReason = null) {
-  const matchId = normalizeString(matchPayload?.metadata?.matchId);
-  const participant = findParticipant(matchPayload, riotPuuid);
-
-  if (!matchId) {
-    return null;
-  }
-
-  if (!participant) {
-    return {
-      matchId,
-      puuid: riotPuuid,
-      participantId: null,
-      championName: null,
-      teamId: null,
-      teamPosition: null,
-      parseStatus: "parse_failed",
-      parseStatusReason: "participant_not_found"
-    };
-  }
-
-  return {
-    matchId,
-    puuid: riotPuuid,
-    participantId: Number.isFinite(Number(participant?.participantId))
-      ? Number(participant.participantId)
-      : null,
-    championName: normalizeString(participant?.championName),
-    teamId: Number.isFinite(Number(participant?.teamId)) ? Number(participant.teamId) : null,
-    teamPosition: normalizeString(participant?.teamPosition ?? participant?.individualPosition),
-    parseStatus,
-    parseStatusReason
-  };
-}
-
 export function normalizeRecentGame(matchPayload, riotPuuid) {
   const info = matchPayload?.info ?? null;
   const metadata = matchPayload?.metadata ?? null;
@@ -216,8 +183,43 @@ async function fetchJson(url, options, fetchImpl) {
   return response.json();
 }
 
-async function savePerspective(riotMatchesRepository, matchPayload, riotPuuid, parseStatus, parseStatusReason = null) {
-  const perspective = buildUserMatchPerspective(matchPayload, riotPuuid, parseStatus, parseStatusReason);
+async function savePerspective(
+  riotMatchesRepository,
+  matchPayload,
+  matchTimeline,
+  riotPuuid,
+  parseStatus,
+  parseStatusReason = null
+) {
+  const matchId = normalizeString(matchPayload?.metadata?.matchId);
+  if (!matchId) {
+    return;
+  }
+
+  const resolved = resolveParticipantPerspective(matchPayload, matchTimeline, riotPuuid);
+  const perspective = resolved.ok
+    ? {
+        ...resolved.value,
+        matchId,
+        parseStatus,
+        parseStatusReason
+      }
+    : {
+        matchId,
+        puuid: riotPuuid,
+        participantId: null,
+        championName: null,
+        teamId: null,
+        teamPosition: null,
+        individualPosition: null,
+        gameCreation: null,
+        gameStart: null,
+        gameEnd: null,
+        duration: null,
+        parseStatus: "parse_failed",
+        parseStatusReason: resolved.error.code
+      };
+
   if (perspective) {
     await riotMatchesRepository?.saveUserMatchPerspective?.(perspective);
   }
@@ -239,7 +241,7 @@ async function resolveStoredMatch({ matchId, riotPuuid, riotMatchesRepository, r
     return null;
   }
 
-  await savePerspective(riotMatchesRepository, rawRecord.summaryJson, riotPuuid, "raw_data_available");
+  await savePerspective(riotMatchesRepository, rawRecord.summaryJson, rawRecord.timelineJson, riotPuuid, "raw_data_available");
   return rawRecord.summaryJson;
 }
 
@@ -273,7 +275,7 @@ async function fetchAndStoreMatch({ matchId, riotPuuid, headers, fetchImpl, rece
     });
   }
 
-  await savePerspective(riotMatchesRepository, summary, riotPuuid, parseStatus, parseStatusReason);
+  await savePerspective(riotMatchesRepository, summary, timeline, riotPuuid, parseStatus, parseStatusReason);
   return summary;
 }
 
