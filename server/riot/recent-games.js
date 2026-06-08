@@ -1,8 +1,10 @@
 import { resolveParticipantPerspective } from "./participant-perspective.js";
 import { parseDeathReviewEvidence } from "./death-review.js";
 import { parseFightParticipationEvidence } from "./fight-participation.js";
+import { parseLanePressureEvidence } from "./lane-pressure.js";
 import { parseObjectiveSetupExitEvidence } from "./objective-setup-exit.js";
 import { parseTempoConversionEvidence } from "./tempo-conversion.js";
+import { parseVisionInformationEvidence } from "./vision-information.js";
 
 const DEFAULT_MATCH_COUNT = 8;
 const inFlightMatchPreparations = new Set();
@@ -226,7 +228,9 @@ function parseMatchEvidence(matchPayload, matchTimeline, perspective) {
     ...parseDeathReviewEvidence({ matchSummary: matchPayload, matchTimeline, perspective }),
     ...parseFightParticipationEvidence({ matchSummary: matchPayload, matchTimeline, perspective }),
     ...parseObjectiveSetupExitEvidence({ matchSummary: matchPayload, matchTimeline, perspective }),
-    ...parseTempoConversionEvidence({ matchSummary: matchPayload, matchTimeline, perspective })
+    ...parseTempoConversionEvidence({ matchSummary: matchPayload, matchTimeline, perspective }),
+    ...parseLanePressureEvidence({ matchSummary: matchPayload, matchTimeline, perspective }),
+    ...parseVisionInformationEvidence({ matchSummary: matchPayload, matchTimeline, perspective })
   ];
 }
 

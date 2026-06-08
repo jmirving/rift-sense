@@ -131,10 +131,15 @@ export const SYSTEM_GOAL_TYPES = [
     roleApplicability: ["ANY"],
     evidenceCategories: ["lane_pressure_conversion", "lane_pressure", "tempo_conversion"],
     tagSubscriptions: [
+      "lane_cs_lead",
+      "lane_cs_deficit",
+      "xp_lead",
+      "xp_deficit",
       "plate_conversion",
       "pressure_without_conversion",
       "plate_loss_after_death",
-      "crash_or_reset_possible"
+      "crash_or_reset_possible",
+      "repeat_gank_same_lane"
     ],
     defaultReviewQuestions: [
       "What pressure did the lane create?",
@@ -155,7 +160,10 @@ export const SYSTEM_GOAL_TYPES = [
       "low_vision_activity",
       "objective_without_recent_vision",
       "death_after_no_recent_ward",
-      "control_ward_missing"
+      "control_ward_missing",
+      "vision_denial_success",
+      "support_vision_gap",
+      "carry_no_defensive_ward_before_push"
     ],
     defaultReviewQuestions: [
       "What information was missing before the decision?",
