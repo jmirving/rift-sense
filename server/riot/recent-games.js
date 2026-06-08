@@ -1,4 +1,6 @@
 import { resolveParticipantPerspective } from "./participant-perspective.js";
+import { parseDeathReviewEvidence } from "./death-review.js";
+import { parseTempoConversionEvidence } from "./tempo-conversion.js";
 
 const DEFAULT_MATCH_COUNT = 8;
 
@@ -171,6 +173,17 @@ function buildUnavailableResult(code, message) {
   };
 }
 
+function parseMatchEvidence(matchPayload, matchTimeline, perspective) {
+  if (!matchTimeline?.info?.frames || !perspective?.participantId) {
+    return [];
+  }
+
+  return [
+    ...parseDeathReviewEvidence({ matchSummary: matchPayload, matchTimeline, perspective }),
+    ...parseTempoConversionEvidence({ matchSummary: matchPayload, matchTimeline, perspective })
+  ];
+}
+
 async function fetchJson(url, options, fetchImpl) {
   const response = await fetchImpl(url, options);
 
@@ -202,7 +215,8 @@ async function savePerspective(
         ...resolved.value,
         matchId,
         parseStatus,
-        parseStatusReason
+        parseStatusReason,
+        parsedEvidence: parseMatchEvidence(matchPayload, matchTimeline, { ...resolved.value, matchId })
       }
     : {
         matchId,
