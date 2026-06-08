@@ -40,8 +40,8 @@ function frame(timestamp, events = [], participantFrame = {}) {
         level: 8,
         position: { x: 5000, y: 5000 },
         championStats: {
-          currentHealth: 300,
-          maxHealth: 1200
+          health: 300,
+          healthMax: 1200
         },
         ...participantFrame
       }
@@ -56,7 +56,7 @@ describe("death review parser", () => {
       info: {
         frames: [
           frame(90_000, [
-            { eventId: "level-before", type: "CHAMPION_LEVEL_UP", timestamp: 91_000, participantId: 6, level: 9 },
+            { eventId: "level-before", type: "LEVEL_UP", timestamp: 91_000, participantId: 6, level: 9 },
             { eventId: "ally-death-1", type: "CHAMPION_KILL", timestamp: 95_000, killerId: 7, victimId: 2 },
             { eventId: "dragon-before", type: "ELITE_MONSTER_KILL", timestamp: 96_000, killerId: 7, monsterType: "DRAGON" }
           ]),
@@ -70,7 +70,7 @@ describe("death review parser", () => {
               assistingParticipantIds: [7],
               position: { x: 5200, y: 5100 },
               victimDamageReceived: [
-                { participantId: 6, type: "CHAMPION", name: "Zed", physicalDamage: 600, magicDamage: 0, trueDamage: 0, basic: 50 },
+                { participantId: 6, type: "CHAMPION", name: "Zed", physicalDamage: 600, magicDamage: 0, trueDamage: 0, basic: true },
                 { participantId: 0, type: "TOWER", name: "SRU_ChaosTurret", physicalDamage: 350, magicDamage: 0, trueDamage: 0, basic: 0 },
                 { participantId: 0, type: "MINION", name: "SRU_OrderMinionRanged", physicalDamage: 120, magicDamage: 0, trueDamage: 0, basic: 0 },
                 { participantId: 0, type: "MONSTER", name: "SRU_Dragon", physicalDamage: 80, magicDamage: 0, trueDamage: 0, basic: 0 }
@@ -123,13 +123,13 @@ describe("death review parser", () => {
       }
     });
     expect(evidence[0].facts.damageReceived).toEqual([
-      { type: "champion", key: "participant:6", participantId: 6, championName: "Zed", totalDamage: 650 },
+      { type: "champion", key: "participant:6", participantId: 6, championName: "Zed", totalDamage: 600 },
       { type: "tower", key: "SRU_ChaosTurret", sourceName: "SRU_ChaosTurret", totalDamage: 350 },
       { type: "minion", key: "SRU_OrderMinionRanged", sourceName: "SRU_OrderMinionRanged", totalDamage: 120 },
       { type: "monster", key: "SRU_Dragon", sourceName: "SRU_Dragon", totalDamage: 80 }
     ]);
     expect(evidence[0].facts.damageDealt).toEqual([
-      { type: "champion", key: "participant:6", participantId: 6, championName: "Zed", totalDamage: 500 },
+      { type: "champion", key: "participant:6", participantId: 6, championName: "Zed", totalDamage: 450 },
       { type: "champion", key: "participant:7", participantId: 7, championName: "Vi", totalDamage: 240 }
     ]);
     expect(evidence[0].facts.nearbyEventsBefore.map((event) => event.eventId)).toEqual([

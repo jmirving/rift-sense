@@ -68,8 +68,8 @@ function findPriorFrame(matchTimeline, timestamp, participantId) {
 
   return {
     timestamp: normalizeNumber(frame?.timestamp),
-    hp: normalizeNumber(participantFrame?.championStats?.currentHealth ?? participantFrame?.currentHealth),
-    maxHp: normalizeNumber(participantFrame?.championStats?.maxHealth ?? participantFrame?.maxHealth),
+    hp: normalizeNumber(participantFrame?.championStats?.health ?? participantFrame?.championStats?.currentHealth ?? participantFrame?.currentHealth),
+    maxHp: normalizeNumber(participantFrame?.championStats?.healthMax ?? participantFrame?.championStats?.maxHealth ?? participantFrame?.maxHealth),
     level: normalizeNumber(participantFrame?.level),
     position: normalizePosition(participantFrame?.position)
   };
@@ -122,7 +122,6 @@ function classifySource(entry, participantIndex, key = "participantId") {
 
 function damageAmount(entry) {
   return [
-    entry?.basic,
     entry?.magicDamage,
     entry?.physicalDamage,
     entry?.trueDamage
@@ -186,7 +185,7 @@ function buildTags({ damageReceived, damageDealt, priorFrame, nearbyEventsBefore
   const userTeamId = participantTeam(participantIndex, participantId);
   const alliedDeathsBefore = nearbyEventsBefore.filter((event) => isAllyDeath(event, participantIndex, userTeamId, participantId));
   const enemyLevelUpsBefore = nearbyEventsBefore.filter(
-    (event) => event.type === "CHAMPION_LEVEL_UP" && isEnemyParticipantEvent(event, participantIndex, userTeamId)
+    (event) => (event.type === "LEVEL_UP" || event.type === "CHAMPION_LEVEL_UP") && isEnemyParticipantEvent(event, participantIndex, userTeamId)
   );
   const mapStateEventsBefore = nearbyEventsBefore.filter((event) =>
     event.type === "ELITE_MONSTER_KILL" || event.type === "BUILDING_KILL"
