@@ -65,12 +65,7 @@ describe("riot participant perspective resolver", () => {
       },
       {
         metadata: {
-          participants: [
-            {
-              puuid: "puuid_1",
-              participantId: 7
-            }
-          ]
+          participants: ["other", "puuid_1"]
         }
       },
       "puuid_1"
@@ -80,7 +75,7 @@ describe("riot participant perspective resolver", () => {
       ok: true,
       value: {
         puuid: "puuid_1",
-        participantId: 7
+        participantId: 2
       }
     });
   });

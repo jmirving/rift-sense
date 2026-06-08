@@ -27,8 +27,19 @@ function findTimelineParticipantId(matchTimeline, puuid) {
     return null;
   }
 
-  const participant = participants.find((entry) => entry?.puuid === puuid);
-  return normalizeNumber(participant?.participantId);
+  const participantIndex = participants.findIndex((entry) => {
+    if (typeof entry === "string") {
+      return entry === puuid;
+    }
+
+    return entry?.puuid === puuid;
+  });
+  if (participantIndex === -1) {
+    return null;
+  }
+
+  const participant = participants[participantIndex];
+  return normalizeNumber(participant?.participantId) ?? participantIndex + 1;
 }
 
 /**
