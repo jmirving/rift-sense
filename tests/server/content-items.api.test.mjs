@@ -236,5 +236,10 @@ describe("content item API", () => {
       .field("externalUrl", "https://www.youtube.com/watch?v=abc123");
 
     expect(authorizedResponse.status).toBe(201);
+
+    const unauthorizedPreviewResponse = await request(app).post(
+      `/api/content-items/${authorizedResponse.body.item.id}/preview`
+    );
+    expect(unauthorizedPreviewResponse.status).toBe(401);
   });
 });

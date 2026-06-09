@@ -77,7 +77,7 @@ async function createTestApp({ authEnabled = false, fetchSharedProfile, resolveR
     }
   });
 
-  return createApp({
+  const app = createApp({
     config,
     contentItemsRepository,
     goalTypesRepository,
@@ -91,6 +91,13 @@ async function createTestApp({ authEnabled = false, fetchSharedProfile, resolveR
     fetchSharedProfile,
     resolveRecentGames
   });
+  app.locals.testRepositories = {
+    contentItemsRepository,
+    goalTypesRepository,
+    userHomesRepository,
+    assetStore
+  };
+  return app;
 }
 
 describe("home API", () => {
@@ -503,7 +510,7 @@ describe("home API", () => {
   it("saves onboarding to the authenticated user when auth is enabled", async () => {
     const app = await createTestApp({ authEnabled: true });
     const token = jwt.sign(
-      { sub: "usr_local_dev", iss: "nexus", aud: "riftsense" },
+      { sub: "usr_local_dev", iss: "nexus", aud: "riftsense", displayName: "Nexus Name" },
       "test-secret",
       { algorithm: "HS256", expiresIn: "1h" }
     );
@@ -513,7 +520,7 @@ describe("home API", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({
         context: "personal",
-        role: "ADC",
+        role: "Support",
         selectedGoalTemplateId: "goal-template-adc-die-less",
         selectedSignalIds: ["signal-known-danger-death"],
         weeklyTargets: [
@@ -527,6 +534,16 @@ describe("home API", () => {
 
     expect(saveResponse.status).toBe(201);
 
+    const savedHome = await app.locals.testRepositories.userHomesRepository.getUserHome("usr_local_dev");
+    expect(savedHome.profile).toMatchObject({
+      displayName: "Authenticated User",
+      teamName: "Dev Team",
+      primaryRole: "Support",
+      focusArea: "Die Less"
+    });
+    expect(savedHome.profile.teamName).not.toBe("Local Demo Squad");
+    expect(savedHome.profile.focusArea).not.toBe("Template-backed onboarding");
+
     const homeResponse = await request(app)
       .get("/api/home")
       .set("Authorization", `Bearer ${token}`);
@@ -536,6 +553,66 @@ describe("home API", () => {
     expect(homeResponse.body.home.user.source).toBe("authenticated");
     expect(homeResponse.body.home.goalDashboard.activePersonalGoal.id).toBe("active-goal-usr-local-dev-die-less");
     expect(homeResponse.body.home.goalDashboard.activeTeamFocus).toBeNull();
+  });
+
+  it("creates a new authenticated onboarding home without demo placeholder profile values", async () => {
+    const app = await createTestApp({ authEnabled: true });
+    const token = jwt.sign(
+      { sub: "usr_new_player", iss: "nexus", aud: "riftsense", displayName: "Nexus Player" },
+      "test-secret",
+      { algorithm: "HS256", expiresIn: "1h" }
+    );
+
+    const saveResponse = await request(app)
+      .post("/api/onboarding")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        context: "both",
+        role: "Jungle",
+        selectedGoalTemplateId: "goal-template-adc-trading",
+        selectedSignalIds: ["signal-bad-trade-read"],
+        weeklyTargets: [
+          {
+            signalId: "signal-bad-trade-read",
+            targetValue: 1
+          }
+        ],
+        selectedTeamFocusTemplateId: "team-focus-template-dragon-setup"
+      });
+
+    expect(saveResponse.status).toBe(201);
+
+    const savedHome = await app.locals.testRepositories.userHomesRepository.getUserHome("usr_new_player");
+    expect(savedHome.id).toBe("usr_new_player");
+    expect(savedHome.profile).toMatchObject({
+      displayName: "Nexus Player",
+      teamName: null,
+      primaryRole: "Jungle",
+      focusArea: "Trade Better"
+    });
+    expect(savedHome.profile.teamName).not.toBe("Local Demo Squad");
+    expect(savedHome.profile.displayName).not.toBe("RiftSense Player");
+    expect(savedHome.profile.focusArea).not.toBe("Template-backed onboarding");
+    expect(savedHome.goalDashboard.activeGoalInstances[0].templateId).toBe("goal-template-adc-trading");
+    expect(savedHome.goalDashboard.activeTeamFocusInstances[0].templateId).toBe("team-focus-template-dragon-setup");
+  });
+
+  it("does not mutate authenticated user homes from demo routes", async () => {
+    const app = await createTestApp({ authEnabled: true });
+    const token = jwt.sign(
+      { sub: "usr_local_dev", iss: "nexus", aud: "riftsense", displayName: "Nexus Name" },
+      "test-secret",
+      { algorithm: "HS256", expiresIn: "1h" }
+    );
+    const before = await app.locals.testRepositories.userHomesRepository.getUserHome("usr_local_dev");
+
+    const response = await request(app)
+      .get("/api/demo/home")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.home.user.id).toBe("demo_public_dashboard");
+    await expect(app.locals.testRepositories.userHomesRepository.getUserHome("usr_local_dev")).resolves.toEqual(before);
   });
 
   it("rejects invalid onboarding template IDs", async () => {

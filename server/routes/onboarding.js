@@ -11,16 +11,35 @@ import { badRequest } from "../errors.js";
 const VALID_CONTEXTS = new Set(["personal", "team", "both"]);
 const VALID_ROLES = new Set(["Top", "Jungle", "Mid", "ADC", "Support", "Multiple"]);
 
-function defaultHomeRecord(userId) {
+function normalizeNonEmptyString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function defaultHomeRecord(userId, identity) {
   return {
     id: userId,
     profile: {
-      displayName: "RiftSense Player",
-      teamName: "Local Demo Squad",
-      primaryRole: "ADC",
-      focusArea: "Onboarding"
+      displayName: normalizeNonEmptyString(identity?.displayName) ?? "Player",
+      teamName: null,
+      primaryRole: null,
+      focusArea: null
     }
   };
+}
+
+function resolveSelectedFocusArea({ context, library, selectedGoalTemplateId, selectedTeamFocusTemplateId }) {
+  if (context === "team") {
+    return (
+      library.teamFocusTemplates.find((template) => template.id === selectedTeamFocusTemplateId)?.title ??
+      null
+    );
+  }
+
+  return (
+    library.goalTemplates.find((template) => template.id === selectedGoalTemplateId)?.title ??
+    library.teamFocusTemplates.find((template) => template.id === selectedTeamFocusTemplateId)?.title ??
+    null
+  );
 }
 
 function validateTemplateIds(body, library) {
@@ -102,8 +121,14 @@ export function createOnboardingRouter({ config, goalTypesRepository, userHomesR
     const validated = validateTemplateIds(request.body ?? {}, library);
     const ownerId = request.identity?.id ?? config.demoUserId;
     const existingHome =
-      (await userHomesRepository.getUserHome(ownerId)) ?? defaultHomeRecord(ownerId);
+      (await userHomesRepository.getUserHome(ownerId)) ?? defaultHomeRecord(ownerId, request.identity);
     const teamId = request.body?.teamId ?? `${ownerId}-team`;
+    const focusArea = resolveSelectedFocusArea({
+      context: validated.context,
+      library,
+      selectedGoalTemplateId: request.body?.selectedGoalTemplateId,
+      selectedTeamFocusTemplateId: request.body?.selectedTeamFocusTemplateId
+    });
     const goalDashboard = buildOnboardingGoalDashboardState({
       ...validated,
       ownerId,
@@ -117,8 +142,13 @@ export function createOnboardingRouter({ config, goalTypesRepository, userHomesR
       id: ownerId,
       profile: {
         ...existingHome.profile,
+        displayName:
+          normalizeNonEmptyString(existingHome.profile?.displayName) ??
+          normalizeNonEmptyString(request.identity?.displayName) ??
+          "Player",
+        teamName: normalizeNonEmptyString(existingHome.profile?.teamName),
         primaryRole: validated.role,
-        focusArea: "Template-backed onboarding"
+        focusArea: focusArea ?? normalizeNonEmptyString(existingHome.profile?.focusArea)
       },
       goalDashboard,
       updatedAt: new Date().toISOString()

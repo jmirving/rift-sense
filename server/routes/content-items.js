@@ -96,7 +96,7 @@ export function createContentItemsRouter({ config, contentItemsRepository, asset
       .send(preview.bytes);
   });
 
-  router.post("/:id/preview", async (request, response) => {
+  router.post("/:id/preview", requireCuratorAuth, async (request, response) => {
     const item = await contentItemsRepository.getContentItem(request.params.id);
     if (!item) {
       throw notFound("Content item not found.");
