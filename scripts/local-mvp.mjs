@@ -1,6 +1,8 @@
-import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { loadConfig } from "../server/config.js";
+import { assertDatabaseReachable, createDatabasePool } from "../server/db/pool.js";
+import { runMigrations } from "../server/db/migrations.js";
 import { buildDefaultGoalDashboard } from "../server/goal-dashboard.js";
 import { seedSystemGoalTypes } from "../server/goal-types/system-goal-types.js";
 import { createContentItemsRepository } from "../server/repositories/content-items.js";
@@ -8,7 +10,6 @@ import { createGoalTypesRepository } from "../server/repositories/goal-types.js"
 import { createUserHomesRepository } from "../server/repositories/user-homes.js";
 import { startServer } from "../server/index.js";
 
-const DEFAULT_STORAGE_ROOT = ".local/storage";
 const DEFAULT_AUTH_SECRET = "riftsense-local-dev-secret";
 
 function buildEnv() {
@@ -19,7 +20,6 @@ function buildEnv() {
     ...process.env,
     NODE_ENV: process.env.NODE_ENV ?? "development",
     PORT: process.env.PORT ?? "3000",
-    RIFTSENSE_STORAGE_ROOT: process.env.RIFTSENSE_STORAGE_ROOT ?? DEFAULT_STORAGE_ROOT,
     NEXUS_AUTH_ENABLED:
       process.env.NEXUS_AUTH_ENABLED ?? (authEnabled ? "true" : "false"),
     NEXUS_AUTH_ISSUER: process.env.NEXUS_AUTH_ISSUER ?? "nexus",
@@ -332,17 +332,21 @@ function buildSeedUserHomes() {
   ];
 }
 
-async function seedStorageIfEmpty(env) {
+export async function seedPostgresIfEmpty(env) {
   const config = loadConfig(env);
+  const pool = createDatabasePool({ databaseUrl: config.databaseUrl });
+  await assertDatabaseReachable(pool);
+  await runMigrations({ pool, schema: config.databaseSchema });
+
+  const repositoryOptions = {
+    pool,
+    schema: config.databaseSchema
+  };
   const repository = createContentItemsRepository({
-    contentItemsDir: config.contentItemsDir
+    ...repositoryOptions
   });
-  const goalTypesRepository = createGoalTypesRepository({
-    goalTypesDir: config.goalTypesDir
-  });
-  const userHomesRepository = createUserHomesRepository({
-    userHomesDir: config.userHomesDir
-  });
+  const goalTypesRepository = createGoalTypesRepository(repositoryOptions);
+  const userHomesRepository = createUserHomesRepository(repositoryOptions);
   await repository.initialize();
   await goalTypesRepository.initialize();
   await seedSystemGoalTypes(goalTypesRepository);
@@ -371,24 +375,30 @@ async function seedStorageIfEmpty(env) {
 
   return {
     config,
+    pool,
     seededContent,
     seededUserHomes
   };
 }
 
-const env = buildEnv();
-const { config, seededContent, seededUserHomes } = await seedStorageIfEmpty(env);
+const isDirectRun = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 
-console.log(`RiftSense local MVP storage: ${path.relative(process.cwd(), config.storageRoot)}`);
-console.log(`RiftSense local MVP auth enabled: ${config.auth.enabled ? "yes" : "no"}`);
-if (seededContent) {
-  console.log("Seeded sample content for local exploration.");
-}
-if (seededUserHomes) {
-  console.log("Seeded personalized home data for local exploration.");
-}
-if (config.auth.enabled) {
-  console.log("Run 'npm run local:token' to mint a compatible local dev token.");
-}
+if (isDirectRun) {
+  const env = buildEnv();
+  const { config, pool, seededContent, seededUserHomes } = await seedPostgresIfEmpty(env);
+  await pool.end();
 
-await startServer(env);
+  console.log(`RiftSense local MVP Postgres schema: ${config.databaseSchema}`);
+  console.log(`RiftSense local MVP auth enabled: ${config.auth.enabled ? "yes" : "no"}`);
+  if (seededContent) {
+    console.log("Seeded sample content for local exploration.");
+  }
+  if (seededUserHomes) {
+    console.log("Seeded personalized home data for local exploration.");
+  }
+  if (config.auth.enabled) {
+    console.log("Run 'npm run local:token' to mint a compatible local dev token.");
+  }
+
+  await startServer(env);
+}

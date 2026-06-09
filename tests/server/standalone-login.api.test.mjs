@@ -1,27 +1,20 @@
-import os from "node:os";
-import path from "node:path";
-import { mkdtemp, rm } from "node:fs/promises";
-
 import jwt from "jsonwebtoken";
 import request from "supertest";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../server/app.js";
 import { loadConfig } from "../../server/config.js";
-import { createContentItemsRepository } from "../../server/repositories/content-items.js";
-import { createUserHomesRepository } from "../../server/repositories/user-homes.js";
-import { createLocalAssetStore } from "../../server/storage/local-assets.js";
-
-const tempDirectories = [];
+import {
+  createInMemoryAssetStore,
+  createInMemoryContentItemsRepository,
+  createInMemoryUserHomesRepository
+} from "./test-repositories.mjs";
 
 async function createTestApp({ authenticateWithNexusAccount, fetchSharedProfile } = {}) {
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rift-sense-standalone-login-"));
-  tempDirectories.push(tempRoot);
-
   const config = loadConfig({
     NODE_ENV: "test",
     PORT: "0",
-    RIFTSENSE_STORAGE_ROOT: tempRoot,
+    DATABASE_URL: "postgres://test:test@localhost:5432/riftsense_test",
     RIFTSENSE_DEMO_USER_ID: "usr_demo_home",
     NEXUS_AUTH_ENABLED: "true",
     NEXUS_JWT_SECRET: "test-secret",
@@ -31,15 +24,9 @@ async function createTestApp({ authenticateWithNexusAccount, fetchSharedProfile 
     NEXUS_PORTAL_BASE_URL: "http://127.0.0.1:3000"
   });
 
-  const contentItemsRepository = createContentItemsRepository({
-    contentItemsDir: config.contentItemsDir
-  });
-  const userHomesRepository = createUserHomesRepository({
-    userHomesDir: config.userHomesDir
-  });
-  const assetStore = createLocalAssetStore({
-    assetsDir: config.assetsDir
-  });
+  const contentItemsRepository = createInMemoryContentItemsRepository();
+  const userHomesRepository = createInMemoryUserHomesRepository();
+  const assetStore = createInMemoryAssetStore();
 
   await contentItemsRepository.initialize();
   await userHomesRepository.initialize();
@@ -79,12 +66,6 @@ async function createTestApp({ authenticateWithNexusAccount, fetchSharedProfile 
     fetchSharedProfile
   });
 }
-
-afterEach(async () => {
-  await Promise.all(
-    tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))
-  );
-});
 
 describe("standalone RiftSense login", () => {
   it("reports RiftSense standalone access before login", async () => {

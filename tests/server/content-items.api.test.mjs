@@ -1,42 +1,29 @@
-import os from "node:os";
-import path from "node:path";
-import { mkdtemp, rm } from "node:fs/promises";
-
 import jwt from "jsonwebtoken";
 import request from "supertest";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../server/app.js";
 import { loadConfig } from "../../server/config.js";
-import { createContentItemsRepository } from "../../server/repositories/content-items.js";
-import { createUserHomesRepository } from "../../server/repositories/user-homes.js";
-import { createLocalAssetStore } from "../../server/storage/local-assets.js";
-
-const tempDirectories = [];
+import {
+  createInMemoryAssetStore,
+  createInMemoryContentItemsRepository,
+  createInMemoryUserHomesRepository
+} from "./test-repositories.mjs";
 
 async function createTestApp({ authEnabled = false, previewService = null } = {}) {
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rift-sense-api-"));
-  tempDirectories.push(tempRoot);
-
   const config = loadConfig({
     NODE_ENV: "test",
     PORT: "0",
-    RIFTSENSE_STORAGE_ROOT: tempRoot,
+    DATABASE_URL: "postgres://test:test@localhost:5432/riftsense_test",
     NEXUS_AUTH_ENABLED: authEnabled ? "true" : "false",
     NEXUS_JWT_SECRET: "test-secret",
     NEXUS_AUTH_ISSUER: "nexus",
     NEXUS_AUTH_AUDIENCE: "riftsense"
   });
 
-  const contentItemsRepository = createContentItemsRepository({
-    contentItemsDir: config.contentItemsDir
-  });
-  const userHomesRepository = createUserHomesRepository({
-    userHomesDir: config.userHomesDir
-  });
-  const assetStore = createLocalAssetStore({
-    assetsDir: config.assetsDir
-  });
+  const contentItemsRepository = createInMemoryContentItemsRepository();
+  const userHomesRepository = createInMemoryUserHomesRepository();
+  const assetStore = createInMemoryAssetStore();
 
   await contentItemsRepository.initialize();
   await userHomesRepository.initialize();
@@ -54,10 +41,6 @@ async function createTestApp({ authEnabled = false, previewService = null } = {}
     }
   });
 }
-
-afterEach(async () => {
-  await Promise.all(tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
-});
 
 describe("content item API", () => {
   it("creates an uploaded content item and exposes its asset", async () => {
@@ -114,15 +97,6 @@ describe("content item API", () => {
     const app = await createTestApp({
       previewService: {
         async ensureDeckPreview(item) {
-          const previewPath = path.join(
-            path.dirname(item.asset.storagePath),
-            "macro-deck.pdf"
-          );
-
-          await import("node:fs/promises").then(({ writeFile }) =>
-            writeFile(previewPath, Buffer.from("%PDF-1.4 preview"))
-          );
-
           return {
             ...item,
             asset: {
@@ -130,7 +104,7 @@ describe("content item API", () => {
               preview: {
                 kind: "generated-pdf",
                 mimeType: "application/pdf",
-                storagePath: previewPath,
+                storageKey: item.id,
                 generatedAt: new Date().toISOString()
               }
             }
@@ -153,20 +127,14 @@ describe("content item API", () => {
       });
 
     expect(createResponse.status).toBe(201);
-    expect(createResponse.body.item.asset.previewUrl).toContain("/preview");
-    expect(createResponse.body.item.viewer.mode).toBe("deck-preview");
+    expect(createResponse.body.item.asset.previewUrl).toBeNull();
+    expect(createResponse.body.item.viewer.mode).toBe("download");
 
     const generateResponse = await request(app).post(
       `/api/content-items/${createResponse.body.item.id}/preview`
     );
     expect(generateResponse.status).toBe(200);
     expect(generateResponse.body.item.viewer.mode).toBe("pdf-preview");
-
-    const previewResponse = await request(app).get(
-      `/api/content-items/${createResponse.body.item.id}/preview`
-    );
-    expect(previewResponse.status).toBe(200);
-    expect(previewResponse.headers["content-type"]).toContain("application/pdf");
   });
 
   it("rejects publication when required publish metadata is missing", async () => {

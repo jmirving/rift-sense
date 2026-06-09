@@ -1,35 +1,24 @@
-import os from "node:os";
-import path from "node:path";
-import { mkdtemp, rm } from "node:fs/promises";
-
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, expect, it } from "vitest";
 
 import { seedSystemGoalTypes } from "../../server/goal-types/system-goal-types.js";
 import { createGoalTypesRepository } from "../../server/repositories/goal-types.js";
+import { createMigratedPool, describeWithPostgres, dropSchema } from "./postgres-test-utils.mjs";
 
-const tempDirectories = [];
+const databases = [];
 
 async function createRepository() {
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rift-sense-goal-types-"));
-  tempDirectories.push(tempRoot);
-
-  const repository = createGoalTypesRepository({
-    goalTypesDir: path.resolve(tempRoot, "goal-types")
-  });
+  const database = await createMigratedPool();
+  databases.push(database);
+  const repository = createGoalTypesRepository(database);
   await repository.initialize();
-
   return repository;
 }
 
 afterEach(async () => {
-  await Promise.all(
-    tempDirectories
-      .splice(0)
-      .map((directory) => rm(directory, { recursive: true, force: true }))
-  );
+  await Promise.all(databases.splice(0).map(({ pool, schema }) => dropSchema(pool, schema)));
 });
 
-describe("goal types repository", () => {
+describeWithPostgres("goal types repository", () => {
   it("seeds parser evidence system goal types idempotently", async () => {
     const repository = await createRepository();
 
@@ -56,15 +45,14 @@ describe("goal types repository", () => {
     expect(goalTypes.every((goalType) => goalType.defaultReviewQuestions.length > 0)).toBe(true);
   });
 
-  it("does not create active user goals when seeding goal types", async () => {
+  it("filters active goal type options", async () => {
     const repository = await createRepository();
 
-    await seedSystemGoalTypes(repository);
+    await repository.saveGoalType({ id: "active", isActiveOption: true });
+    await repository.saveGoalType({ id: "inactive", isActiveOption: false });
 
-    const goalTypes = await repository.listGoalTypes();
-
-    expect(goalTypes.some((goalType) => goalType.activeGoalInstances)).toBe(false);
-    expect(goalTypes.some((goalType) => goalType.userId)).toBe(false);
-    expect(goalTypes.some((goalType) => goalType.active)).toBe(false);
+    await expect(repository.listGoalTypes({ activeOption: true })).resolves.toEqual([
+      { id: "active", isActiveOption: true }
+    ]);
   });
 });

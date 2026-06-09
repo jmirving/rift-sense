@@ -1,31 +1,24 @@
-import os from "node:os";
-import path from "node:path";
-import { mkdtemp, rm } from "node:fs/promises";
-
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, expect, it } from "vitest";
 
 import { createContentItemsRepository } from "../../server/repositories/content-items.js";
+import { createMigratedPool, describeWithPostgres, dropSchema } from "./postgres-test-utils.mjs";
 
-const tempDirectories = [];
+const databases = [];
 
 async function createRepository() {
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rift-sense-repo-"));
-  tempDirectories.push(tempRoot);
-
-  const repository = createContentItemsRepository({
-    contentItemsDir: path.resolve(tempRoot, "content-items")
-  });
+  const database = await createMigratedPool();
+  databases.push(database);
+  const repository = createContentItemsRepository(database);
   await repository.initialize();
-
   return repository;
 }
 
 afterEach(async () => {
-  await Promise.all(tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  await Promise.all(databases.splice(0).map(({ pool, schema }) => dropSchema(pool, schema)));
 });
 
-describe("content items repository", () => {
-  it("saves and filters content items", async () => {
+describeWithPostgres("content items repository", () => {
+  it("saves, gets, lists, filters, and deletes content items", async () => {
     const repository = await createRepository();
 
     await repository.saveContentItem({
@@ -50,13 +43,18 @@ describe("content items repository", () => {
       updatedAt: "2026-03-26T00:00:00.000Z"
     });
 
-    const published = await repository.listContentItems({ status: "published" });
-    const byTopic = await repository.listContentItems({ topic: "macro" });
+    await expect(repository.getContentItem("cnt_1")).resolves.toMatchObject({ id: "cnt_1" });
+    await expect(repository.listContentItems({ status: "published" })).resolves.toMatchObject([
+      { id: "cnt_2" }
+    ]);
+    await expect(repository.listContentItems({ contentType: "document" })).resolves.toMatchObject([
+      { id: "cnt_1" }
+    ]);
+    await expect(repository.listContentItems({ topic: "macro" })).resolves.toMatchObject([
+      { id: "cnt_1" }
+    ]);
 
-    expect(published).toHaveLength(1);
-    expect(published[0].id).toBe("cnt_2");
-    expect(byTopic).toHaveLength(1);
-    expect(byTopic[0].id).toBe("cnt_1");
+    await expect(repository.deleteContentItem("cnt_1")).resolves.toBe(true);
+    await expect(repository.getContentItem("cnt_1")).resolves.toBeNull();
   });
 });
-

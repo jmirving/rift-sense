@@ -176,7 +176,7 @@ Recommended metadata shape:
     "originalFilename": "wave-control.pdf",
     "mimeType": "application/pdf",
     "sizeBytes": 481230,
-    "storagePath": "storage/assets/cnt_001/wave-control.pdf"
+    "storageKey": "cnt_001"
   },
   "viewer": {
     "mode": "pdf"

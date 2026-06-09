@@ -1,10 +1,5 @@
-import os from "node:os";
-import path from "node:path";
-import { mkdtemp, rm } from "node:fs/promises";
+import { describe, expect, it } from "vitest";
 
-import { afterEach, describe, expect, it } from "vitest";
-
-import { createRiotMatchesRepository } from "../../server/repositories/riot-matches.js";
 import {
   deriveRecentGamesStatus,
   MAX_NEW_MATCHES_TO_QUEUE_PER_REFRESH,
@@ -13,25 +8,14 @@ import {
   resolveRecentGames,
   scoreRecentGames
 } from "../../server/riot/recent-games.js";
-
-const tempDirectories = [];
+import { createInMemoryRiotMatchesRepository } from "./test-repositories.mjs";
 
 async function createRiotRepository() {
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rift-sense-riot-service-"));
-  tempDirectories.push(tempRoot);
-
-  const repository = createRiotMatchesRepository({
-    rawMatchesDir: path.resolve(tempRoot, "raw"),
-    perspectivesDir: path.resolve(tempRoot, "perspectives")
-  });
+  const repository = createInMemoryRiotMatchesRepository();
   await repository.initialize();
 
   return repository;
 }
-
-afterEach(async () => {
-  await Promise.all(tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
-});
 
 async function waitFor(assertion, { attempts = 20, delayMs = 10 } = {}) {
   let lastError;

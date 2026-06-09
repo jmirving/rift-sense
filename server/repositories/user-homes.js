@@ -1,48 +1,38 @@
-import path from "node:path";
-import { promises as fs } from "node:fs";
+import { quoteIdentifier } from "../db/migrations.js";
 
-import { ensureDirectory, fileExists } from "../storage/fs.js";
-
-function userHomeFilePath(userHomesDir, userId) {
-  return path.resolve(userHomesDir, `${userId}.json`);
+function tableName(schema) {
+  return `${quoteIdentifier(schema)}.user_homes`;
 }
 
-async function readJson(filePath) {
-  const raw = await fs.readFile(filePath, "utf8");
-  return JSON.parse(raw);
-}
+export function createUserHomesRepository({ pool, schema = "riftsense" }) {
+  const table = tableName(schema);
 
-export function createUserHomesRepository({ userHomesDir }) {
   async function initialize() {
-    await ensureDirectory(userHomesDir);
+    await pool.query(`select 1 from ${table} limit 1`);
   }
 
   async function getUserHome(userId) {
-    const filePath = userHomeFilePath(userHomesDir, userId);
-    if (!(await fileExists(filePath))) {
-      return null;
-    }
-
-    return readJson(filePath);
+    const result = await pool.query(`select record from ${table} where user_id = $1`, [userId]);
+    return result.rows[0]?.record ?? null;
   }
 
   async function saveUserHome(record) {
-    await ensureDirectory(userHomesDir);
-    await fs.writeFile(
-      userHomeFilePath(userHomesDir, record.id),
-      `${JSON.stringify(record, null, 2)}\n`
+    await pool.query(
+      `
+        insert into ${table} (user_id, record, created_at, updated_at)
+        values ($1, $2::jsonb, coalesce(($2::jsonb ->> 'createdAt')::timestamptz, now()), coalesce(($2::jsonb ->> 'updatedAt')::timestamptz, now()))
+        on conflict (user_id) do update
+        set record = excluded.record,
+            updated_at = excluded.updated_at
+      `,
+      [record.id, JSON.stringify(record)]
     );
     return record;
   }
 
   async function listUserHomes() {
-    await ensureDirectory(userHomesDir);
-    const entries = await fs.readdir(userHomesDir);
-    return Promise.all(
-      entries
-        .filter((entry) => entry.endsWith(".json"))
-        .map((entry) => readJson(path.resolve(userHomesDir, entry)))
-    );
+    const result = await pool.query(`select record from ${table} order by user_id asc`);
+    return result.rows.map((row) => row.record);
   }
 
   return {

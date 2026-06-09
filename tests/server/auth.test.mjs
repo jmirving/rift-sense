@@ -4,6 +4,10 @@ import { describe, expect, it } from "vitest";
 import { createRequireAuth } from "../../server/auth/middleware.js";
 import { loadConfig } from "../../server/config.js";
 
+const baseEnv = {
+  DATABASE_URL: "postgres://test:test@localhost:5432/riftsense_test"
+};
+
 function createResponse() {
   return {};
 }
@@ -11,6 +15,7 @@ function createResponse() {
 describe("auth middleware", () => {
   it("allows requests through when shared auth is disabled", async () => {
     const config = loadConfig({
+      ...baseEnv,
       NEXUS_AUTH_ENABLED: "false"
     });
     const middleware = createRequireAuth(config);
@@ -33,6 +38,7 @@ describe("auth middleware", () => {
 
   it("attaches shared identity when a Nexus-style token is valid", async () => {
     const config = loadConfig({
+      ...baseEnv,
       NEXUS_AUTH_ENABLED: "true",
       NEXUS_JWT_SECRET: "test-secret",
       NEXUS_AUTH_ISSUER: "nexus",
@@ -66,6 +72,7 @@ describe("auth middleware", () => {
 
   it("passes Riot identity through when the token includes Riot claims", async () => {
     const config = loadConfig({
+      ...baseEnv,
       NEXUS_AUTH_ENABLED: "true",
       NEXUS_JWT_SECRET: "test-secret",
       NEXUS_AUTH_ISSUER: "nexus",
@@ -113,6 +120,7 @@ describe("auth middleware", () => {
 
   it("accepts a Nexus token from the shared cookie handoff", async () => {
     const config = loadConfig({
+      ...baseEnv,
       NEXUS_AUTH_ENABLED: "true",
       NEXUS_JWT_SECRET: "test-secret",
       NEXUS_AUTH_ISSUER: "nexus",
@@ -146,6 +154,7 @@ describe("auth middleware", () => {
 
   it("accepts a RiftSense-owned auth cookie after hosted exchange", async () => {
     const config = loadConfig({
+      ...baseEnv,
       NEXUS_AUTH_ENABLED: "true",
       NEXUS_JWT_SECRET: "test-secret",
       NEXUS_AUTH_ISSUER: "nexus",

@@ -1,61 +1,68 @@
-import path from "node:path";
-import { promises as fs } from "node:fs";
+import { quoteIdentifier } from "../db/migrations.js";
 
-import { ensureDirectory, fileExists } from "../storage/fs.js";
-
-function itemFilePath(contentItemsDir, id) {
-  return path.resolve(contentItemsDir, `${id}.json`);
+function tableName(schema) {
+  return `${quoteIdentifier(schema)}.content_items`;
 }
 
-async function readJson(filePath) {
-  const raw = await fs.readFile(filePath, "utf8");
-  return JSON.parse(raw);
+function normalizeTopic(value) {
+  return String(value ?? "").trim().toLowerCase();
 }
 
-export function createContentItemsRepository({ contentItemsDir }) {
+export function createContentItemsRepository({ pool, schema = "riftsense" }) {
+  const table = tableName(schema);
+
   async function initialize() {
-    await ensureDirectory(contentItemsDir);
+    await pool.query(`select 1 from ${table} limit 1`);
   }
 
   async function getContentItem(id) {
-    const filePath = itemFilePath(contentItemsDir, id);
-    if (!(await fileExists(filePath))) {
-      return null;
-    }
-    return readJson(filePath);
+    const result = await pool.query(`select record from ${table} where id = $1`, [id]);
+    return result.rows[0]?.record ?? null;
   }
 
   async function saveContentItem(record) {
-    await ensureDirectory(contentItemsDir);
-    await fs.writeFile(itemFilePath(contentItemsDir, record.id), `${JSON.stringify(record, null, 2)}\n`);
+    await pool.query(
+      `
+        insert into ${table} (id, record, created_at, updated_at)
+        values ($1, $2::jsonb, coalesce(($2::jsonb ->> 'createdAt')::timestamptz, now()), coalesce(($2::jsonb ->> 'updatedAt')::timestamptz, now()))
+        on conflict (id) do update
+        set record = excluded.record,
+            updated_at = excluded.updated_at
+      `,
+      [record.id, JSON.stringify(record)]
+    );
     return record;
   }
 
   async function listContentItems(filters = {}) {
-    await ensureDirectory(contentItemsDir);
-    const entries = await fs.readdir(contentItemsDir);
-    const items = await Promise.all(
-      entries
-        .filter((entry) => entry.endsWith(".json"))
-        .map((entry) => readJson(path.resolve(contentItemsDir, entry)))
+    const clauses = [];
+    const values = [];
+
+    if (filters.status) {
+      values.push(filters.status);
+      clauses.push(`status = $${values.length}`);
+    }
+    if (filters.contentType) {
+      values.push(filters.contentType);
+      clauses.push(`content_type = $${values.length}`);
+    }
+    if (filters.topic) {
+      values.push(JSON.stringify([normalizeTopic(filters.topic)]));
+      clauses.push(`record -> 'topicTags' @> $${values.length}::jsonb`);
+    }
+
+    const where = clauses.length > 0 ? `where ${clauses.join(" and ")}` : "";
+    const result = await pool.query(
+      `select record from ${table} ${where} order by updated_at desc`,
+      values
     );
 
-    return items
-      .filter((item) => (filters.status ? item.status === filters.status : true))
-      .filter((item) => (filters.contentType ? item.contentType === filters.contentType : true))
-      .filter((item) =>
-        filters.topic ? item.topicTags?.includes(String(filters.topic).trim().toLowerCase()) : true
-      )
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    return result.rows.map((row) => row.record);
   }
 
   async function deleteContentItem(id) {
-    const filePath = itemFilePath(contentItemsDir, id);
-    if (await fileExists(filePath)) {
-      await fs.unlink(filePath);
-      return true;
-    }
-    return false;
+    const result = await pool.query(`delete from ${table} where id = $1`, [id]);
+    return result.rowCount > 0;
   }
 
   return {
@@ -66,4 +73,3 @@ export function createContentItemsRepository({ contentItemsDir }) {
     deleteContentItem
   };
 }
-

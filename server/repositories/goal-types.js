@@ -1,56 +1,47 @@
-import path from "node:path";
-import { promises as fs } from "node:fs";
+import { quoteIdentifier } from "../db/migrations.js";
 
-import { ensureDirectory, fileExists } from "../storage/fs.js";
-
-function goalTypeFilePath(goalTypesDir, id) {
-  return path.resolve(goalTypesDir, `${id}.json`);
+function tableName(schema) {
+  return `${quoteIdentifier(schema)}.goal_types`;
 }
 
-async function readJson(filePath) {
-  const raw = await fs.readFile(filePath, "utf8");
-  return JSON.parse(raw);
-}
+export function createGoalTypesRepository({ pool, schema = "riftsense" }) {
+  const table = tableName(schema);
 
-export function createGoalTypesRepository({ goalTypesDir }) {
   async function initialize() {
-    await ensureDirectory(goalTypesDir);
+    await pool.query(`select 1 from ${table} limit 1`);
   }
 
   async function getGoalType(id) {
-    const filePath = goalTypeFilePath(goalTypesDir, id);
-    if (!(await fileExists(filePath))) {
-      return null;
-    }
-
-    return readJson(filePath);
+    const result = await pool.query(`select record from ${table} where id = $1`, [id]);
+    return result.rows[0]?.record ?? null;
   }
 
   async function saveGoalType(record) {
-    await ensureDirectory(goalTypesDir);
-    await fs.writeFile(
-      goalTypeFilePath(goalTypesDir, record.id),
-      `${JSON.stringify(record, null, 2)}\n`
+    await pool.query(
+      `
+        insert into ${table} (id, record, created_at, updated_at)
+        values ($1, $2::jsonb, coalesce(($2::jsonb ->> 'createdAt')::timestamptz, now()), coalesce(($2::jsonb ->> 'updatedAt')::timestamptz, now()))
+        on conflict (id) do update
+        set record = excluded.record,
+            updated_at = excluded.updated_at
+      `,
+      [record.id, JSON.stringify(record)]
     );
     return record;
   }
 
   async function listGoalTypes(filters = {}) {
-    await ensureDirectory(goalTypesDir);
-    const entries = await fs.readdir(goalTypesDir);
-    const goalTypes = await Promise.all(
-      entries
-        .filter((entry) => entry.endsWith(".json"))
-        .map((entry) => readJson(path.resolve(goalTypesDir, entry)))
-    );
+    const values = [];
+    const clauses = [];
 
-    return goalTypes
-      .filter((goalType) =>
-        filters.activeOption === undefined
-          ? true
-          : goalType.isActiveOption === filters.activeOption
-      )
-      .sort((left, right) => left.id.localeCompare(right.id));
+    if (filters.activeOption !== undefined) {
+      values.push(filters.activeOption);
+      clauses.push(`is_active_option = $${values.length}`);
+    }
+
+    const where = clauses.length > 0 ? `where ${clauses.join(" and ")}` : "";
+    const result = await pool.query(`select record from ${table} ${where} order by id asc`, values);
+    return result.rows.map((row) => row.record);
   }
 
   return {

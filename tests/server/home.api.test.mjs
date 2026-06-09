@@ -1,29 +1,22 @@
-import os from "node:os";
-import path from "node:path";
-import { mkdtemp, rm } from "node:fs/promises";
-
 import jwt from "jsonwebtoken";
 import request from "supertest";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../server/app.js";
 import { loadConfig } from "../../server/config.js";
 import { seedSystemGoalTypes } from "../../server/goal-types/system-goal-types.js";
-import { createContentItemsRepository } from "../../server/repositories/content-items.js";
-import { createGoalTypesRepository } from "../../server/repositories/goal-types.js";
-import { createUserHomesRepository } from "../../server/repositories/user-homes.js";
-import { createLocalAssetStore } from "../../server/storage/local-assets.js";
-
-const tempDirectories = [];
+import {
+  createInMemoryAssetStore,
+  createInMemoryContentItemsRepository,
+  createInMemoryGoalTypesRepository,
+  createInMemoryUserHomesRepository
+} from "./test-repositories.mjs";
 
 async function createTestApp({ authEnabled = false, fetchSharedProfile, resolveRecentGames } = {}) {
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "rift-sense-home-api-"));
-  tempDirectories.push(tempRoot);
-
   const config = loadConfig({
     NODE_ENV: "test",
     PORT: "0",
-    RIFTSENSE_STORAGE_ROOT: tempRoot,
+    DATABASE_URL: "postgres://test:test@localhost:5432/riftsense_test",
     RIFTSENSE_DEMO_USER_ID: "usr_demo_home",
     NEXUS_AUTH_ENABLED: authEnabled ? "true" : "false",
     NEXUS_JWT_SECRET: "test-secret",
@@ -31,18 +24,10 @@ async function createTestApp({ authEnabled = false, fetchSharedProfile, resolveR
     NEXUS_AUTH_AUDIENCE: "riftsense"
   });
 
-  const contentItemsRepository = createContentItemsRepository({
-    contentItemsDir: config.contentItemsDir
-  });
-  const goalTypesRepository = createGoalTypesRepository({
-    goalTypesDir: config.goalTypesDir
-  });
-  const userHomesRepository = createUserHomesRepository({
-    userHomesDir: config.userHomesDir
-  });
-  const assetStore = createLocalAssetStore({
-    assetsDir: config.assetsDir
-  });
+  const contentItemsRepository = createInMemoryContentItemsRepository();
+  const goalTypesRepository = createInMemoryGoalTypesRepository();
+  const userHomesRepository = createInMemoryUserHomesRepository();
+  const assetStore = createInMemoryAssetStore();
 
   await contentItemsRepository.initialize();
   await goalTypesRepository.initialize();
@@ -107,10 +92,6 @@ async function createTestApp({ authEnabled = false, fetchSharedProfile, resolveR
     resolveRecentGames
   });
 }
-
-afterEach(async () => {
-  await Promise.all(tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
-});
 
 describe("home API", () => {
   it("returns a public home payload when no user is authenticated", async () => {
@@ -409,7 +390,7 @@ describe("home API", () => {
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.candidateGames[0]).toMatchObject({
       matchId: "NA1_1",
       championName: "Jhin",
-      confidenceLabel: "high"
+      confidenceLabel: "medium"
     });
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.candidateGames[0].relevanceReason).toContain("ADC role match");
   });

@@ -8,10 +8,17 @@ Install dependencies:
 npm install
 ```
 
+RiftSense requires Postgres for persistence. For local Docker Desktop/Postgres,
+create a database such as `riftsense_dev` and use:
+
+```bash
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/riftsense_dev
+```
+
 Run the local MVP with seeded sample content and no Nexus dependency:
 
 ```bash
-npm run local:mvp
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/riftsense_dev npm run local:mvp
 ```
 
 Open `http://localhost:3000`.
@@ -19,9 +26,13 @@ Open `http://localhost:3000`.
 This mode:
 
 - starts only `RiftSense`
-- seeds sample content into `.local/storage` on first run
+- runs database migrations automatically on startup
+- seeds sample content into Postgres on first run
 - leaves shared auth disabled
 - is the fastest way to iterate on the current UI and content workflows
+
+Production only needs `DATABASE_URL` configured. No build or start command
+change is required; migrations run automatically during startup.
 
 ## Local Auth Testing
 
@@ -60,6 +71,7 @@ NEXUS_APP_SIGNING_SECRET=change-me-local-dev-secret \
 NEXUS_EXCHANGE_URL=http://127.0.0.1:3000/api/auth/exchange \
 RIFTSENSE_EXCHANGE_SECRET=change-me-riftsense-exchange-secret \
 NEXUS_PORTAL_BASE_URL=http://127.0.0.1:3000 \
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/riftsense_dev \
 npm run local:mvp:auth
 ```
 
@@ -76,8 +88,11 @@ With the matching local `Nexus` env active:
 Run the test suite:
 
 ```bash
-npm test
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/riftsense_dev npm test
 ```
+
+Without `DATABASE_URL`, tests that require Postgres are skipped; startup/config
+tests still verify that the app refuses to run without a database URL.
 
 ## Current Routes
 

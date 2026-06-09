@@ -1,6 +1,3 @@
-import path from "node:path";
-import { promises as fs } from "node:fs";
-
 import express from "express";
 import multer from "multer";
 
@@ -69,14 +66,17 @@ export function createContentItemsRouter({ config, contentItemsRepository, asset
       throw notFound("Asset not found.");
     }
 
-    const assetPath = path.resolve(item.asset.storagePath);
-    const fileBuffer = await fs.readFile(assetPath);
-    const dispositionType = item.asset.mimeType === "application/pdf" ? "inline" : "attachment";
+    const asset = await assetStore.getAssetForItem(item.id);
+    if (!asset) {
+      throw notFound("Asset not found.");
+    }
+
+    const dispositionType = asset.mimeType === "application/pdf" ? "inline" : "attachment";
 
     response
-      .type(item.asset.mimeType || path.extname(assetPath))
-      .setHeader("Content-Disposition", `${dispositionType}; filename="${encodeURIComponent(item.asset.originalFilename)}"`)
-      .send(fileBuffer);
+      .type(asset.mimeType)
+      .setHeader("Content-Disposition", `${dispositionType}; filename="${encodeURIComponent(asset.originalFilename)}"`)
+      .send(asset.bytes);
   });
 
   router.get("/:id/preview", async (request, response) => {
@@ -85,13 +85,15 @@ export function createContentItemsRouter({ config, contentItemsRepository, asset
       throw notFound("Preview not found.");
     }
 
-    const previewPath = path.resolve(item.asset.preview.storagePath);
-    const previewBuffer = await fs.readFile(previewPath);
+    const preview = await assetStore.getPreviewForItem?.(item.id);
+    if (!preview) {
+      throw notFound("Preview not found.");
+    }
 
     response
       .type("application/pdf")
       .setHeader("Content-Disposition", 'inline; filename="preview.pdf"')
-      .send(previewBuffer);
+      .send(preview.bytes);
   });
 
   router.post("/:id/preview", async (request, response) => {

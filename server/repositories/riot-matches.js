@@ -1,23 +1,29 @@
-import path from "node:path";
-import { promises as fs } from "node:fs";
+import { quoteIdentifier } from "../db/migrations.js";
 
-import { ensureDirectory, fileExists } from "../storage/fs.js";
-
-function fileKey(...parts) {
-  return parts.map((part) => encodeURIComponent(String(part))).join("__");
+function rawTableName(schema) {
+  return `${quoteIdentifier(schema)}.riot_raw_matches`;
 }
 
-function rawMatchFilePath(rawMatchesDir, matchId) {
-  return path.resolve(rawMatchesDir, `${fileKey(matchId)}.json`);
+function perspectivesTableName(schema) {
+  return `${quoteIdentifier(schema)}.riot_match_perspectives`;
 }
 
-function perspectiveFilePath(perspectivesDir, matchId, puuid) {
-  return path.resolve(perspectivesDir, `${fileKey(matchId, puuid)}.json`);
+function toIso(value) {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
-async function readJson(filePath) {
-  const raw = await fs.readFile(filePath, "utf8");
-  return JSON.parse(raw);
+function rowToRawMatch(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    matchId: row.match_id,
+    summaryJson: row.summary_json,
+    timelineJson: row.timeline_json,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at)
+  };
 }
 
 function isFreshRecord(record, { now = new Date(), maxAgeMs = null } = {}) {
@@ -33,45 +39,52 @@ function isFreshRecord(record, { now = new Date(), maxAgeMs = null } = {}) {
   return Number.isFinite(updatedAt) && now.getTime() - updatedAt <= maxAgeMs;
 }
 
-export function createRiotMatchesRepository({ rawMatchesDir, perspectivesDir }) {
+export function createRiotMatchesRepository({ pool, schema = "riftsense" }) {
+  const rawTable = rawTableName(schema);
+  const perspectivesTable = perspectivesTableName(schema);
+
   async function initialize() {
-    await Promise.all([ensureDirectory(rawMatchesDir), ensureDirectory(perspectivesDir)]);
+    await Promise.all([
+      pool.query(`select 1 from ${rawTable} limit 1`),
+      pool.query(`select 1 from ${perspectivesTable} limit 1`)
+    ]);
   }
 
   async function getRawMatchData(matchId) {
-    const filePath = rawMatchFilePath(rawMatchesDir, matchId);
-    if (!(await fileExists(filePath))) {
-      return null;
-    }
-    return readJson(filePath);
+    const result = await pool.query(`select * from ${rawTable} where match_id = $1`, [matchId]);
+    return rowToRawMatch(result.rows[0]);
   }
 
   async function saveRawMatchData({ matchId, summaryJson, timelineJson, now = new Date() }) {
-    await ensureDirectory(rawMatchesDir);
-    const existing = await getRawMatchData(matchId);
     const timestamp = now.toISOString();
-    const record = {
-      matchId,
-      summaryJson,
-      timelineJson,
-      createdAt: existing?.createdAt ?? timestamp,
-      updatedAt: timestamp
-    };
+    const result = await pool.query(
+      `
+        insert into ${rawTable} (match_id, summary_json, timeline_json, created_at, updated_at)
+        values ($1, $2::jsonb, $3::jsonb, $4::timestamptz, $4::timestamptz)
+        on conflict (match_id) do update
+        set summary_json = excluded.summary_json,
+            timeline_json = excluded.timeline_json,
+            updated_at = excluded.updated_at
+        returning *
+      `,
+      [matchId, JSON.stringify(summaryJson), JSON.stringify(timelineJson), timestamp]
+    );
+    return rowToRawMatch(result.rows[0]);
+  }
 
-    await fs.writeFile(rawMatchFilePath(rawMatchesDir, matchId), `${JSON.stringify(record, null, 2)}\n`);
-    return record;
+  async function hasFreshRawMatchData(matchId, options) {
+    return isFreshRecord(await getRawMatchData(matchId), options);
   }
 
   async function getUserMatchPerspective(matchId, puuid) {
-    const filePath = perspectiveFilePath(perspectivesDir, matchId, puuid);
-    if (!(await fileExists(filePath))) {
-      return null;
-    }
-    return readJson(filePath);
+    const result = await pool.query(
+      `select record from ${perspectivesTable} where match_id = $1 and puuid = $2`,
+      [matchId, puuid]
+    );
+    return result.rows[0]?.record ?? null;
   }
 
   async function saveUserMatchPerspective(record, { now = new Date() } = {}) {
-    await ensureDirectory(perspectivesDir);
     const existing = await getUserMatchPerspective(record.matchId, record.puuid);
     const timestamp = now.toISOString();
     const nextRecord = {
@@ -81,15 +94,24 @@ export function createRiotMatchesRepository({ rawMatchesDir, perspectivesDir }) 
       updatedAt: timestamp
     };
 
-    await fs.writeFile(
-      perspectiveFilePath(perspectivesDir, record.matchId, record.puuid),
-      `${JSON.stringify(nextRecord, null, 2)}\n`
+    await pool.query(
+      `
+        insert into ${perspectivesTable} (match_id, puuid, record, created_at, updated_at)
+        values ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz)
+        on conflict (match_id, puuid) do update
+        set record = excluded.record,
+            updated_at = excluded.updated_at
+      `,
+      [
+        nextRecord.matchId,
+        nextRecord.puuid,
+        JSON.stringify(nextRecord),
+        nextRecord.createdAt,
+        nextRecord.updatedAt
+      ]
     );
-    return nextRecord;
-  }
 
-  async function hasFreshRawMatchData(matchId, options) {
-    return isFreshRecord(await getRawMatchData(matchId), options);
+    return nextRecord;
   }
 
   return {
@@ -101,4 +123,3 @@ export function createRiotMatchesRepository({ rawMatchesDir, perspectivesDir }) 
     saveUserMatchPerspective
   };
 }
-

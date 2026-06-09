@@ -10,7 +10,11 @@ export const CONVERTIBLE_DECK_MIME_TYPES = [
 ];
 
 export function canGenerateDeckPreview(asset) {
-  return asset?.kind === "uploaded-file" && CONVERTIBLE_DECK_MIME_TYPES.includes(asset.mimeType);
+  return (
+    asset?.kind === "uploaded-file" &&
+    typeof asset.storagePath === "string" &&
+    CONVERTIBLE_DECK_MIME_TYPES.includes(asset.mimeType)
+  );
 }
 
 function runCommand(command, args) {

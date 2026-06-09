@@ -60,7 +60,10 @@ function deriveSharedProfileUrl(env, portalBaseUrl) {
 }
 
 export function loadConfig(env = process.env) {
-  const storageRoot = path.resolve(projectRoot, env.RIFTSENSE_STORAGE_ROOT ?? "storage");
+  if (typeof env.DATABASE_URL !== "string" || !env.DATABASE_URL.trim()) {
+    throw new Error("DATABASE_URL is required for RiftSense persistence.");
+  }
+
   const maxUploadBytes = Number.parseInt(String(env.RIFTSENSE_MAX_UPLOAD_BYTES ?? ""), 10);
   const authEnabled = parseBoolean(env.NEXUS_AUTH_ENABLED ?? "");
   const portalBaseUrl = normalizeUrl(env.NEXUS_PORTAL_BASE_URL ?? "http://127.0.0.1:3000");
@@ -70,13 +73,8 @@ export function loadConfig(env = process.env) {
     port: parsePort(env.PORT),
     projectRoot,
     publicDir: path.resolve(projectRoot, "public"),
-    storageRoot,
-    contentItemsDir: path.resolve(storageRoot, "content-items"),
-    goalTypesDir: path.resolve(storageRoot, "goal-types"),
-    userHomesDir: path.resolve(storageRoot, "user-homes"),
-    riotRawMatchesDir: path.resolve(storageRoot, "riot-matches", "raw"),
-    riotMatchPerspectivesDir: path.resolve(storageRoot, "riot-matches", "perspectives"),
-    assetsDir: path.resolve(storageRoot, "assets"),
+    databaseUrl: env.DATABASE_URL,
+    databaseSchema: env.RIFTSENSE_DB_SCHEMA ?? "riftsense",
     demoUserId: env.RIFTSENSE_DEMO_USER_ID ?? "usr_local_guest",
     maxUploadBytes:
       Number.isInteger(maxUploadBytes) && maxUploadBytes > 0 ? maxUploadBytes : 25 * 1024 * 1024,
