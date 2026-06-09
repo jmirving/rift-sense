@@ -9,16 +9,24 @@ npm install
 ```
 
 RiftSense requires Postgres for persistence. For local Docker Desktop/Postgres,
-create a database such as `riftsense_dev` and use:
+use the shared Nexus suite database and give RiftSense its own schema:
 
 ```bash
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/riftsense_dev
+DATABASE_URL=postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev
+RIFTSENSE_DB_SCHEMA=riftsense
 ```
+
+RiftSense owns only the `riftsense` schema in that database. This avoids
+creating a second local database while keeping RiftSense tables separate from
+Nexus tables. `DATABASE_URL` is required. `RIFTSENSE_DB_SCHEMA` defaults to
+`riftsense`, but local commands set it explicitly.
 
 Run the local MVP with seeded sample content and no Nexus dependency:
 
 ```bash
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/riftsense_dev npm run local:mvp
+DATABASE_URL=postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev \
+RIFTSENSE_DB_SCHEMA=riftsense \
+npm run local:mvp
 ```
 
 Open `http://localhost:3000`.
@@ -39,6 +47,15 @@ change is required; migrations run automatically during startup.
 Run `RiftSense` with Nexus-style auth enabled:
 
 ```bash
+PORT=3101 \
+NEXUS_AUTH_ENABLED=true \
+NEXUS_AUTH_ISSUER=nexus-local \
+NEXUS_APP_SIGNING_SECRET=change-me-local-dev-secret \
+NEXUS_EXCHANGE_URL=http://127.0.0.1:3000/api/auth/exchange \
+RIFTSENSE_EXCHANGE_SECRET=change-me-riftsense-exchange-secret \
+NEXUS_PORTAL_BASE_URL=http://127.0.0.1:3000 \
+DATABASE_URL=postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev \
+RIFTSENSE_DB_SCHEMA=riftsense \
 npm run local:mvp:auth
 ```
 
@@ -71,7 +88,8 @@ NEXUS_APP_SIGNING_SECRET=change-me-local-dev-secret \
 NEXUS_EXCHANGE_URL=http://127.0.0.1:3000/api/auth/exchange \
 RIFTSENSE_EXCHANGE_SECRET=change-me-riftsense-exchange-secret \
 NEXUS_PORTAL_BASE_URL=http://127.0.0.1:3000 \
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/riftsense_dev \
+DATABASE_URL=postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev \
+RIFTSENSE_DB_SCHEMA=riftsense \
 npm run local:mvp:auth
 ```
 
@@ -88,11 +106,20 @@ With the matching local `Nexus` env active:
 Run the test suite:
 
 ```bash
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/riftsense_dev npm test
+DATABASE_URL=postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev \
+RIFTSENSE_DB_SCHEMA=riftsense \
+npm test
 ```
 
 Without `DATABASE_URL`, tests that require Postgres are skipped; startup/config
 tests still verify that the app refuses to run without a database URL.
+
+Verify the RiftSense schema:
+
+```bash
+psql 'postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev' \
+  -c "select table_schema, table_name from information_schema.tables where table_schema = 'riftsense' order by table_name;"
+```
 
 ## Current Routes
 
