@@ -1,45 +1,107 @@
-# RiftSense Wiggum Loop: Match Evaluator Milestone
+# RiftSense
 
-This bundle is intended to be copied into `jmirving/rift-sense` and run from the repository root.
+RiftSense is a League review workspace for goal-linked recent-game evidence, team focus, training actions, and curated learning content.
 
-Assumptions:
-- Tasks 1 and 2 are already complete:
-  - Postgres-only persistence is deployed and working.
-  - `riftsense.riot_raw_matches` and `riftsense.riot_match_perspectives` are populated from recent games.
-- Local DB validation should use:
-  - `DATABASE_URL=postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev`
-  - `RIFTSENSE_DB_SCHEMA=riftsense`
+## Requirements
 
-Milestone target:
+- Node.js and npm
+- Postgres
 
-> RiftSense can take a real authenticated user's persisted Riot match, run deterministic evaluation, persist the evaluation, and show useful goal-relevant review evidence in the UI.
-
-## Files
-
-- `docs/specs/050-open-match-evaluator-persistence.md`
-- `docs/specs/051-open-match-evaluator-backfill-api.md`
-- `docs/specs/052-open-match-evaluator-ui-goal-evidence.md`
-- `prompts/050-match-evaluator-persistence.md`
-- `prompts/051-match-evaluator-backfill-api.md`
-- `prompts/052-match-evaluator-ui-goal-evidence.md`
-- `scripts/wiggum_match_evaluator_loop.sh`
-
-## Execution
-
-From the repo root:
+RiftSense requires Postgres for persistence. The canonical local database is the shared Nexus suite database with a RiftSense-owned schema:
 
 ```bash
-chmod +x scripts/wiggum_match_evaluator_loop.sh
-DATABASE_URL=postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev \
-RIFTSENSE_DB_SCHEMA=riftsense \
-scripts/wiggum_match_evaluator_loop.sh
+DATABASE_URL=postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev
+RIFTSENSE_DB_SCHEMA=riftsense
 ```
 
-The script does not implement the feature itself. It organizes the agent loop:
-1. Displays each phase prompt.
-2. Runs a pre-check.
-3. Waits for the agent/developer to implement the phase.
-4. Runs validation commands.
-5. Requires confirmation before proceeding to the next phase.
+`DATABASE_URL` is required in production. `RIFTSENSE_DB_SCHEMA` defaults to `riftsense`.
 
-Use the prompts with the implementing agent. After each phase lands, return to the script and continue.
+## Install
+
+```bash
+npm install
+```
+
+## Local MVP
+
+Run RiftSense locally with seeded sample content and auth disabled:
+
+```bash
+DATABASE_URL=postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev \
+RIFTSENSE_DB_SCHEMA=riftsense \
+npm run local:mvp
+```
+
+Open `http://localhost:3000`.
+
+## Local Auth MVP
+
+Run with Nexus-style auth enabled:
+
+```bash
+PORT=3101 \
+NEXUS_AUTH_ENABLED=true \
+NEXUS_AUTH_ISSUER=nexus-local \
+NEXUS_APP_SIGNING_SECRET=change-me-local-dev-secret \
+NEXUS_EXCHANGE_URL=http://127.0.0.1:3000/api/auth/exchange \
+RIFTSENSE_EXCHANGE_SECRET=change-me-riftsense-exchange-secret \
+NEXUS_PORTAL_BASE_URL=http://127.0.0.1:3000 \
+DATABASE_URL=postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev \
+RIFTSENSE_DB_SCHEMA=riftsense \
+npm run local:mvp:auth
+```
+
+## Tests
+
+Run the test suite:
+
+```bash
+npm test
+```
+
+Run against the canonical local database:
+
+```bash
+DATABASE_URL=postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev \
+RIFTSENSE_DB_SCHEMA=riftsense \
+npm test
+```
+
+## Performance Logging
+
+Performance logs are off by default.
+
+Enable server timing logs:
+
+```bash
+RIFTSENSE_PERF_LOGGING=true
+```
+
+Enable client timing logs in the browser console:
+
+```js
+localStorage.setItem("riftsense.perfLogging", "true");
+```
+
+Disable client timing logs:
+
+```js
+localStorage.removeItem("riftsense.perfLogging");
+```
+
+Opening a route with `?perf=1` also enables client timing logs for that browser session.
+
+## Current Routes
+
+- `/`
+- `/about`
+- `/demo`
+- `/goals`
+- `/review`
+- `/training`
+- `/team`
+- `/onboarding`
+- `/library`
+- `/curator/content`
+- `/curator/content/new`
+- `/content/:id`

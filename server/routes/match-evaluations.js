@@ -62,7 +62,11 @@ export function createMatchEvaluationsRouter({
   const router = express.Router();
 
   router.get("/recent/evaluations", config.requireAuth, async (request, response) => {
-    const timing = createTimingContext({ route: "recent_match_evaluations", request });
+    const timing = createTimingContext({
+      route: "recent_match_evaluations",
+      request,
+      enabled: config.perfLoggingEnabled
+    });
     const routeTimer = timing.startTimer();
 
     try {

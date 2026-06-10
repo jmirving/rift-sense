@@ -55,7 +55,7 @@ export function logTiming({
   console.info(JSON.stringify(entry));
 }
 
-export function createTimingContext({ route, action, request, logger = logTiming }) {
+export function createTimingContext({ route, action, request, enabled = false, logger = logTiming }) {
   const base = {
     route,
     action,
@@ -65,6 +65,10 @@ export function createTimingContext({ route, action, request, logger = logTiming
   return {
     startTimer,
     log(step, outcome, metadata = {}) {
+      if (!enabled) {
+        return;
+      }
+
       logger({
         ...base,
         ...metadata,
@@ -77,6 +81,10 @@ export function createTimingContext({ route, action, request, logger = logTiming
       const timer = startTimer();
       try {
         const result = await fn();
+        if (!enabled) {
+          return result;
+        }
+
         logger({
           ...base,
           ...metadata,
@@ -86,14 +94,16 @@ export function createTimingContext({ route, action, request, logger = logTiming
         });
         return result;
       } catch (error) {
-        logger({
-          ...base,
-          ...metadata,
-          step,
-          durationMs: timer.elapsedMs(),
-          outcome: "failure",
-          errorName: error?.name ?? "Error"
-        });
+        if (enabled) {
+          logger({
+            ...base,
+            ...metadata,
+            step,
+            durationMs: timer.elapsedMs(),
+            outcome: "failure",
+            errorName: error?.name ?? "Error"
+          });
+        }
         throw error;
       }
     }

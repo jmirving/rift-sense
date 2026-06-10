@@ -15,8 +15,22 @@ function elapsedMs(startedAt) {
   return Math.round((performance.now() - startedAt) * 100) / 100;
 }
 
+function clientPerfLoggingEnabled() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("perf") === "1") {
+    window.localStorage.setItem("riftsense.perfLogging", "true");
+    return true;
+  }
+
+  return window.localStorage.getItem("riftsense.perfLogging") === "true";
+}
+
 function logClientTiming(step, metadata = {}) {
-  console.debug({
+  if (!clientPerfLoggingEnabled()) {
+    return;
+  }
+
+  console.info("[RiftSense perf]", {
     event: "perf_timing",
     route: window.location.pathname,
     step,

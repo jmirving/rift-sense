@@ -76,6 +76,7 @@ export function loadConfig(env = process.env) {
     databaseUrl: env.DATABASE_URL,
     databaseSchema: env.RIFTSENSE_DB_SCHEMA ?? "riftsense",
     demoUserId: env.RIFTSENSE_DEMO_USER_ID ?? "usr_local_guest",
+    perfLoggingEnabled: parseBoolean(env.RIFTSENSE_PERF_LOGGING ?? ""),
     maxUploadBytes:
       Number.isInteger(maxUploadBytes) && maxUploadBytes > 0 ? maxUploadBytes : 25 * 1024 * 1024,
     auth: {

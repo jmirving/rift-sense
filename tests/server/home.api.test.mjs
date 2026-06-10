@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../../server/app.js";
 import { loadConfig } from "../../server/config.js";
@@ -12,7 +12,13 @@ import {
   createInMemoryUserHomesRepository
 } from "./test-repositories.mjs";
 
-async function createTestApp({ authEnabled = false, fetchSharedProfile, resolveRecentGames, matchEvaluationsRepository } = {}) {
+async function createTestApp({
+  authEnabled = false,
+  perfLoggingEnabled = false,
+  fetchSharedProfile,
+  resolveRecentGames,
+  matchEvaluationsRepository
+} = {}) {
   const config = loadConfig({
     NODE_ENV: "test",
     PORT: "0",
@@ -21,7 +27,8 @@ async function createTestApp({ authEnabled = false, fetchSharedProfile, resolveR
     NEXUS_AUTH_ENABLED: authEnabled ? "true" : "false",
     NEXUS_JWT_SECRET: "test-secret",
     NEXUS_AUTH_ISSUER: "nexus",
-    NEXUS_AUTH_AUDIENCE: "riftsense"
+    NEXUS_AUTH_AUDIENCE: "riftsense",
+    RIFTSENSE_PERF_LOGGING: perfLoggingEnabled ? "true" : ""
   });
 
   const contentItemsRepository = createInMemoryContentItemsRepository();
@@ -102,6 +109,10 @@ async function createTestApp({ authEnabled = false, fetchSharedProfile, resolveR
 }
 
 describe("home API", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("returns a public home payload when no user is authenticated", async () => {
     const app = await createTestApp();
 
@@ -115,6 +126,35 @@ describe("home API", () => {
       demoHref: "/demo"
     });
     expect(response.body.home.goalDashboard).toBeNull();
+  });
+
+  it("does not emit server perf logs for /api/home by default", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const app = await createTestApp();
+
+    const response = await request(app).get("/api/home");
+
+    expect(response.status).toBe(200);
+    expect(response.body.home.user.source).toBe("public");
+    expect(info).not.toHaveBeenCalled();
+  });
+
+  it("emits server perf logs for /api/home when enabled", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const app = await createTestApp({ perfLoggingEnabled: true });
+
+    const response = await request(app).get("/api/home");
+
+    expect(response.status).toBe(200);
+    expect(response.body.home.user.source).toBe("public");
+    expect(info).toHaveBeenCalled();
+    expect(info.mock.calls.map((call) => JSON.parse(call[0]))).toContainEqual(expect.objectContaining({
+      event: "perf_timing",
+      route: "home",
+      step: "route",
+      outcome: "success",
+      durationMs: expect.any(Number)
+    }));
   });
 
   it("returns the public demo home from the dedicated demo endpoint", async () => {

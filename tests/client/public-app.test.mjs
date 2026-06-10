@@ -73,6 +73,102 @@ describe("public app routes", () => {
     expect(document.querySelector('a[href="/demo"]')).not.toBeNull();
   });
 
+  it("does not emit client perf logs by default", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: false,
+          user: null,
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: {
+              id: null,
+              source: "public",
+              profile: {}
+            },
+            publicEntry: {
+              title: "RiftSense",
+              summary: "",
+              signInHref: "/#session-login-form",
+              signInLabel: "Continue with Nexus",
+              aboutHref: "/about",
+              demoHref: "/demo"
+            },
+            goalDashboard: null
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(info).not.toHaveBeenCalled();
+  });
+
+  it("emits client perf logs when enabled in localStorage", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    window.localStorage.setItem("riftsense.perfLogging", "true");
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: false,
+          user: null,
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: {
+              id: null,
+              source: "public",
+              profile: {}
+            },
+            publicEntry: {
+              title: "RiftSense",
+              summary: "",
+              signInHref: "/#session-login-form",
+              signInLabel: "Continue with Nexus",
+              aboutHref: "/about",
+              demoHref: "/demo"
+            },
+            goalDashboard: null
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(info).toHaveBeenCalledWith("[RiftSense perf]", expect.objectContaining({
+      event: "perf_timing",
+      step: "client_request",
+      outcome: "success",
+      durationMs: expect.any(Number)
+    }));
+  });
+
   it("renders the public about route without loading authenticated home state", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {

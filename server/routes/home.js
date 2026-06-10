@@ -145,7 +145,11 @@ export function createHomeRouter({
   const router = express.Router();
 
   router.get("/", async (request, response) => {
-    const timing = createTimingContext({ route: "home", request });
+    const timing = createTimingContext({
+      route: "home",
+      request,
+      enabled: config.perfLoggingEnabled
+    });
     const routeTimer = timing.startTimer();
 
     try {
