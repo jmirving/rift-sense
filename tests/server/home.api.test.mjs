@@ -9,15 +9,19 @@ import {
   createInMemoryAssetStore,
   createInMemoryContentItemsRepository,
   createInMemoryGoalTypesRepository,
+  createInMemoryRiotMatchesRepository,
   createInMemoryUserHomesRepository
 } from "./test-repositories.mjs";
 
 async function createTestApp({
   authEnabled = false,
   perfLoggingEnabled = false,
+  riotApiKey = "",
   fetchSharedProfile,
   resolveRecentGames,
-  matchEvaluationsRepository
+  riotMatchesRepository,
+  matchEvaluationsRepository,
+  fetchImpl
 } = {}) {
   const config = loadConfig({
     NODE_ENV: "test",
@@ -28,7 +32,8 @@ async function createTestApp({
     NEXUS_JWT_SECRET: "test-secret",
     NEXUS_AUTH_ISSUER: "nexus",
     NEXUS_AUTH_AUDIENCE: "riftsense",
-    RIFTSENSE_PERF_LOGGING: perfLoggingEnabled ? "true" : ""
+    RIFTSENSE_PERF_LOGGING: perfLoggingEnabled ? "true" : "",
+    RIFTSENSE_RIOT_API_KEY: riotApiKey
   });
 
   const contentItemsRepository = createInMemoryContentItemsRepository();
@@ -97,7 +102,9 @@ async function createTestApp({
     },
     fetchSharedProfile,
     resolveRecentGames,
-    matchEvaluationsRepository
+    riotMatchesRepository,
+    matchEvaluationsRepository,
+    fetchImpl
   });
   app.locals.testRepositories = {
     contentItemsRepository,
@@ -441,6 +448,139 @@ describe("home API", () => {
       confidenceLabel: "high"
     });
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.candidateGames[0].relevanceReason).toContain("ADC role match");
+  });
+
+  it("uses lightweight recent-game cards and existing evaluation summaries on /api/home", async () => {
+    const riotMatchesRepository = createInMemoryRiotMatchesRepository();
+    await riotMatchesRepository.initialize();
+    await riotMatchesRepository.saveUserMatchPerspective({
+      matchId: "NA1_card_1",
+      puuid: "puuid_owner",
+      championName: "Jhin",
+      championId: 202,
+      teamPosition: "BOTTOM",
+      individualPosition: "BOTTOM",
+      queueId: 420,
+      gameEnd: Date.parse("2026-06-08T03:00:00.000Z"),
+      duration: 1800,
+      win: false,
+      kills: 6,
+      deaths: 2,
+      assists: 7,
+      totalMinionsKilled: 190,
+      neutralMinionsKilled: 10,
+      parseStatus: "parsed"
+    });
+    await riotMatchesRepository.saveUserMatchPerspective({
+      matchId: "NA1_card_2",
+      puuid: "puuid_owner",
+      championName: "Ashe",
+      championId: 22,
+      teamPosition: "BOTTOM",
+      individualPosition: "BOTTOM",
+      queueId: 420,
+      gameEnd: Date.parse("2026-06-07T03:00:00.000Z"),
+      duration: 1700,
+      win: true,
+      kills: 4,
+      deaths: 1,
+      assists: 9,
+      totalMinionsKilled: 180,
+      neutralMinionsKilled: 8,
+      parseStatus: "parsed"
+    });
+    riotMatchesRepository.getRawMatchData = vi.fn(async () => {
+      throw new Error("home should not load raw match data");
+    });
+    const matchEvaluationsRepository = {
+      listRecentPersistedPerspectivesForUser: vi.fn(async () => {
+        throw new Error("home should not list evaluation inputs");
+      }),
+      getMatchEvaluation: vi.fn(async () => {
+        throw new Error("home should not read evaluations one-by-one");
+      }),
+      saveMatchEvaluation: vi.fn(async () => {
+        throw new Error("home should not compute evaluations");
+      }),
+      async listRecentEvaluationSummariesForUser({ puuid, matchIds, evaluationVersion }) {
+        expect(puuid).toBe("puuid_owner");
+        expect(matchIds).toEqual(["NA1_card_1", "NA1_card_2"]);
+        expect(evaluationVersion).toBe("deterministic-v1");
+        return [
+          {
+            matchId: "NA1_card_1",
+            puuid,
+            evaluationVersion,
+            evaluationStatus: "current",
+            evaluationSummary: {
+              deathCount: 2,
+              topTags: [{ tag: "solo_death_candidate", count: 1 }],
+              reviewSignals: ["2 deaths", "1 solo death candidate"],
+              evaluatedAt: "2026-06-08T04:00:00.000Z"
+            },
+            updatedAt: "2026-06-08T04:00:00.000Z"
+          }
+        ];
+      }
+    };
+    const app = await createTestApp({
+      authEnabled: true,
+      riotApiKey: "riot-key",
+      riotMatchesRepository,
+      matchEvaluationsRepository,
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_local_dev",
+          primaryRole: "ADC",
+          riotGameName: "Owner",
+          riotTagline: "NA1",
+          riotPuuid: "puuid_owner"
+        };
+      },
+      async fetchImpl(url) {
+        if (url.includes("/ids?")) {
+          return {
+            ok: true,
+            async json() {
+              return ["NA1_card_1", "NA1_card_2"];
+            }
+          };
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }
+    });
+    const token = jwt.sign(
+      { sub: "usr_local_dev", iss: "nexus", aud: "riftsense" },
+      "test-secret",
+      { algorithm: "HS256", expiresIn: "1h" }
+    );
+
+    const response = await request(app)
+      .get("/api/home")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    const games = response.body.home.goalDashboard.activePersonalGoal.riotEvidence.candidateGames;
+    expect(games).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        matchId: "NA1_card_1",
+        championName: "Jhin",
+        evaluationStatus: "current",
+        evaluationSummary: expect.objectContaining({ deathCount: 2 }),
+        evaluationDeaths: []
+      }),
+      expect.objectContaining({
+        matchId: "NA1_card_2",
+        championName: "Ashe",
+        evaluationStatus: "not_evaluated",
+        evaluationSummary: null,
+        evaluationDeaths: []
+      })
+    ]));
+    expect(riotMatchesRepository.getRawMatchData).not.toHaveBeenCalled();
+    expect(matchEvaluationsRepository.listRecentPersistedPerspectivesForUser).not.toHaveBeenCalled();
+    expect(matchEvaluationsRepository.getMatchEvaluation).not.toHaveBeenCalled();
+    expect(matchEvaluationsRepository.saveMatchEvaluation).not.toHaveBeenCalled();
   });
 
   it("ignores authenticated identity on the dedicated demo endpoint", async () => {

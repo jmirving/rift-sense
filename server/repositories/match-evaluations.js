@@ -39,6 +39,41 @@ function rowToEvaluation(row) {
   };
 }
 
+function summaryFromEvaluationRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  const summaryJson = row.summary_json ?? {};
+  const tagsJson = row.tags_json ?? {};
+  const counts = tagsJson.counts ?? tagsJson.deathTagCounts ?? {};
+  const topTags = Object.entries(counts)
+    .filter(([tag]) => tag !== "death_count")
+    .map(([tag, count]) => ({ tag, count: Number(count) }))
+    .filter((entry) => Number.isFinite(entry.count) && entry.count > 0)
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 5);
+  const deathCount = Number(counts.death_count ?? summaryJson.deathCount ?? 0);
+  const reviewSignals = [
+    `${Number.isFinite(deathCount) ? deathCount : 0} ${deathCount === 1 ? "death" : "deaths"}`,
+    ...topTags.map((entry) => `${entry.count} ${entry.tag.replaceAll("_", " ")}`)
+  ];
+
+  return {
+    matchId: row.match_id,
+    puuid: row.puuid,
+    evaluationVersion: row.evaluation_version,
+    evaluationStatus: "current",
+    evaluationSummary: {
+      deathCount: Number.isFinite(deathCount) ? deathCount : 0,
+      topTags,
+      reviewSignals,
+      evaluatedAt: summaryJson.evaluatedAt ?? nullableIso(row.updated_at)
+    },
+    updatedAt: toIso(row.updated_at)
+  };
+}
+
 function rowToPersistedInput(row) {
   if (!row) {
     return null;
@@ -203,12 +238,38 @@ export function createMatchEvaluationsRepository({ pool, schema = "riftsense" })
     return result.rows.map(rowToRecentPerspectiveInput);
   }
 
+  async function listRecentEvaluationSummariesForUser({
+    puuid,
+    evaluationVersion,
+    matchIds = null,
+    limit = 10
+  }) {
+    const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 10;
+    const ids = Array.isArray(matchIds) && matchIds.length > 0 ? matchIds : null;
+    const result = await pool.query(
+      `
+        select match_id, puuid, evaluation_version, summary_json, tags_json, updated_at
+        from ${evaluationsTable}
+        where puuid = $1
+          and evaluation_version = $2
+          and ($3::text[] is null or match_id = any($3::text[]))
+        order by
+          case when $3::text[] is null then null else array_position($3::text[], match_id) end asc,
+          updated_at desc
+        limit $4
+      `,
+      [puuid, evaluationVersion, ids, safeLimit]
+    );
+    return result.rows.map(summaryFromEvaluationRow).filter(Boolean);
+  }
+
   return {
     initialize,
     getMatchEvaluation,
     saveMatchEvaluation,
     getPersistedMatchInput,
     listRecentPersistedMatchInputsForUser,
-    listRecentPersistedPerspectivesForUser
+    listRecentPersistedPerspectivesForUser,
+    listRecentEvaluationSummariesForUser
   };
 }

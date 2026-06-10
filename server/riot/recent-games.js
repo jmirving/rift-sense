@@ -93,6 +93,14 @@ function resultLabel(win) {
   return win ? "Win" : "Loss";
 }
 
+function resultFromRecord(record) {
+  if (typeof record?.win === "boolean") {
+    return resultLabel(record.win);
+  }
+
+  return normalizeString(record?.result);
+}
+
 function computeCsPerMinute(participant, durationSeconds) {
   const seconds = Number(durationSeconds);
   if (!Number.isFinite(seconds) || seconds <= 0) {
@@ -104,6 +112,20 @@ function computeCsPerMinute(participant, durationSeconds) {
     Number(participant?.neutralMinionsKilled ?? 0);
   const value = totalCs / (seconds / 60);
   return Number.isFinite(value) ? Number(value.toFixed(1)) : null;
+}
+
+function computeCsPerMinuteFromRecord(record) {
+  if (Number.isFinite(Number(record?.csPerMinute))) {
+    return Number(record.csPerMinute);
+  }
+
+  const totalCs = Number(record?.totalMinionsKilled ?? 0) + Number(record?.neutralMinionsKilled ?? 0);
+  const durationSeconds = Number(record?.duration ?? record?.gameDurationSeconds ?? 0);
+  if (!Number.isFinite(totalCs) || totalCs <= 0 || !Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    return null;
+  }
+
+  return Number((totalCs / (durationSeconds / 60)).toFixed(1));
 }
 
 function inferRole(participant) {
@@ -166,6 +188,44 @@ export function normalizeRecentGame(matchPayload, riotPuuid) {
         individualPosition: participant?.individualPosition ?? null
       }
     }
+  };
+}
+
+function recentGameFromPerspectiveCard(card) {
+  const record = card?.record ?? {};
+  const matchId = normalizeString(card?.matchId ?? record.matchId);
+  if (!matchId) {
+    return null;
+  }
+
+  const queueId = Number(record.queueId ?? 0);
+  const durationSeconds = Number(record.duration ?? record.gameDurationSeconds ?? 0);
+  const { role, roleConfidence } = inferRole(record);
+
+  return {
+    matchId,
+    playedAt: isoDate(record.gameEnd ?? record.gameStart ?? record.gameCreation),
+    queueId: Number.isFinite(queueId) ? queueId : 0,
+    queueLabel: Number.isFinite(queueId) && queueId > 0 ? queueLabel(queueId) : "Unknown queue",
+    championId: Number.isFinite(Number(record.championId)) ? Number(record.championId) : null,
+    championName: normalizeString(record.championName),
+    role,
+    roleConfidence,
+    result: resultFromRecord(record),
+    kills: Number.isFinite(Number(record.kills)) ? Number(record.kills) : 0,
+    deaths: Number.isFinite(Number(record.deaths)) ? Number(record.deaths) : 0,
+    assists: Number.isFinite(Number(record.assists)) ? Number(record.assists) : 0,
+    csPerMinute: computeCsPerMinuteFromRecord(record),
+    gameDurationSeconds: Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : null,
+    sourceMetadata: {
+      queueBucket: queueBucket(Number.isFinite(queueId) ? queueId : 0, record),
+      parseStatus: normalizeString(record.parseStatus),
+      perspectiveUpdatedAt: card.updatedAt ?? record.updatedAt ?? null
+    },
+    evaluationStatus: "not_evaluated",
+    evaluationVersion: null,
+    evaluationSummary: null,
+    evaluationDeaths: []
   };
 }
 
@@ -261,6 +321,10 @@ async function savePerspective(
   }
 
   const resolved = resolveParticipantPerspective(matchPayload, matchTimeline, riotPuuid);
+  const info = matchPayload?.info ?? {};
+  const participant = Array.isArray(info?.participants)
+    ? info.participants.find((entry) => entry?.puuid === riotPuuid) ?? null
+    : null;
   const parsedEvidence = resolved.ok
     ? parseMatchEvidence(matchPayload, matchTimeline, { ...resolved.value, matchId })
     : [];
@@ -268,6 +332,14 @@ async function savePerspective(
   const perspective = resolved.ok
     ? {
         ...resolved.value,
+        queueId: Number.isFinite(Number(info?.queueId)) ? Number(info.queueId) : null,
+        championId: Number.isFinite(Number(participant?.championId)) ? Number(participant.championId) : null,
+        win: typeof participant?.win === "boolean" ? participant.win : null,
+        kills: Number.isFinite(Number(participant?.kills)) ? Number(participant.kills) : null,
+        deaths: Number.isFinite(Number(participant?.deaths)) ? Number(participant.deaths) : null,
+        assists: Number.isFinite(Number(participant?.assists)) ? Number(participant.assists) : null,
+        totalMinionsKilled: Number.isFinite(Number(participant?.totalMinionsKilled)) ? Number(participant.totalMinionsKilled) : null,
+        neutralMinionsKilled: Number.isFinite(Number(participant?.neutralMinionsKilled)) ? Number(participant.neutralMinionsKilled) : null,
         matchId,
         parseStatus: finalParseStatus,
         parseStatusReason,
@@ -390,7 +462,8 @@ export async function resolveRecentGames({
   config,
   riotMatchesRepository,
   fetchImpl = fetch,
-  timing
+  timing,
+  readMode = "full"
 }) {
   const riotPuuid = normalizeString(profile?.riotPuuid ?? identity?.riot?.puuid);
   if (!riotPuuid) {
@@ -444,6 +517,59 @@ export async function resolveRecentGames({
     }
 
     if (riotMatchesRepository) {
+      if (readMode === "cards" && riotMatchesRepository.listRecentGameCardsForUser) {
+        const storedCards = await (timing
+          ? timing.time("recent_games_db_read", () => riotMatchesRepository.listRecentGameCardsForUser({
+              puuid: riotPuuid,
+              matchIds,
+              limit: recentGamesConfig.matchCount
+            }), { matchCount: matchIds.length, readMode })
+          : riotMatchesRepository.listRecentGameCardsForUser({
+              puuid: riotPuuid,
+              matchIds,
+              limit: recentGamesConfig.matchCount
+            }));
+        const seen = new Set(storedCards.map((entry) => entry.matchId));
+        const missingMatchIds = matchIds.filter((matchId) => !seen.has(matchId));
+        const queuedMatchIds = missingMatchIds.slice(0, MAX_NEW_MATCHES_TO_QUEUE_PER_REFRESH);
+        const games = storedCards
+          .map(recentGameFromPerspectiveCard)
+          .filter(Boolean);
+
+        prepareMatchesInBackground({
+          matchIds: queuedMatchIds,
+          riotPuuid,
+          headers,
+          fetchImpl,
+          recentGamesConfig,
+          riotMatchesRepository
+        });
+        timing?.log("recent_games_backfill_queue", queuedMatchIds.length > 0 ? "success" : "skipped", {
+          queuedCount: queuedMatchIds.length,
+          missingCount: missingMatchIds.length
+        });
+
+        return {
+          status: deriveRecentGamesStatus({
+            riotPuuid,
+            apiKey: recentGamesConfig.apiKey,
+            matchIdsKnown: true,
+            readyCount: games.length,
+            preparingCount: queuedMatchIds.length
+          }),
+          code: "ok",
+          sourceLabel: "Riot recent games",
+          message: games.length > 0
+            ? "Recent games loaded from cache while newer matches are prepared."
+            : "Recent games found. Match details are being prepared.",
+          games,
+          readyCount: games.length,
+          preparingCount: queuedMatchIds.length,
+          failedCount: 0,
+          discoveredCount: matchIds.length
+        };
+      }
+
       const storedMatches = await (timing
         ? timing.time("recent_games_db_read", () => Promise.all(
             matchIds.map(async (matchId) => ({

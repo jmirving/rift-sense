@@ -40,8 +40,21 @@ describeWithPostgres("Postgres migrations", () => {
     const firstRun = await pool.query(`select id from ${schemaName}.schema_migrations order by id`);
     expect(firstRun.rows).toEqual([
       { id: "001_riftsense_storage.sql" },
-      { id: "002_match_evaluations.sql" }
+      { id: "002_match_evaluations.sql" },
+      { id: "003_recent_game_card_indexes.sql" }
     ]);
+
+    const indexes = await pool.query(
+      `
+        select indexname
+        from pg_indexes
+        where schemaname = $1
+          and tablename = 'riot_match_perspectives'
+        order by indexname
+      `,
+      [schema]
+    );
+    expect(indexes.rows.map((row) => row.indexname)).toContain("riot_match_perspectives_puuid_updated_at_idx");
 
     await runMigrations({ pool, schema });
     const secondRun = await pool.query(`select id from ${schemaName}.schema_migrations order by id`);

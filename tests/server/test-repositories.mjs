@@ -155,6 +155,26 @@ export function createInMemoryRiotMatchesRepository() {
       };
       perspectives.set(key, nextRecord);
       return nextRecord;
+    },
+    async listRecentGameCardsForUser({ puuid, matchIds = null, limit = 10 }) {
+      const ids = Array.isArray(matchIds) && matchIds.length > 0 ? matchIds : null;
+      const idOrder = new Map((ids ?? []).map((matchId, index) => [matchId, index]));
+      return [...perspectives.values()]
+        .filter((record) => record.puuid === puuid)
+        .filter((record) => (ids ? idOrder.has(record.matchId) : true))
+        .sort((left, right) => {
+          if (ids) {
+            return idOrder.get(left.matchId) - idOrder.get(right.matchId);
+          }
+          return String(right.updatedAt ?? "").localeCompare(String(left.updatedAt ?? ""));
+        })
+        .slice(0, limit)
+        .map((record) => ({
+          matchId: record.matchId,
+          puuid: record.puuid,
+          record,
+          updatedAt: record.updatedAt
+        }));
     }
   };
 }

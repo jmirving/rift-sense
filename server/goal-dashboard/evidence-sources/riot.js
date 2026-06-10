@@ -1,8 +1,6 @@
 import { resolveRecentGames as defaultResolveRecentGames, scoreRecentGames } from "../../riot/recent-games.js";
 import {
-  DETERMINISTIC_MATCH_EVALUATOR_VERSION,
-  ensureRecentMatchEvaluations,
-  summarizeMatchEvaluationDeaths
+  DETERMINISTIC_MATCH_EVALUATOR_VERSION
 } from "../../riot/match-evaluator.js";
 
 function normalizeRiotIdentity(identity, profile) {
@@ -181,73 +179,61 @@ function buildAvailableEvidence(candidateGames, recentGamesResult) {
   };
 }
 
-function gameFieldsFromEvaluation(evaluation) {
-  const summary = evaluation?.summaryJson ?? {};
-  return {
-    championName: summary.championName ?? null,
-    queueId: summary.queueId ?? null,
-    playedAt: summary.gameCreation ? new Date(summary.gameCreation).toISOString() : null,
-    result: typeof summary.win === "boolean" ? (summary.win ? "Win" : "Loss") : null,
-    kills: summary.kills ?? null,
-    deaths: summary.deaths ?? null,
-    assists: summary.assists ?? null
-  };
-}
-
 function runTimed(timing, step, fn) {
   return timing ? timing.time(step, fn) : fn();
 }
 
+function withoutEvaluation(game) {
+  return {
+    ...game,
+    evaluationStatus: game.evaluationStatus ?? "not_evaluated",
+    evaluationVersion: game.evaluationVersion ?? DETERMINISTIC_MATCH_EVALUATOR_VERSION,
+    evaluationSummary: game.evaluationSummary ?? null,
+    evaluationDeaths: game.evaluationDeaths ?? []
+  };
+}
+
 async function mergeEvaluationEvidence({ recentGamesResult, puuid, matchEvaluationsRepository, timing }) {
   if (!matchEvaluationsRepository || !puuid) {
-    timing?.log("match_evaluation_read_ensure_backfill", "skipped", {
+    timing?.log("match_evaluation_summary_read", "skipped", {
       reason: matchEvaluationsRepository ? "puuid_missing" : "repository_missing"
     });
-    return recentGamesResult;
+    return {
+      ...recentGamesResult,
+      games: (recentGamesResult.games ?? []).map(withoutEvaluation)
+    };
   }
 
-  const evaluationResult = await ensureRecentMatchEvaluations({
+  if (!matchEvaluationsRepository.listRecentEvaluationSummariesForUser) {
+    timing?.log("match_evaluation_summary_read", "skipped", { reason: "summary_reader_missing" });
+    return {
+      ...recentGamesResult,
+      games: (recentGamesResult.games ?? []).map(withoutEvaluation)
+    };
+  }
+
+  const matchIds = (recentGamesResult.games ?? []).map((game) => game.matchId).filter(Boolean);
+  const evaluations = await matchEvaluationsRepository.listRecentEvaluationSummariesForUser({
     puuid,
-    limit: 10,
+    matchIds,
+    limit: Math.max(10, matchIds.length),
     evaluationVersion: DETERMINISTIC_MATCH_EVALUATOR_VERSION,
-    repository: matchEvaluationsRepository,
-    timing
   });
-  const byMatchId = new Map(evaluationResult.matches.map((match) => [match.matchId, match]));
+  const byMatchId = new Map(evaluations.map((evaluation) => [evaluation.matchId, evaluation]));
   const existingGames = recentGamesResult.games ?? [];
-  const seen = new Set(existingGames.map((game) => game.matchId));
   const mergedGames = existingGames.map((game) => {
-    const match = byMatchId.get(game.matchId);
-    if (!match) {
-      return game;
+    const evaluation = byMatchId.get(game.matchId);
+    if (!evaluation) {
+      return withoutEvaluation(game);
     }
     return {
       ...game,
-      evaluationStatus: match.evaluationStatus,
-      evaluationVersion: match.evaluationVersion,
-      evaluationSummary: match.evaluationSummary,
-      evaluationDeaths: match.evaluation ? summarizeMatchEvaluationDeaths(match.evaluation) : []
+      evaluationStatus: evaluation.evaluationStatus,
+      evaluationVersion: evaluation.evaluationVersion,
+      evaluationSummary: evaluation.evaluationSummary,
+      evaluationDeaths: []
     };
   });
-
-  for (const match of evaluationResult.matches) {
-    if (seen.has(match.matchId) || !match.evaluation) {
-      continue;
-    }
-    mergedGames.push({
-      matchId: match.matchId,
-      queueLabel: match.evaluation.summaryJson?.queueId ? `Queue ${match.evaluation.summaryJson.queueId}` : "Unknown queue",
-      role: match.evaluation.summaryJson?.role ?? null,
-      csPerMinute: null,
-      gameDurationSeconds: match.evaluation.summaryJson?.gameDuration ?? null,
-      sourceMetadata: { queueBucket: [420, 440].includes(match.evaluation.summaryJson?.queueId) ? "ranked" : "normal" },
-      ...gameFieldsFromEvaluation(match.evaluation),
-      evaluationStatus: match.evaluationStatus,
-      evaluationVersion: match.evaluationVersion,
-      evaluationSummary: match.evaluationSummary,
-      evaluationDeaths: summarizeMatchEvaluationDeaths(match.evaluation)
-    });
-  }
 
   return {
     ...recentGamesResult,
@@ -283,7 +269,7 @@ export async function applyRiotEvidenceToDashboard({
     const riotIdentity = normalizeRiotIdentity(identity, profile);
     if (!riotIdentity) {
       timing?.log("resolve_recent_games", "skipped", { reason: "riot_identity_missing" });
-      timing?.log("match_evaluation_read_ensure_backfill", "skipped", { reason: "riot_identity_missing" });
+      timing?.log("match_evaluation_summary_read", "skipped", { reason: "riot_identity_missing" });
       riotEvidence = buildNoRiotLinkedEvidence();
     } else {
       let recentGamesResult = await runTimed(timing, "resolve_recent_games", () => resolveRecentGames({
@@ -292,7 +278,8 @@ export async function applyRiotEvidenceToDashboard({
         config,
         riotMatchesRepository,
         fetchImpl,
-        timing
+        timing,
+        readMode: "cards"
       })).catch(() => ({
         status: "recent_games_unavailable",
         sourceLabel: "Riot account linked",
@@ -302,7 +289,7 @@ export async function applyRiotEvidenceToDashboard({
         preparingCount: 0,
         failedCount: 0
       }));
-      recentGamesResult = await runTimed(timing, "match_evaluation_read_ensure_backfill", () => mergeEvaluationEvidence({
+      recentGamesResult = await runTimed(timing, "match_evaluation_summary_read", () => mergeEvaluationEvidence({
         recentGamesResult,
         puuid: riotIdentity.puuid,
         matchEvaluationsRepository,

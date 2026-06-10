@@ -26,6 +26,19 @@ function rowToRawMatch(row) {
   };
 }
 
+function rowToRecentGameCard(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    matchId: row.match_id,
+    puuid: row.puuid,
+    record: row.record,
+    updatedAt: toIso(row.updated_at)
+  };
+}
+
 function isFreshRecord(record, { now = new Date(), maxAgeMs = null } = {}) {
   if (!record?.summaryJson || !record?.timelineJson) {
     return false;
@@ -114,12 +127,32 @@ export function createRiotMatchesRepository({ pool, schema = "riftsense" }) {
     return nextRecord;
   }
 
+  async function listRecentGameCardsForUser({ puuid, matchIds = null, limit = 10 }) {
+    const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 10;
+    const ids = Array.isArray(matchIds) && matchIds.length > 0 ? matchIds : null;
+    const result = await pool.query(
+      `
+        select match_id, puuid, record, updated_at
+        from ${perspectivesTable}
+        where puuid = $1
+          and ($2::text[] is null or match_id = any($2::text[]))
+        order by
+          case when $2::text[] is null then null else array_position($2::text[], match_id) end asc,
+          updated_at desc
+        limit $3
+      `,
+      [puuid, ids, safeLimit]
+    );
+    return result.rows.map(rowToRecentGameCard).filter(Boolean);
+  }
+
   return {
     initialize,
     getRawMatchData,
     saveRawMatchData,
     hasFreshRawMatchData,
     getUserMatchPerspective,
-    saveUserMatchPerspective
+    saveUserMatchPerspective,
+    listRecentGameCardsForUser
   };
 }

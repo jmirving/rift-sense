@@ -97,6 +97,100 @@ function createEvaluationRepository() {
   };
 }
 
+function createComputingEvaluationRepository() {
+  const saved = [];
+  const input = {
+    matchId: "NA1_compute",
+    puuid: "puuid_owner",
+    summaryJson: {
+      metadata: { matchId: "NA1_compute" },
+      info: {
+        queueId: 420,
+        gameCreation: 1_780_000_000_000,
+        gameDuration: 1800,
+        participants: [
+          {
+            puuid: "puuid_owner",
+            participantId: 1,
+            championName: "Ahri",
+            teamId: 100,
+            teamPosition: "MIDDLE",
+            individualPosition: "MIDDLE",
+            lane: "MIDDLE",
+            win: false,
+            kills: 1,
+            deaths: 1,
+            assists: 2
+          },
+          {
+            puuid: "puuid_enemy",
+            participantId: 6,
+            championName: "Zed",
+            teamId: 200,
+            win: true,
+            kills: 5,
+            deaths: 1,
+            assists: 0
+          }
+        ]
+      }
+    },
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            timestamp: 60_000,
+            participantFrames: {
+              1: { participantId: 1, level: 5 },
+              6: { participantId: 6, level: 6 }
+            },
+            events: [
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 60_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: []
+              }
+            ]
+          }
+        ]
+      }
+    },
+    perspectiveRecord: {
+      matchId: "NA1_compute",
+      puuid: "puuid_owner",
+      participantId: 1,
+      championName: "Ahri",
+      teamId: 100
+    },
+    sourceRawMatchUpdatedAt: "2026-06-01T00:00:00.000Z",
+    sourcePerspectiveUpdatedAt: "2026-06-01T00:01:00.000Z",
+    rawMatchMissing: false
+  };
+
+  return {
+    saved,
+    async listRecentPersistedPerspectivesForUser({ puuid }) {
+      return puuid === "puuid_owner" ? [input] : [];
+    },
+    async getMatchEvaluation() {
+      return null;
+    },
+    async getPersistedMatchInput({ matchId, puuid }) {
+      return matchId === input.matchId && puuid === input.puuid ? input : null;
+    },
+    async saveMatchEvaluation(record) {
+      saved.push(record);
+      return {
+        ...record,
+        createdAt: "2026-06-02T00:00:00.000Z",
+        updatedAt: "2026-06-02T00:00:00.000Z"
+      };
+    }
+  };
+}
+
 async function createTestApp({ fetchSharedProfile, matchEvaluationsRepository } = {}) {
   const config = loadConfig({
     NODE_ENV: "test",
@@ -201,6 +295,41 @@ describe("match evaluations API", () => {
     });
     expect(JSON.stringify(response.body)).not.toContain("SECRET_TIMELINE_EVENT");
     expect(JSON.stringify(response.body)).not.toContain("timelineJson");
+  });
+
+  it("computes missing evaluations from the explicit endpoint", async () => {
+    const repository = createComputingEvaluationRepository();
+    const app = await createTestApp({
+      matchEvaluationsRepository: repository,
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_local_dev",
+          riotGameName: "Owner",
+          riotTagline: "NA1",
+          riotPuuid: "puuid_owner"
+        };
+      }
+    });
+
+    const response = await request(app)
+      .get("/api/matches/recent/evaluations")
+      .set("Authorization", `Bearer ${token({ riot: { puuid: "puuid_owner" } })}`);
+
+    expect(response.status).toBe(200);
+    expect(repository.saved).toHaveLength(1);
+    expect(response.body.summary).toMatchObject({
+      evaluated: 1,
+      cached: 0,
+      skipped: 0,
+      failed: 0
+    });
+    expect(response.body.games[0]).toMatchObject({
+      matchId: "NA1_compute",
+      evaluationStatus: "current",
+      evaluationSummary: {
+        deathCount: 1
+      }
+    });
   });
 
   it("rejects authenticated users without a linked Riot account", async () => {
