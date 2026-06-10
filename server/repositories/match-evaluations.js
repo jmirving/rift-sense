@@ -55,6 +55,23 @@ function rowToPersistedInput(row) {
   };
 }
 
+function rowToRecentPerspectiveInput(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    matchId: row.match_id,
+    puuid: row.puuid,
+    summaryJson: row.summary_json,
+    timelineJson: row.timeline_json,
+    perspectiveRecord: row.perspective_record,
+    sourceRawMatchUpdatedAt: nullableIso(row.raw_updated_at),
+    sourcePerspectiveUpdatedAt: nullableIso(row.perspective_updated_at),
+    rawMatchMissing: !row.raw_updated_at
+  };
+}
+
 export function createMatchEvaluationsRepository({ pool, schema = "riftsense" }) {
   const evaluationsTable = evaluationsTableName(schema);
   const rawTable = rawTableName(schema);
@@ -162,11 +179,36 @@ export function createMatchEvaluationsRepository({ pool, schema = "riftsense" })
     return result.rows.map(rowToPersistedInput);
   }
 
+  async function listRecentPersistedPerspectivesForUser({ puuid, limit = 10 }) {
+    const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 10;
+    const result = await pool.query(
+      `
+        select
+          perspectives.match_id,
+          perspectives.puuid,
+          raw.summary_json,
+          raw.timeline_json,
+          perspectives.record as perspective_record,
+          raw.updated_at as raw_updated_at,
+          perspectives.updated_at as perspective_updated_at
+        from ${perspectivesTable} perspectives
+        left join ${rawTable} raw
+          on raw.match_id = perspectives.match_id
+        where perspectives.puuid = $1
+        order by perspectives.updated_at desc
+        limit $2
+      `,
+      [puuid, safeLimit]
+    );
+    return result.rows.map(rowToRecentPerspectiveInput);
+  }
+
   return {
     initialize,
     getMatchEvaluation,
     saveMatchEvaluation,
     getPersistedMatchInput,
-    listRecentPersistedMatchInputsForUser
+    listRecentPersistedMatchInputsForUser,
+    listRecentPersistedPerspectivesForUser
   };
 }

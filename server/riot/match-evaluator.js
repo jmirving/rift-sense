@@ -11,6 +11,14 @@ const TAG_IDS = [
   "missing_timeline",
   "missing_participant"
 ];
+const SUMMARY_TAGS = new Map([
+  ["solo_death_candidate", "solo death candidates"],
+  ["multi_enemy_collapse_candidate", "multi-enemy collapse candidates"],
+  ["objective_window_candidate", "objective-window candidates"],
+  ["enemy_level_up_recently_candidate", "enemy level-up timing candidates"],
+  ["missing_timeline", "missing timeline"],
+  ["missing_participant", "missing participant"]
+]);
 
 function normalizeString(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -147,6 +155,55 @@ function findPriorLevel(frames, participantId, timestampMs) {
 
 function zeroTagCounts() {
   return Object.fromEntries(TAG_IDS.map((tag) => [tag, 0]));
+}
+
+function sourceIsCurrent(evaluationTimestamp, sourceTimestamp) {
+  if (!sourceTimestamp) {
+    return true;
+  }
+
+  const evaluationTime = Date.parse(evaluationTimestamp ?? "");
+  const sourceTime = Date.parse(sourceTimestamp ?? "");
+  return Number.isFinite(evaluationTime) && Number.isFinite(sourceTime) && evaluationTime >= sourceTime;
+}
+
+function isCurrentEvaluation(evaluation, input) {
+  return Boolean(evaluation) &&
+    sourceIsCurrent(evaluation.sourceRawMatchUpdatedAt, input.sourceRawMatchUpdatedAt) &&
+    sourceIsCurrent(evaluation.sourcePerspectiveUpdatedAt, input.sourcePerspectiveUpdatedAt);
+}
+
+function reviewSignalForTag(tag, count) {
+  const label = SUMMARY_TAGS.get(tag) ?? tag.replaceAll("_", " ");
+  if (count === 1 && label.endsWith("s")) {
+    return `1 ${label.slice(0, -1)}`;
+  }
+  return `${count} ${label}`;
+}
+
+export function summarizeMatchEvaluation(evaluation) {
+  if (!evaluation) {
+    return null;
+  }
+
+  const counts = evaluation.tagsJson?.counts ?? evaluation.tagsJson?.deathTagCounts ?? {};
+  const deathCount = Number(counts.death_count ?? evaluation.deathsJson?.length ?? 0);
+  const topTags = Object.entries(counts)
+    .filter(([tag, count]) => tag !== "death_count" && Number(count) > 0)
+    .sort((left, right) => Number(right[1]) - Number(left[1]) || left[0].localeCompare(right[0]))
+    .slice(0, 3)
+    .map(([tag, count]) => ({ tag, count: Number(count) }));
+  const reviewSignals = [
+    `${deathCount} ${deathCount === 1 ? "death" : "deaths"}`,
+    ...topTags.map(({ tag, count }) => reviewSignalForTag(tag, count))
+  ];
+
+  return {
+    deathCount,
+    topTags,
+    reviewSignals,
+    evaluatedAt: evaluation.summaryJson?.evaluatedAt ?? evaluation.updatedAt ?? null
+  };
 }
 
 export function evaluateMatchFacts({
@@ -305,4 +362,96 @@ export async function evaluateRecentPersistedMatchesForUser({
   }
 
   return evaluations.filter(Boolean);
+}
+
+export async function ensureRecentMatchEvaluations({
+  puuid,
+  limit = 10,
+  evaluationVersion = DETERMINISTIC_MATCH_EVALUATOR_VERSION,
+  repository,
+  now = new Date()
+}) {
+  const inputs = await (
+    repository.listRecentPersistedPerspectivesForUser?.({ puuid, limit }) ??
+    repository.listRecentPersistedMatchInputsForUser({ puuid, limit })
+  );
+  const matches = [];
+  const summary = {
+    evaluated: 0,
+    cached: 0,
+    skipped: 0,
+    failed: 0,
+    matches
+  };
+
+  for (const input of inputs) {
+    const matchId = input.matchId;
+
+    if (input.rawMatchMissing || !input.summaryJson) {
+      summary.skipped += 1;
+      matches.push({
+        matchId,
+        puuid: input.puuid,
+        status: "skipped",
+        reason: "missing_raw_match",
+        evaluationStatus: "none",
+        evaluationVersion,
+        evaluationSummary: null,
+        perspectiveRecord: input.perspectiveRecord
+      });
+      continue;
+    }
+
+    try {
+      const existing = await repository.getMatchEvaluation({ matchId, puuid: input.puuid, evaluationVersion });
+      if (isCurrentEvaluation(existing, input)) {
+        summary.cached += 1;
+        matches.push({
+          matchId,
+          puuid: input.puuid,
+          status: "cached",
+          evaluationStatus: "current",
+          evaluationVersion,
+          evaluationSummary: summarizeMatchEvaluation(existing),
+          perspectiveRecord: input.perspectiveRecord,
+          evaluation: existing
+        });
+        continue;
+      }
+
+      const evaluation = await evaluatePersistedMatch({
+        matchId,
+        puuid: input.puuid,
+        evaluationVersion,
+        repository,
+        now
+      });
+
+      summary.evaluated += 1;
+      matches.push({
+        matchId,
+        puuid: input.puuid,
+        status: existing ? "stale_recomputed" : "evaluated",
+        evaluationStatus: "current",
+        evaluationVersion,
+        evaluationSummary: summarizeMatchEvaluation(evaluation),
+        perspectiveRecord: input.perspectiveRecord,
+        evaluation
+      });
+    } catch (error) {
+      summary.failed += 1;
+      matches.push({
+        matchId,
+        puuid: input.puuid,
+        status: "failed",
+        evaluationStatus: "failed",
+        evaluationVersion,
+        evaluationSummary: null,
+        perspectiveRecord: input.perspectiveRecord,
+        error: error?.message ?? "Evaluation failed."
+      });
+    }
+  }
+
+  return summary;
 }

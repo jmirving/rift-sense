@@ -7,6 +7,7 @@ import { createContentItemsRouter } from "./routes/content-items.js";
 import { createAuthRouter } from "./routes/auth.js";
 import { createDemoRouter } from "./routes/demo.js";
 import { createHomeRouter } from "./routes/home.js";
+import { createMatchEvaluationsRouter } from "./routes/match-evaluations.js";
 import { createOnboardingRouter } from "./routes/onboarding.js";
 import { createSessionRouter } from "./routes/session.js";
 import { resolveRecentGames as defaultResolveRecentGames } from "./riot/recent-games.js";
@@ -45,6 +46,7 @@ export function createApp({
   goalTypesRepository,
   userHomesRepository,
   riotMatchesRepository,
+  matchEvaluationsRepository,
   assetStore,
   previewService,
   redeemLaunchGrant,
@@ -89,6 +91,20 @@ export function createApp({
       fetchImpl
     })
   );
+
+  if (matchEvaluationsRepository) {
+    app.use(
+      "/api/matches",
+      createMatchEvaluationsRouter({
+        config: {
+          ...config,
+          requireAuth
+        },
+        fetchSharedProfile,
+        matchEvaluationsRepository
+      })
+    );
+  }
 
   app.use(
     "/api/demo",

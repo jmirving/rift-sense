@@ -7,6 +7,7 @@ import { runMigrations } from "./db/migrations.js";
 import { createPreviewService } from "./previews.js";
 import { createContentItemsRepository } from "./repositories/content-items.js";
 import { createGoalTypesRepository } from "./repositories/goal-types.js";
+import { createMatchEvaluationsRepository } from "./repositories/match-evaluations.js";
 import { createRiotMatchesRepository } from "./repositories/riot-matches.js";
 import { createUserHomesRepository } from "./repositories/user-homes.js";
 import { createPostgresAssetStore } from "./storage/postgres-assets.js";
@@ -28,6 +29,7 @@ export async function startServer(env = process.env) {
   const goalTypesRepository = createGoalTypesRepository(repositoryOptions);
   const userHomesRepository = createUserHomesRepository(repositoryOptions);
   const riotMatchesRepository = createRiotMatchesRepository(repositoryOptions);
+  const matchEvaluationsRepository = createMatchEvaluationsRepository(repositoryOptions);
   const assetStore = createPostgresAssetStore(repositoryOptions);
   const previewService = createPreviewService();
 
@@ -36,6 +38,7 @@ export async function startServer(env = process.env) {
   await seedSystemGoalTypes(goalTypesRepository);
   await userHomesRepository.initialize();
   await riotMatchesRepository.initialize();
+  await matchEvaluationsRepository.initialize();
   await assetStore.initialize();
 
   const app = createApp({
@@ -44,6 +47,7 @@ export async function startServer(env = process.env) {
     goalTypesRepository,
     userHomesRepository,
     riotMatchesRepository,
+    matchEvaluationsRepository,
     assetStore,
     previewService
   });
