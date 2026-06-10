@@ -156,6 +156,7 @@ phase_050_static_checks_only() {
 
   assert_file_exists_matching \
     "match evaluator service" \
+    "server/riot/match-evaluator.js" \
     "server/match-evaluator/*.js" \
     "server/match-evaluator.js"
 
@@ -166,9 +167,9 @@ phase_050_checks() {
   echo "Checking Phase 050 artifacts..."
 
   phase_050_static_checks_only
-  assert_grep "evaluation version marker" "EVALUATION_VERSION|evaluationVersion|evaluation_version" server tests
-  assert_grep "death events output" "deathEvents|death_events|deathEventsJson|death_events_json" server tests
-  assert_grep "evaluator tests" "match evaluator|match-evaluator|match evaluations|death events" tests
+  assert_grep "evaluation version marker" "DETERMINISTIC_MATCH_EVALUATOR_VERSION|EVALUATION_VERSION|evaluationVersion|evaluation_version" server tests
+  assert_grep "death events output" "deathsJson|deathEvents|death_events|deaths_json|deathEventsJson|death_events_json" server tests
+  assert_grep "evaluator tests" "match evaluator|match-evaluator|match evaluations|death events|deathsJson" tests
 
   run_tests
   assert_db_table_exists "match_evaluations"
@@ -179,9 +180,30 @@ phase_051_checks() {
 
   phase_050_static_checks_only
 
-  assert_grep "recent evaluation/backfill service or route" "evaluate.*recent|recent.*evaluation|backfill|matchEvaluationsRepository" server tests
-  assert_grep "idempotent evaluation test" "duplicate|idempotent|rerun|already exists|upsert" tests
-  assert_grep "evaluation API/response evidence" "evaluationSummary|reviewEvidence|deathCount|evidenceSummary|evaluation" server tests
+  assert_grep \
+    "startup/app wiring for match evaluations repository" \
+    "createMatchEvaluationsRepository|matchEvaluationsRepository" \
+    server/index.js server/app.js server/routes tests
+
+  assert_grep \
+    "recent persisted match evaluation service usage" \
+    "evaluateRecentPersistedMatchesForUser|evaluatePersistedMatch|evaluate.*recent.*match|recent.*match.*evaluation" \
+    server tests
+
+  assert_grep \
+    "authenticated evaluation API or integrated home/recent-games response" \
+    "/api/.{0,40}evaluation|evaluate-recent|evaluationSummary|reviewEvidence|evidenceSummary|deathCount|deathsJson" \
+    server/routes server/app.js tests
+
+  assert_grep \
+    "idempotent evaluation/backfill test" \
+    "idempotent|duplicate|rerun|already.*evaluation|existing.*evaluation|upsert|does not duplicate" \
+    tests
+
+  assert_grep \
+    "match evaluations repository initialized or passed into app" \
+    "matchEvaluationsRepository.*initialize|createMatchEvaluationsRepository|matchEvaluationsRepository" \
+    server/index.js server/app.js
 
   run_tests
 }
@@ -191,10 +213,30 @@ phase_052_checks() {
 
   phase_050_static_checks_only
 
-  assert_grep "UI deterministic review evidence" "Deterministic review|Review signals|review evidence|death count|death events" public server tests
-  assert_grep "review candidate" "review candidate|reviewCandidate|selected.*review|Why this game" public server tests
-  assert_grep "goal evidence connection" "active goal|goal evidence|goal.*review|activePersonalGoal" public server tests
-  assert_no_grep "AI interpretation claim in review evidence" "AI interpretation|AI-reviewed|LLM interpreted" public server tests
+  assert_grep \
+    "UI deterministic review evidence rendering" \
+    "Deterministic review|Review signals|review evidence|death count|death events|evaluationSummary|reviewEvidence" \
+    public server/routes tests
+
+  assert_grep \
+    "review candidate rendering/selection" \
+    "review candidate|reviewCandidate|selected.*review|Why this game|Review this game|review-worthy" \
+    public server tests
+
+  assert_grep \
+    "goal evidence connection" \
+    "active goal|Active goal|goal evidence|goal.*review|activePersonalGoal|Die Less" \
+    public server tests
+
+  assert_no_grep \
+    "AI interpretation claim in review evidence" \
+    "AI interpretation|AI-reviewed|LLM interpreted" \
+    public server tests
+
+  assert_grep \
+    "client-visible review evidence surface" \
+    "Review signals|Deterministic review|review candidate|reviewCandidate|death count|death events|evaluationSummary|reviewEvidence" \
+    public
 
   run_tests
 }
