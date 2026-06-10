@@ -1,4 +1,9 @@
 import { resolveRecentGames as defaultResolveRecentGames, scoreRecentGames } from "../../riot/recent-games.js";
+import {
+  DETERMINISTIC_MATCH_EVALUATOR_VERSION,
+  ensureRecentMatchEvaluations,
+  summarizeMatchEvaluationDeaths
+} from "../../riot/match-evaluator.js";
 
 function normalizeRiotIdentity(identity, profile) {
   const puuid = typeof profile?.riotPuuid === "string" && profile.riotPuuid.trim()
@@ -176,6 +181,73 @@ function buildAvailableEvidence(candidateGames, recentGamesResult) {
   };
 }
 
+function gameFieldsFromEvaluation(evaluation) {
+  const summary = evaluation?.summaryJson ?? {};
+  return {
+    championName: summary.championName ?? null,
+    queueId: summary.queueId ?? null,
+    playedAt: summary.gameCreation ? new Date(summary.gameCreation).toISOString() : null,
+    result: typeof summary.win === "boolean" ? (summary.win ? "Win" : "Loss") : null,
+    kills: summary.kills ?? null,
+    deaths: summary.deaths ?? null,
+    assists: summary.assists ?? null
+  };
+}
+
+async function mergeEvaluationEvidence({ recentGamesResult, puuid, matchEvaluationsRepository }) {
+  if (!matchEvaluationsRepository || !puuid) {
+    return recentGamesResult;
+  }
+
+  const evaluationResult = await ensureRecentMatchEvaluations({
+    puuid,
+    limit: 10,
+    evaluationVersion: DETERMINISTIC_MATCH_EVALUATOR_VERSION,
+    repository: matchEvaluationsRepository
+  });
+  const byMatchId = new Map(evaluationResult.matches.map((match) => [match.matchId, match]));
+  const existingGames = recentGamesResult.games ?? [];
+  const seen = new Set(existingGames.map((game) => game.matchId));
+  const mergedGames = existingGames.map((game) => {
+    const match = byMatchId.get(game.matchId);
+    if (!match) {
+      return game;
+    }
+    return {
+      ...game,
+      evaluationStatus: match.evaluationStatus,
+      evaluationVersion: match.evaluationVersion,
+      evaluationSummary: match.evaluationSummary,
+      evaluationDeaths: match.evaluation ? summarizeMatchEvaluationDeaths(match.evaluation) : []
+    };
+  });
+
+  for (const match of evaluationResult.matches) {
+    if (seen.has(match.matchId) || !match.evaluation) {
+      continue;
+    }
+    mergedGames.push({
+      matchId: match.matchId,
+      queueLabel: match.evaluation.summaryJson?.queueId ? `Queue ${match.evaluation.summaryJson.queueId}` : "Unknown queue",
+      role: match.evaluation.summaryJson?.role ?? null,
+      csPerMinute: null,
+      gameDurationSeconds: match.evaluation.summaryJson?.gameDuration ?? null,
+      sourceMetadata: { queueBucket: [420, 440].includes(match.evaluation.summaryJson?.queueId) ? "ranked" : "normal" },
+      ...gameFieldsFromEvaluation(match.evaluation),
+      evaluationStatus: match.evaluationStatus,
+      evaluationVersion: match.evaluationVersion,
+      evaluationSummary: match.evaluationSummary,
+      evaluationDeaths: summarizeMatchEvaluationDeaths(match.evaluation)
+    });
+  }
+
+  return {
+    ...recentGamesResult,
+    games: mergedGames,
+    readyCount: Math.max(Number(recentGamesResult.readyCount ?? 0), mergedGames.length)
+  };
+}
+
 export async function applyRiotEvidenceToDashboard({
   goalDashboard,
   identity,
@@ -185,6 +257,7 @@ export async function applyRiotEvidenceToDashboard({
   config,
   fetchImpl,
   riotMatchesRepository,
+  matchEvaluationsRepository,
   resolveRecentGames = defaultResolveRecentGames
 }) {
   if (!goalDashboard?.activePersonalGoal) {
@@ -202,7 +275,7 @@ export async function applyRiotEvidenceToDashboard({
     if (!riotIdentity) {
       riotEvidence = buildNoRiotLinkedEvidence();
     } else {
-      const recentGamesResult = await resolveRecentGames({
+      let recentGamesResult = await resolveRecentGames({
         identity,
         profile,
         config,
@@ -217,6 +290,11 @@ export async function applyRiotEvidenceToDashboard({
         preparingCount: 0,
         failedCount: 0
       }));
+      recentGamesResult = await mergeEvaluationEvidence({
+        recentGamesResult,
+        puuid: riotIdentity.puuid,
+        matchEvaluationsRepository
+      }).catch(() => recentGamesResult);
 
       const candidateGames = scoreRecentGames({
         games: recentGamesResult.games,

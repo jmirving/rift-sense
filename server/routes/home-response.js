@@ -40,7 +40,8 @@ export async function buildHomePayload({
   config,
   fetchImpl,
   resolveRecentGames,
-  riotMatchesRepository
+  riotMatchesRepository,
+  matchEvaluationsRepository
 }) {
   const profile = buildProfile(home.profile, identity?.profile, source);
 
@@ -61,7 +62,8 @@ export async function buildHomePayload({
       config,
       fetchImpl,
       resolveRecentGames,
-      riotMatchesRepository
+      riotMatchesRepository,
+      matchEvaluationsRepository
     })
   };
 }

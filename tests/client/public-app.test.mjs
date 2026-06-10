@@ -150,7 +150,51 @@ describe("public app routes", () => {
                       kda: "8/5/6",
                       csPerMinute: 8.1,
                       relevanceReason: "ADC role match",
-                      confidenceLabel: "high"
+                      confidenceLabel: "high",
+                      evaluationStatus: "current",
+                      evaluationSummary: {
+                        deathCount: 5,
+                        reviewSignals: [
+                          "5 deaths",
+                          "2 multi-enemy collapse candidates",
+                          "1 objective-window candidate"
+                        ]
+                      },
+                      evaluationDeaths: [
+                        {
+                          timestampSeconds: 494,
+                          killerChampionName: "LeBlanc",
+                          assistingChampionNames: ["Briar"],
+                          tags: ["multi_enemy_collapse_candidate"]
+                        }
+                      ]
+                    },
+                    {
+                      championName: "Ashe",
+                      queueLabel: "Normal Draft",
+                      result: "Win",
+                      kda: "2/0/7",
+                      csPerMinute: 7.4,
+                      relevanceReason: "no deaths to review",
+                      confidenceLabel: "medium",
+                      evaluationStatus: "current",
+                      evaluationSummary: {
+                        deathCount: 0,
+                        reviewSignals: ["0 deaths"]
+                      },
+                      evaluationDeaths: []
+                    },
+                    {
+                      championName: "Ahri",
+                      queueLabel: "Ranked Solo/Duo",
+                      result: "Loss",
+                      kda: "4/4/5",
+                      csPerMinute: 7.1,
+                      relevanceReason: "evaluation pending",
+                      confidenceLabel: "low",
+                      evaluationStatus: "none",
+                      evaluationSummary: null,
+                      evaluationDeaths: []
                     }
                   ]
                 }
@@ -174,6 +218,16 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("1 game ready");
     expect(document.body.textContent).toContain("2 games still being prepared");
     expect(document.body.textContent).toContain("Jhin · Ranked Solo/Duo · Loss");
+    expect(document.body.textContent).toContain("Review Signals · current");
+    expect(document.body.textContent).toContain("5 deaths");
+    expect(document.body.textContent).toContain("2 multi-enemy collapse candidates");
+    expect(document.body.textContent).toContain("08:14");
+    expect(document.body.textContent).toContain("killed by LeBlanc, assisted by Briar");
+    expect(document.body.textContent).toContain("Tags: Multi Enemy Collapse Candidate");
+    expect(document.body.textContent).toContain("0 deaths");
+    expect(document.body.textContent).toContain("No deaths recorded for this evaluation.");
+    expect(document.body.textContent).toContain("Evaluation: none");
+    expect(document.body.textContent).not.toContain("SECRET_TIMELINE_EVENT");
     expect(document.querySelector('a[href="/review"]')?.textContent).toContain("Review");
   });
 });

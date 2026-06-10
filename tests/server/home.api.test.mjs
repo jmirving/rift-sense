@@ -12,7 +12,7 @@ import {
   createInMemoryUserHomesRepository
 } from "./test-repositories.mjs";
 
-async function createTestApp({ authEnabled = false, fetchSharedProfile, resolveRecentGames } = {}) {
+async function createTestApp({ authEnabled = false, fetchSharedProfile, resolveRecentGames, matchEvaluationsRepository } = {}) {
   const config = loadConfig({
     NODE_ENV: "test",
     PORT: "0",
@@ -89,7 +89,8 @@ async function createTestApp({ authEnabled = false, fetchSharedProfile, resolveR
       }
     },
     fetchSharedProfile,
-    resolveRecentGames
+    resolveRecentGames,
+    matchEvaluationsRepository
   });
   app.locals.testRepositories = {
     contentItemsRepository,
@@ -397,7 +398,7 @@ describe("home API", () => {
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.candidateGames[0]).toMatchObject({
       matchId: "NA1_1",
       championName: "Jhin",
-      confidenceLabel: "medium"
+      confidenceLabel: "high"
     });
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.candidateGames[0].relevanceReason).toContain("ADC role match");
   });

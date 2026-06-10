@@ -88,6 +88,7 @@ export function createApp({
       fetchSharedProfile,
       resolveRecentGames,
       riotMatchesRepository,
+      matchEvaluationsRepository,
       fetchImpl
     })
   );

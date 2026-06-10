@@ -570,6 +570,28 @@ function scoreOneGame(game, { activeSince, preferredRole, now, goalTitle }) {
   const queueBucketValue = game?.sourceMetadata?.queueBucket ?? "normal";
   const playedAtTimestamp = toTimestamp(game.playedAt);
   const activeSinceTimestamp = toTimestamp(activeSince ? `${activeSince}T00:00:00.000Z` : null);
+  const evaluationSummary = game?.evaluationSummary ?? null;
+  const evaluationDeathCount = Number(evaluationSummary?.deathCount ?? game.deaths ?? 0);
+  const normalizedGoalTitle = normalizeString(goalTitle)?.toLowerCase() ?? "";
+  const deathGoal = ["die less", "death", "positioning"].some((term) => normalizedGoalTitle.includes(term));
+  const goalRelevantTagCount = (evaluationSummary?.topTags ?? []).reduce((total, entry) => {
+    const tag = normalizeString(entry?.tag) ?? "";
+    const count = Number(entry?.count ?? 0);
+    if (!Number.isFinite(count) || count <= 0) {
+      return total;
+    }
+    if (!deathGoal) {
+      return total + count;
+    }
+    return tag.includes("death") || tag.includes("collapse") || tag.includes("objective") || tag.includes("level")
+      ? total + count
+      : total;
+  }, 0);
+
+  if (evaluationSummary) {
+    score += 35;
+    reasons.push("evaluation ready");
+  }
 
   if (playedAtTimestamp && activeSinceTimestamp && playedAtTimestamp >= activeSinceTimestamp) {
     score += 30;
@@ -625,14 +647,19 @@ function scoreOneGame(game, { activeSince, preferredRole, now, goalTitle }) {
     score += 3;
   }
 
-  if (goalTitle === "Die Less") {
-    if (Number(game.deaths ?? 0) > 0) {
-      score += 12;
+  if (deathGoal) {
+    if (evaluationDeathCount > 0) {
+      score += 12 + Math.min(evaluationDeathCount, 10);
       reasons.push("contains deaths to review");
     } else {
       score -= 4;
       reasons.push("no deaths to review");
     }
+  }
+
+  if (goalRelevantTagCount > 0) {
+    score += Math.min(goalRelevantTagCount * 8, 32);
+    reasons.push(`${goalRelevantTagCount} goal-relevant ${goalRelevantTagCount === 1 ? "signal" : "signals"}`);
   }
 
   return {

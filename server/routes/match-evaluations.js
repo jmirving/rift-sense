@@ -2,7 +2,11 @@ import express from "express";
 
 import { buildSharedProfileIdentity, resolveSharedProfile } from "../auth/shared-profile.js";
 import { badRequest } from "../errors.js";
-import { DETERMINISTIC_MATCH_EVALUATOR_VERSION, ensureRecentMatchEvaluations } from "../riot/match-evaluator.js";
+import {
+  DETERMINISTIC_MATCH_EVALUATOR_VERSION,
+  ensureRecentMatchEvaluations,
+  summarizeMatchEvaluationDeaths
+} from "../riot/match-evaluator.js";
 
 function normalizeString(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -44,7 +48,8 @@ function toApiMatch(match) {
     ...gameFieldsFromEvaluation(match.evaluation),
     evaluationStatus: match.evaluationStatus,
     evaluationVersion: match.evaluationVersion,
-    evaluationSummary: match.evaluationSummary
+    evaluationSummary: match.evaluationSummary,
+    evaluationDeaths: summarizeMatchEvaluationDeaths(match.evaluation)
   };
 }
 
@@ -93,7 +98,8 @@ export function createMatchEvaluationsRouter({
           ...gameFieldsFromPerspective(match.perspectiveRecord),
           evaluationStatus: match.evaluationStatus,
           evaluationVersion: match.evaluationVersion,
-          evaluationSummary: null
+          evaluationSummary: null,
+          evaluationDeaths: []
         };
       })
     });

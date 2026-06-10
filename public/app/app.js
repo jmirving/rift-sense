@@ -741,6 +741,71 @@ function riotReadinessLine(riotEvidence) {
   `;
 }
 
+function tagLabel(value) {
+  return String(value ?? "")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatDeathTimestamp(death) {
+  const seconds = Number(death?.timestampSeconds ?? Math.floor(Number(death?.timestampMs ?? 0) / 1000));
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return "00:00";
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainder = Math.floor(seconds % 60);
+  return `${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
+function evaluationSummaryBlock(game) {
+  const summary = game?.evaluationSummary ?? null;
+  const status = game?.evaluationStatus ?? "none";
+  if (!summary) {
+    return `<p class="muted">Evaluation: ${escapeHtml(status)}</p>`;
+  }
+
+  const signals = Array.isArray(summary.reviewSignals) && summary.reviewSignals.length > 0
+    ? summary.reviewSignals
+    : [`${summary.deathCount ?? 0} ${(summary.deathCount ?? 0) === 1 ? "death" : "deaths"}`];
+
+  return `
+    <div class="evaluation-summary">
+      <p class="eyebrow">Review Signals · ${escapeHtml(status)}</p>
+      <ul>
+        ${signals.slice(0, 4).map((signal) => `<li>${escapeHtml(signal)}</li>`).join("")}
+      </ul>
+    </div>
+  `;
+}
+
+function deathDetailsBlock(game) {
+  const deaths = Array.isArray(game?.evaluationDeaths) ? game.evaluationDeaths : [];
+  if (!game?.evaluationSummary) {
+    return "";
+  }
+  if (deaths.length === 0) {
+    return `<p class="muted">No deaths recorded for this evaluation.</p>`;
+  }
+
+  return `
+    <details class="death-details">
+      <summary>Death facts</summary>
+      <section class="death-list">
+        ${deaths.map((death) => {
+          const assists = (death.assistingChampionNames ?? []).join(", ");
+          const tags = (death.tags ?? []).map(tagLabel).join(", ");
+          return `
+            <article class="death-row">
+              <p><strong>${escapeHtml(formatDeathTimestamp(death))}</strong> — killed by ${escapeHtml(death.killerChampionName ?? "Unknown")}${assists ? `, assisted by ${escapeHtml(assists)}` : ""}</p>
+              <p class="muted">Tags: ${escapeHtml(tags || "None")}</p>
+            </article>
+          `;
+        }).join("")}
+      </section>
+    </details>
+  `;
+}
+
 function riotEvidenceCard(riotEvidence, context = {}) {
   if (!riotEvidence) {
     return "";
@@ -763,12 +828,18 @@ function riotEvidenceCard(riotEvidence, context = {}) {
       <section class="compact-list">
         ${(riotEvidence.candidateGames ?? []).length > 0
           ? riotEvidence.candidateGames.slice(0, 3).map((game) => `
-            <article class="compact-row">
-              <span class="compact-row-main">${escapeHtml(`${game.champion ?? game.championName ?? "Unknown champion"} · ${game.queueLabel} · ${game.result}`)}</span>
-              <span class="compact-row-value">${escapeHtml(`${game.kda} · ${game.csPerMinute ?? "?"} cs/min`)}</span>
-              <span class="muted">${escapeHtml(game.relevanceReason ?? "")}</span>
-              <span class="muted">${escapeHtml((game.confidenceLabel ?? "").toUpperCase())}</span>
-              <a class="button secondary compact-row-action" href="${escapeHtml(reviewHref)}">Review</a>
+            <article class="compact-row game-evidence-row">
+              <div class="game-evidence-main">
+                <span class="compact-row-main">${escapeHtml(`${game.champion ?? game.championName ?? "Unknown champion"} · ${game.queueLabel ?? "Unknown queue"} · ${game.result ?? "Unknown result"}`)}</span>
+                <span class="compact-row-value">${escapeHtml(`${game.kda} · ${game.csPerMinute ?? "?"} cs/min`)}</span>
+                <span class="muted">${escapeHtml(game.relevanceReason ?? "")}</span>
+                ${evaluationSummaryBlock(game)}
+                ${deathDetailsBlock(game)}
+              </div>
+              <div class="game-evidence-actions">
+                <span class="muted">${escapeHtml((game.confidenceLabel ?? "").toUpperCase())}</span>
+                <a class="button secondary compact-row-action" href="${escapeHtml(reviewHref)}">Review</a>
+              </div>
             </article>
           `).join("")
           : '<p class="muted">No Riot candidate games are available yet.</p>'}

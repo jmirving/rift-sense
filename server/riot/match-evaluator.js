@@ -206,6 +206,17 @@ export function summarizeMatchEvaluation(evaluation) {
   };
 }
 
+export function summarizeMatchEvaluationDeaths(evaluation) {
+  return normalizeArray(evaluation?.deathsJson).map((death) => ({
+    deathIndex: normalizeNumber(death?.deathIndex),
+    timestampSeconds: normalizeNumber(death?.timestampSeconds),
+    timestampMs: normalizeNumber(death?.timestampMs),
+    killerChampionName: normalizeString(death?.killerChampionName),
+    assistingChampionNames: normalizeArray(death?.assistingChampionNames).map(normalizeString).filter(Boolean),
+    tags: normalizeArray(death?.tags).map(normalizeString).filter(Boolean)
+  }));
+}
+
 export function evaluateMatchFacts({
   matchId,
   puuid,

@@ -59,7 +59,16 @@ function createEvaluationRepository() {
       assists: 3,
       evaluatedAt: "2026-06-02T00:00:00.000Z"
     },
-    deathsJson: [{ deathIndex: 1 }, { deathIndex: 2 }],
+    deathsJson: [
+      {
+        deathIndex: 1,
+        timestampSeconds: 494,
+        killerChampionName: "LeBlanc",
+        assistingChampionNames: ["Briar"],
+        tags: ["solo_death_candidate"]
+      },
+      { deathIndex: 2 }
+    ],
     tagsJson: {
       counts: {
         death_count: 2,
@@ -174,7 +183,19 @@ describe("match evaluations API", () => {
               { tag: "objective_window_candidate", count: 1 },
               { tag: "solo_death_candidate", count: 1 }
             ]
-          }
+          },
+          evaluationDeaths: [
+            {
+              deathIndex: 1,
+              timestampSeconds: 494,
+              killerChampionName: "LeBlanc",
+              assistingChampionNames: ["Briar"],
+              tags: ["solo_death_candidate"]
+            },
+            {
+              deathIndex: 2
+            }
+          ]
         }
       ]
     });

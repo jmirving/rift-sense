@@ -872,6 +872,60 @@ p {
   padding: 0 12px;
 }
 
+.game-evidence-row {
+  align-items: start;
+}
+
+.game-evidence-main,
+.game-evidence-actions,
+.evaluation-summary,
+.death-list,
+.death-row {
+  display: grid;
+  gap: 8px;
+}
+
+.game-evidence-actions {
+  justify-items: end;
+}
+
+.evaluation-summary {
+  margin-top: 4px;
+}
+
+.evaluation-summary ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.death-details {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.death-details summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.death-list {
+  margin-top: 10px;
+}
+
+.death-row {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.death-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
 .review-run-panel {
   grid-row: span 2;
 }

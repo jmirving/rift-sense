@@ -549,4 +549,128 @@ describe("riot recent-games service", () => {
     );
     expect(candidates.find((game) => game.matchId === "aram")).toBeUndefined();
   });
+
+  it("prioritizes evaluated games with stronger goal-relevant evidence", () => {
+    const candidates = scoreRecentGames({
+      goal: {
+        title: "Die Less",
+        role: "ADC",
+        activeSince: "2026-05-25"
+      },
+      profile: {
+        primaryRole: "ADC"
+      },
+      now: new Date("2026-06-01T12:00:00.000Z"),
+      games: [
+        {
+          matchId: "light-evidence",
+          playedAt: "2026-06-01T03:00:00.000Z",
+          queueLabel: "Ranked Solo/Duo",
+          championName: "Ashe",
+          role: "ADC",
+          result: "Loss",
+          kills: 6,
+          deaths: 2,
+          assists: 7,
+          csPerMinute: 8,
+          gameDurationSeconds: 1800,
+          sourceMetadata: { queueBucket: "ranked" },
+          evaluationStatus: "current",
+          evaluationSummary: {
+            deathCount: 2,
+            topTags: [{ tag: "solo_death_candidate", count: 1 }],
+            reviewSignals: ["2 deaths", "1 solo death candidate"]
+          }
+        },
+        {
+          matchId: "strong-evidence",
+          playedAt: "2026-06-01T02:00:00.000Z",
+          queueLabel: "Ranked Solo/Duo",
+          championName: "Jhin",
+          role: "ADC",
+          result: "Loss",
+          kills: 5,
+          deaths: 4,
+          assists: 6,
+          csPerMinute: 7.7,
+          gameDurationSeconds: 1800,
+          sourceMetadata: { queueBucket: "ranked" },
+          evaluationStatus: "current",
+          evaluationSummary: {
+            deathCount: 4,
+            topTags: [
+              { tag: "multi_enemy_collapse_candidate", count: 3 },
+              { tag: "objective_window_candidate", count: 2 }
+            ],
+            reviewSignals: ["4 deaths", "3 multi-enemy collapse candidates", "2 objective-window candidates"]
+          }
+        },
+        {
+          matchId: "unevaluated",
+          playedAt: "2026-06-01T04:00:00.000Z",
+          queueLabel: "Ranked Solo/Duo",
+          championName: "Caitlyn",
+          role: "ADC",
+          result: "Loss",
+          kills: 8,
+          deaths: 7,
+          assists: 4,
+          csPerMinute: 8.4,
+          gameDurationSeconds: 1800,
+          sourceMetadata: { queueBucket: "ranked" }
+        }
+      ]
+    });
+
+    expect(candidates.map((game) => game.matchId)).toEqual(["strong-evidence", "light-evidence", "unevaluated"]);
+    expect(candidates[0].relevanceReason).toContain("evaluation ready");
+    expect(candidates[0].relevanceReason).toContain("5 goal-relevant signals");
+  });
+
+  it("falls back gracefully when no saved goal is available", () => {
+    const candidates = scoreRecentGames({
+      goal: null,
+      profile: {},
+      now: new Date("2026-06-01T12:00:00.000Z"),
+      games: [
+        {
+          matchId: "evaluated",
+          playedAt: "2026-06-01T02:00:00.000Z",
+          queueLabel: "Ranked Solo/Duo",
+          championName: "Jinx",
+          role: "ADC",
+          result: "Loss",
+          kills: 4,
+          deaths: 3,
+          assists: 8,
+          csPerMinute: 7.4,
+          gameDurationSeconds: 1800,
+          sourceMetadata: { queueBucket: "ranked" },
+          evaluationStatus: "current",
+          evaluationSummary: {
+            deathCount: 3,
+            topTags: [{ tag: "objective_window_candidate", count: 1 }],
+            reviewSignals: ["3 deaths", "1 objective-window candidate"]
+          }
+        },
+        {
+          matchId: "missing-evaluation",
+          playedAt: "2026-06-01T03:00:00.000Z",
+          queueLabel: "Ranked Solo/Duo",
+          championName: "Sivir",
+          role: "ADC",
+          result: "Win",
+          kills: 6,
+          deaths: 1,
+          assists: 9,
+          csPerMinute: 8.1,
+          gameDurationSeconds: 1800,
+          sourceMetadata: { queueBucket: "ranked" }
+        }
+      ]
+    });
+
+    expect(candidates.map((game) => game.matchId)).toEqual(["evaluated", "missing-evaluation"]);
+    expect(candidates[0].relevanceReason).toContain("evaluation ready");
+  });
 });
