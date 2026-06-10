@@ -30,6 +30,7 @@ describeWithPostgres("Postgres migrations", () => {
       "assets",
       "content_items",
       "goal_types",
+      "match_evaluations",
       "riot_match_perspectives",
       "riot_raw_matches",
       "schema_migrations",
@@ -37,7 +38,10 @@ describeWithPostgres("Postgres migrations", () => {
     ]);
 
     const firstRun = await pool.query(`select id from ${schemaName}.schema_migrations order by id`);
-    expect(firstRun.rows).toEqual([{ id: "001_riftsense_storage.sql" }]);
+    expect(firstRun.rows).toEqual([
+      { id: "001_riftsense_storage.sql" },
+      { id: "002_match_evaluations.sql" }
+    ]);
 
     await runMigrations({ pool, schema });
     const secondRun = await pool.query(`select id from ${schemaName}.schema_migrations order by id`);

@@ -1,0 +1,172 @@
+import { quoteIdentifier } from "../db/migrations.js";
+
+function evaluationsTableName(schema) {
+  return `${quoteIdentifier(schema)}.match_evaluations`;
+}
+
+function rawTableName(schema) {
+  return `${quoteIdentifier(schema)}.riot_raw_matches`;
+}
+
+function perspectivesTableName(schema) {
+  return `${quoteIdentifier(schema)}.riot_match_perspectives`;
+}
+
+function toIso(value) {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function nullableIso(value) {
+  return value ? toIso(value) : null;
+}
+
+function rowToEvaluation(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    matchId: row.match_id,
+    puuid: row.puuid,
+    evaluationVersion: row.evaluation_version,
+    sourceRawMatchUpdatedAt: nullableIso(row.source_raw_match_updated_at),
+    sourcePerspectiveUpdatedAt: nullableIso(row.source_perspective_updated_at),
+    summaryJson: row.summary_json,
+    deathsJson: row.deaths_json,
+    tagsJson: row.tags_json,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at)
+  };
+}
+
+function rowToPersistedInput(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    matchId: row.match_id,
+    puuid: row.puuid,
+    summaryJson: row.summary_json,
+    timelineJson: row.timeline_json,
+    perspectiveRecord: row.perspective_record,
+    sourceRawMatchUpdatedAt: nullableIso(row.raw_updated_at),
+    sourcePerspectiveUpdatedAt: nullableIso(row.perspective_updated_at)
+  };
+}
+
+export function createMatchEvaluationsRepository({ pool, schema = "riftsense" }) {
+  const evaluationsTable = evaluationsTableName(schema);
+  const rawTable = rawTableName(schema);
+  const perspectivesTable = perspectivesTableName(schema);
+
+  async function initialize() {
+    await pool.query(`select 1 from ${evaluationsTable} limit 1`);
+  }
+
+  async function getMatchEvaluation({ matchId, puuid, evaluationVersion }) {
+    const result = await pool.query(
+      `
+        select *
+        from ${evaluationsTable}
+        where match_id = $1 and puuid = $2 and evaluation_version = $3
+      `,
+      [matchId, puuid, evaluationVersion]
+    );
+    return rowToEvaluation(result.rows[0]);
+  }
+
+  async function saveMatchEvaluation(record, { now = new Date() } = {}) {
+    const timestamp = now.toISOString();
+    const result = await pool.query(
+      `
+        insert into ${evaluationsTable} (
+          match_id,
+          puuid,
+          evaluation_version,
+          source_raw_match_updated_at,
+          source_perspective_updated_at,
+          summary_json,
+          deaths_json,
+          tags_json,
+          created_at,
+          updated_at
+        )
+        values ($1, $2, $3, $4::timestamptz, $5::timestamptz, $6::jsonb, $7::jsonb, $8::jsonb, $9::timestamptz, $9::timestamptz)
+        on conflict (match_id, puuid, evaluation_version) do update
+        set source_raw_match_updated_at = excluded.source_raw_match_updated_at,
+            source_perspective_updated_at = excluded.source_perspective_updated_at,
+            summary_json = excluded.summary_json,
+            deaths_json = excluded.deaths_json,
+            tags_json = excluded.tags_json,
+            updated_at = excluded.updated_at
+        returning *
+      `,
+      [
+        record.matchId,
+        record.puuid,
+        record.evaluationVersion,
+        record.sourceRawMatchUpdatedAt,
+        record.sourcePerspectiveUpdatedAt,
+        JSON.stringify(record.summaryJson),
+        JSON.stringify(record.deathsJson),
+        JSON.stringify(record.tagsJson),
+        timestamp
+      ]
+    );
+    return rowToEvaluation(result.rows[0]);
+  }
+
+  async function getPersistedMatchInput({ matchId, puuid }) {
+    const result = await pool.query(
+      `
+        select
+          raw.match_id,
+          perspectives.puuid,
+          raw.summary_json,
+          raw.timeline_json,
+          perspectives.record as perspective_record,
+          raw.updated_at as raw_updated_at,
+          perspectives.updated_at as perspective_updated_at
+        from ${rawTable} raw
+        join ${perspectivesTable} perspectives
+          on perspectives.match_id = raw.match_id
+        where raw.match_id = $1 and perspectives.puuid = $2
+      `,
+      [matchId, puuid]
+    );
+    return rowToPersistedInput(result.rows[0]);
+  }
+
+  async function listRecentPersistedMatchInputsForUser({ puuid, limit = 10 }) {
+    const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 10;
+    const result = await pool.query(
+      `
+        select
+          raw.match_id,
+          perspectives.puuid,
+          raw.summary_json,
+          raw.timeline_json,
+          perspectives.record as perspective_record,
+          raw.updated_at as raw_updated_at,
+          perspectives.updated_at as perspective_updated_at
+        from ${perspectivesTable} perspectives
+        join ${rawTable} raw
+          on raw.match_id = perspectives.match_id
+        where perspectives.puuid = $1
+        order by perspectives.updated_at desc
+        limit $2
+      `,
+      [puuid, safeLimit]
+    );
+    return result.rows.map(rowToPersistedInput);
+  }
+
+  return {
+    initialize,
+    getMatchEvaluation,
+    saveMatchEvaluation,
+    getPersistedMatchInput,
+    listRecentPersistedMatchInputsForUser
+  };
+}
