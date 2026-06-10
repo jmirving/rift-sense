@@ -2,6 +2,7 @@ import express from "express";
 
 import { buildSharedProfileIdentity, resolveSharedProfile } from "../auth/shared-profile.js";
 import { badRequest } from "../errors.js";
+import { createTimingContext } from "../observability/timing.js";
 import {
   DETERMINISTIC_MATCH_EVALUATOR_VERSION,
   ensureRecentMatchEvaluations,
@@ -61,48 +62,62 @@ export function createMatchEvaluationsRouter({
   const router = express.Router();
 
   router.get("/recent/evaluations", config.requireAuth, async (request, response) => {
-    const sharedProfile = await resolveSharedProfile({
-      request,
-      config,
-      fetchSharedProfileImpl: fetchSharedProfile
-    });
-    const riotIdentity = sharedProfile ? buildSharedProfileIdentity(sharedProfile) : request.identity?.riot ?? null;
-    const puuid = normalizeString(riotIdentity?.puuid);
+    const timing = createTimingContext({ route: "recent_match_evaluations", request });
+    const routeTimer = timing.startTimer();
 
-    if (!puuid) {
-      throw badRequest("Linked Riot account required.");
+    try {
+      const sharedProfile = await timing.time("resolve_shared_profile", () => resolveSharedProfile({
+        request,
+        config,
+        fetchSharedProfileImpl: fetchSharedProfile
+      }));
+      const riotIdentity = sharedProfile ? buildSharedProfileIdentity(sharedProfile) : request.identity?.riot ?? null;
+      const puuid = normalizeString(riotIdentity?.puuid);
+
+      if (!puuid) {
+        timing.log("match_evaluation_read_ensure_backfill", "skipped", { reason: "riot_puuid_missing" });
+        throw badRequest("Linked Riot account required.");
+      }
+
+      const result = await timing.time("match_evaluation_read_ensure_backfill", () => ensureRecentMatchEvaluations({
+        puuid,
+        limit: normalizeLimit(request.query.limit),
+        evaluationVersion: DETERMINISTIC_MATCH_EVALUATOR_VERSION,
+        repository: matchEvaluationsRepository,
+        timing
+      }));
+
+      response.json({
+        evaluationVersion: DETERMINISTIC_MATCH_EVALUATOR_VERSION,
+        summary: {
+          evaluated: result.evaluated,
+          cached: result.cached,
+          skipped: result.skipped,
+          failed: result.failed
+        },
+        games: result.matches.map((match) => {
+          if (match.evaluation) {
+            return toApiMatch(match);
+          }
+
+          return {
+            matchId: match.matchId,
+            ...gameFieldsFromPerspective(match.perspectiveRecord),
+            evaluationStatus: match.evaluationStatus,
+            evaluationVersion: match.evaluationVersion,
+            evaluationSummary: null,
+            evaluationDeaths: []
+          };
+        })
+      });
+      timing.log("route", "success", { durationMs: routeTimer.elapsedMs() });
+    } catch (error) {
+      timing.log("route", "failure", {
+        durationMs: routeTimer.elapsedMs(),
+        errorName: error?.name ?? "Error"
+      });
+      throw error;
     }
-
-    const result = await ensureRecentMatchEvaluations({
-      puuid,
-      limit: normalizeLimit(request.query.limit),
-      evaluationVersion: DETERMINISTIC_MATCH_EVALUATOR_VERSION,
-      repository: matchEvaluationsRepository
-    });
-
-    response.json({
-      evaluationVersion: DETERMINISTIC_MATCH_EVALUATOR_VERSION,
-      summary: {
-        evaluated: result.evaluated,
-        cached: result.cached,
-        skipped: result.skipped,
-        failed: result.failed
-      },
-      games: result.matches.map((match) => {
-        if (match.evaluation) {
-          return toApiMatch(match);
-        }
-
-        return {
-          matchId: match.matchId,
-          ...gameFieldsFromPerspective(match.perspectiveRecord),
-          evaluationStatus: match.evaluationStatus,
-          evaluationVersion: match.evaluationVersion,
-          evaluationSummary: null,
-          evaluationDeaths: []
-        };
-      })
-    });
   });
 
   return router;

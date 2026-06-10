@@ -194,8 +194,15 @@ function gameFieldsFromEvaluation(evaluation) {
   };
 }
 
-async function mergeEvaluationEvidence({ recentGamesResult, puuid, matchEvaluationsRepository }) {
+function runTimed(timing, step, fn) {
+  return timing ? timing.time(step, fn) : fn();
+}
+
+async function mergeEvaluationEvidence({ recentGamesResult, puuid, matchEvaluationsRepository, timing }) {
   if (!matchEvaluationsRepository || !puuid) {
+    timing?.log("match_evaluation_read_ensure_backfill", "skipped", {
+      reason: matchEvaluationsRepository ? "puuid_missing" : "repository_missing"
+    });
     return recentGamesResult;
   }
 
@@ -203,7 +210,8 @@ async function mergeEvaluationEvidence({ recentGamesResult, puuid, matchEvaluati
     puuid,
     limit: 10,
     evaluationVersion: DETERMINISTIC_MATCH_EVALUATOR_VERSION,
-    repository: matchEvaluationsRepository
+    repository: matchEvaluationsRepository,
+    timing
   });
   const byMatchId = new Map(evaluationResult.matches.map((match) => [match.matchId, match]));
   const existingGames = recentGamesResult.games ?? [];
@@ -258,7 +266,8 @@ export async function applyRiotEvidenceToDashboard({
   fetchImpl,
   riotMatchesRepository,
   matchEvaluationsRepository,
-  resolveRecentGames = defaultResolveRecentGames
+  resolveRecentGames = defaultResolveRecentGames,
+  timing
 }) {
   if (!goalDashboard?.activePersonalGoal) {
     return goalDashboard;
@@ -273,15 +282,18 @@ export async function applyRiotEvidenceToDashboard({
   } else {
     const riotIdentity = normalizeRiotIdentity(identity, profile);
     if (!riotIdentity) {
+      timing?.log("resolve_recent_games", "skipped", { reason: "riot_identity_missing" });
+      timing?.log("match_evaluation_read_ensure_backfill", "skipped", { reason: "riot_identity_missing" });
       riotEvidence = buildNoRiotLinkedEvidence();
     } else {
-      let recentGamesResult = await resolveRecentGames({
+      let recentGamesResult = await runTimed(timing, "resolve_recent_games", () => resolveRecentGames({
         identity,
         profile,
         config,
         riotMatchesRepository,
-        fetchImpl
-      }).catch(() => ({
+        fetchImpl,
+        timing
+      })).catch(() => ({
         status: "recent_games_unavailable",
         sourceLabel: "Riot account linked",
         message: "Riot account linked. Recent games are temporarily unavailable.",
@@ -290,17 +302,18 @@ export async function applyRiotEvidenceToDashboard({
         preparingCount: 0,
         failedCount: 0
       }));
-      recentGamesResult = await mergeEvaluationEvidence({
+      recentGamesResult = await runTimed(timing, "match_evaluation_read_ensure_backfill", () => mergeEvaluationEvidence({
         recentGamesResult,
         puuid: riotIdentity.puuid,
-        matchEvaluationsRepository
-      }).catch(() => recentGamesResult);
+        matchEvaluationsRepository,
+        timing
+      })).catch(() => recentGamesResult);
 
-      const candidateGames = scoreRecentGames({
+      const candidateGames = await runTimed(timing, "score_recent_games", () => scoreRecentGames({
         games: recentGamesResult.games,
         goal: goalDashboard.activePersonalGoal,
         profile
-      });
+      }));
 
       if (candidateGames.length === 0) {
         riotEvidence = buildUnavailableEvidence(riotIdentity, recentGamesResult);

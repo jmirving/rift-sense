@@ -380,12 +380,18 @@ export async function ensureRecentMatchEvaluations({
   limit = 10,
   evaluationVersion = DETERMINISTIC_MATCH_EVALUATOR_VERSION,
   repository,
-  now = new Date()
+  now = new Date(),
+  timing
 }) {
-  const inputs = await (
-    repository.listRecentPersistedPerspectivesForUser?.({ puuid, limit }) ??
-    repository.listRecentPersistedMatchInputsForUser({ puuid, limit })
-  );
+  const inputs = await (timing
+    ? timing.time("match_evaluation_list_recent_inputs", () => (
+        repository.listRecentPersistedPerspectivesForUser?.({ puuid, limit }) ??
+        repository.listRecentPersistedMatchInputsForUser({ puuid, limit })
+      ), { limit })
+    : (
+        repository.listRecentPersistedPerspectivesForUser?.({ puuid, limit }) ??
+        repository.listRecentPersistedMatchInputsForUser({ puuid, limit })
+      ));
   const matches = [];
   const summary = {
     evaluated: 0,
@@ -414,7 +420,9 @@ export async function ensureRecentMatchEvaluations({
     }
 
     try {
-      const existing = await repository.getMatchEvaluation({ matchId, puuid: input.puuid, evaluationVersion });
+      const existing = await (timing
+        ? timing.time("match_evaluation_read", () => repository.getMatchEvaluation({ matchId, puuid: input.puuid, evaluationVersion }), { matchId })
+        : repository.getMatchEvaluation({ matchId, puuid: input.puuid, evaluationVersion }));
       if (isCurrentEvaluation(existing, input)) {
         summary.cached += 1;
         matches.push({
@@ -430,13 +438,21 @@ export async function ensureRecentMatchEvaluations({
         continue;
       }
 
-      const evaluation = await evaluatePersistedMatch({
+      const evaluation = await (timing
+        ? timing.time("match_evaluation_ensure_backfill", () => evaluatePersistedMatch({
+            matchId,
+            puuid: input.puuid,
+            evaluationVersion,
+            repository,
+            now
+          }), { matchId })
+        : evaluatePersistedMatch({
         matchId,
         puuid: input.puuid,
         evaluationVersion,
         repository,
         now
-      });
+      }));
 
       summary.evaluated += 1;
       matches.push({

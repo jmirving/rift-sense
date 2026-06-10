@@ -1,6 +1,7 @@
 import express from "express";
 
 import { buildSharedProfileIdentity, resolveSharedProfile } from "../auth/shared-profile.js";
+import { createTimingContext } from "../observability/timing.js";
 import { buildHomePayload } from "./home-response.js";
 
 function buildAuthenticatedEmptyHome(userId, identity) {
@@ -118,9 +119,11 @@ function buildPublicHomePayload() {
   };
 }
 
-async function resolveAuthenticatedHomeRecord({ request, userHomesRepository }) {
+async function resolveAuthenticatedHomeRecord({ request, userHomesRepository, timing }) {
   const resolvedUserId = request.identity.id;
-  const matchedHome = await userHomesRepository.getUserHome(resolvedUserId);
+  const matchedHome = await (timing
+    ? timing.time("db_get_user_home", () => userHomesRepository.getUserHome(resolvedUserId))
+    : userHomesRepository.getUserHome(resolvedUserId));
   const home = matchedHome ?? buildAuthenticatedEmptyHome(resolvedUserId, request.identity);
   return {
     resolvedUserId,
@@ -142,30 +145,36 @@ export function createHomeRouter({
   const router = express.Router();
 
   router.get("/", async (request, response) => {
-    if (!request.identity?.id) {
-      response.json({
-        home: buildPublicHomePayload()
+    const timing = createTimingContext({ route: "home", request });
+    const routeTimer = timing.startTimer();
+
+    try {
+      if (!request.identity?.id) {
+        timing.log("resolve_authenticated_identity", "skipped", { reason: "public_user" });
+        response.json({
+          home: buildPublicHomePayload()
+        });
+        timing.log("route", "success", { durationMs: routeTimer.elapsedMs() });
+        return;
+      }
+
+      const { effectiveUserId, home } = await resolveAuthenticatedHomeRecord({
+        request,
+        userHomesRepository,
+        timing
       });
-      return;
-    }
+      const sharedProfile = await timing.time("resolve_shared_profile", () => resolveSharedProfile({
+        request,
+        config,
+        fetchSharedProfileImpl: fetchSharedProfile
+      }));
+      const identity = {
+        ...request.identity,
+        riot: sharedProfile ? buildSharedProfileIdentity(sharedProfile) : request.identity?.riot ?? null,
+        profile: sharedProfile
+      };
 
-    const { effectiveUserId, home } = await resolveAuthenticatedHomeRecord({
-      request,
-      userHomesRepository
-    });
-    const sharedProfile = await resolveSharedProfile({
-      request,
-      config,
-      fetchSharedProfileImpl: fetchSharedProfile
-    });
-    const identity = {
-      ...request.identity,
-      riot: sharedProfile ? buildSharedProfileIdentity(sharedProfile) : request.identity?.riot ?? null,
-      profile: sharedProfile
-    };
-
-    response.json({
-      home: await buildHomePayload({
+      const homePayload = await timing.time("build_home_payload", () => buildHomePayload({
         home,
         effectiveUserId,
         source: "authenticated",
@@ -175,9 +184,21 @@ export function createHomeRouter({
         fetchImpl,
         resolveRecentGames,
         riotMatchesRepository,
-        matchEvaluationsRepository
-      })
-    });
+        matchEvaluationsRepository,
+        timing
+      }));
+
+      response.json({
+        home: homePayload
+      });
+      timing.log("route", "success", { durationMs: routeTimer.elapsedMs() });
+    } catch (error) {
+      timing.log("route", "failure", {
+        durationMs: routeTimer.elapsedMs(),
+        errorName: error?.name ?? "Error"
+      });
+      throw error;
+    }
   });
 
   return router;

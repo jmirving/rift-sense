@@ -11,6 +11,19 @@ const state = {
   session: null
 };
 
+function elapsedMs(startedAt) {
+  return Math.round((performance.now() - startedAt) * 100) / 100;
+}
+
+function logClientTiming(step, metadata = {}) {
+  console.debug({
+    event: "perf_timing",
+    route: window.location.pathname,
+    step,
+    ...metadata
+  });
+}
+
 function isDemoPath(pathname) {
   return pathname === "/demo" || pathname.startsWith("/demo/");
 }
@@ -107,24 +120,38 @@ function getSessionState() {
 }
 
 async function requestJson(url, options) {
+  const startedAt = performance.now();
+  let outcome = "success";
   const headers = new Headers(options?.headers ?? {});
   const authToken = readStoredAuthToken();
   if (!options?.skipStoredToken && authToken && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${authToken}`);
   }
 
-  const response = await fetch(url, {
-    ...options,
-    credentials: "same-origin",
-    headers
-  });
-  const body = response.status === 204 ? null : await response.json();
+  try {
+    const response = await fetch(url, {
+      ...options,
+      credentials: "same-origin",
+      headers
+    });
+    const body = response.status === 204 ? null : await response.json();
 
-  if (!response.ok) {
-    throw new Error(body?.error?.message ?? "Request failed.");
+    if (!response.ok) {
+      outcome = "failure";
+      throw new Error(body?.error?.message ?? "Request failed.");
+    }
+
+    return body;
+  } catch (error) {
+    outcome = "failure";
+    throw error;
+  } finally {
+    logClientTiming("client_request", {
+      url: String(url),
+      durationMs: elapsedMs(startedAt),
+      outcome
+    });
   }
-
-  return body;
 }
 
 async function loadSession() {
@@ -993,70 +1020,78 @@ function bindSourceTypeVisibility(root) {
 }
 
 async function renderHome(root, context = getRouteContext()) {
-  const { home } = await requestJson(context.homeApiUrl, context.requestOptions);
-  if (home.user?.source === "public") {
-    root.innerHTML = appShell(`
-      <section class="goal-dashboard-stack">
-        <section class="panel active-goal-panel">
-          <p class="eyebrow">RiftSense</p>
-          <h2>${escapeHtml(home.publicEntry?.title ?? "RiftSense")}</h2>
-          <p class="muted">${escapeHtml(home.publicEntry?.summary ?? "")}</p>
-          <div class="action-row">
-            <a class="button" href="${escapeHtml(home.publicEntry?.signInHref ?? "/#session-login-form")}">${escapeHtml(home.publicEntry?.signInLabel ?? "Continue with Nexus")}</a>
-            <a class="button secondary" href="${escapeHtml(home.publicEntry?.aboutHref ?? "/about")}">About</a>
-            <a class="button secondary" href="${escapeHtml(home.publicEntry?.demoHref ?? "/demo")}">Demo</a>
-          </div>
-        </section>
-        <section class="dashboard-two-column">
-          <section class="panel">
-            <p class="eyebrow">What It Does</p>
-            <h2>Turn recent games into goal-linked review work</h2>
-            <p class="muted">RiftSense uses Nexus identity, Riot account data, and active goals to surface review candidates and next actions.</p>
-          </section>
-          <section class="panel">
-            <p class="eyebrow">Start Here</p>
-            <h2>Sign in or open the seeded demo</h2>
-            <p class="muted">Use Nexus sign-in for your own setup, or open the demo to inspect the current ADC evidence flow.</p>
-          </section>
-        </section>
-      </section>
-    `, {
-      eyebrow: "Public Home",
-      title: "RiftSense",
-      text: "Review goals, recent games, and team focus from a Nexus-authenticated workflow."
-    });
-    return;
-  }
+  const startedAt = performance.now();
+  let outcome = "success";
+  let source = "unknown";
+  let home;
 
-  const profile = home.user.profile ?? {};
-  const dashboard = home.goalDashboard ?? {};
-  const goal = dashboard.activePersonalGoal ?? {};
-  const action = dashboard.todaysAction ?? {};
-  const teamFocus = dashboard.activeTeamFocus ?? {};
-  const recentInsights = dashboard.recentInsights ?? [];
-  const suggestedNextSteps = (dashboard.suggestedNextSteps ?? []).filter((step) =>
-    Boolean(toAppHref(step.href, context) || !step.href)
-  );
-  const riotEvidence = goal.riotEvidence ?? null;
-  const goalEvidenceSource = goal.evidenceSource ?? {};
-  const teamEvidenceSource = teamFocus.evidenceSource ?? {};
-  const teamActionHref = toAppHref(teamFocus.nextTeamAction?.href ?? "/team", context) ?? teamHref;
-  const focusTagline = `${goal.role ?? profile.primaryRole ?? "Player"} · ${goal.scope ?? "Personal"}`;
-  const reviewHref = toAppHref("/review", context) ?? "#";
-  const goalsHref = toAppHref("/goals", context) ?? "#";
-  const actionHref = toAppHref(action.href ?? "/review", context) ?? reviewHref;
-  const teamHref = toAppHref("/team", context) ?? "#";
-  const demoBanner = context.demoMode
-    ? `
+  try {
+    ({ home } = await requestJson(context.homeApiUrl, context.requestOptions));
+    source = home.user?.source ?? "unknown";
+
+    if (home.user?.source === "public") {
+      root.innerHTML = appShell(`
+        <section class="goal-dashboard-stack">
+          <section class="panel active-goal-panel">
+            <p class="eyebrow">RiftSense</p>
+            <h2>${escapeHtml(home.publicEntry?.title ?? "RiftSense")}</h2>
+            <p class="muted">${escapeHtml(home.publicEntry?.summary ?? "")}</p>
+            <div class="action-row">
+              <a class="button" href="${escapeHtml(home.publicEntry?.signInHref ?? "/#session-login-form")}">${escapeHtml(home.publicEntry?.signInLabel ?? "Continue with Nexus")}</a>
+              <a class="button secondary" href="${escapeHtml(home.publicEntry?.aboutHref ?? "/about")}">About</a>
+              <a class="button secondary" href="${escapeHtml(home.publicEntry?.demoHref ?? "/demo")}">Demo</a>
+            </div>
+          </section>
+          <section class="dashboard-two-column">
+            <section class="panel">
+              <p class="eyebrow">What It Does</p>
+              <h2>Turn recent games into goal-linked review work</h2>
+              <p class="muted">RiftSense uses Nexus identity, Riot account data, and active goals to surface review candidates and next actions.</p>
+            </section>
+            <section class="panel">
+              <p class="eyebrow">Start Here</p>
+              <h2>Sign in or open the seeded demo</h2>
+              <p class="muted">Use Nexus sign-in for your own setup, or open the demo to inspect the current ADC evidence flow.</p>
+            </section>
+          </section>
+        </section>
+      `, {
+        eyebrow: "Public Home",
+        title: "RiftSense",
+        text: "Review goals, recent games, and team focus from a Nexus-authenticated workflow."
+      });
+      return;
+    }
+
+    const profile = home.user.profile ?? {};
+    const dashboard = home.goalDashboard ?? {};
+    const goal = dashboard.activePersonalGoal ?? {};
+    const action = dashboard.todaysAction ?? {};
+    const teamFocus = dashboard.activeTeamFocus ?? {};
+    const recentInsights = dashboard.recentInsights ?? [];
+    const suggestedNextSteps = (dashboard.suggestedNextSteps ?? []).filter((step) =>
+      Boolean(toAppHref(step.href, context) || !step.href)
+    );
+    const riotEvidence = goal.riotEvidence ?? null;
+    const goalEvidenceSource = goal.evidenceSource ?? {};
+    const teamEvidenceSource = teamFocus.evidenceSource ?? {};
+    const reviewHref = toAppHref("/review", context) ?? "#";
+    const goalsHref = toAppHref("/goals", context) ?? "#";
+    const actionHref = toAppHref(action.href ?? "/review", context) ?? reviewHref;
+    const teamHref = toAppHref("/team", context) ?? "#";
+    const teamActionHref = toAppHref(teamFocus.nextTeamAction?.href ?? "/team", context) ?? teamHref;
+    const focusTagline = `${goal.role ?? profile.primaryRole ?? "Player"} · ${goal.scope ?? "Personal"}`;
+    const demoBanner = context.demoMode
+      ? `
       <section class="panel panel-slim">
         <p class="eyebrow">Public Demo</p>
         <h2>Seeded MVP dashboard</h2>
         <p class="muted">This view is fixed demo data for the ADC + team-focus scenario from the MVP spec.</p>
       </section>
     `
-    : "";
-  const setupGuide = home.setupGuide
-    ? `
+      : "";
+    const setupGuide = home.setupGuide
+      ? `
       <section class="panel panel-slim">
         <p class="eyebrow">${escapeHtml(home.setupGuide.status === "setup-needed" ? "Setup" : "Next")}</p>
         <h2>${escapeHtml(home.setupGuide.title ?? "Setup needed")}</h2>
@@ -1064,9 +1099,9 @@ async function renderHome(root, context = getRouteContext()) {
         ${home.setupGuide.href ? `<a class="button" href="${escapeHtml(toAppHref(home.setupGuide.href, context) ?? home.setupGuide.href)}">${escapeHtml(home.setupGuide.label ?? "Open setup")}</a>` : ""}
       </section>
     `
-    : "";
+      : "";
 
-  root.innerHTML = appShell(`
+    root.innerHTML = appShell(`
     <section class="goal-dashboard-stack">
       ${demoBanner}
       ${setupGuide}
@@ -1184,8 +1219,18 @@ async function renderHome(root, context = getRouteContext()) {
       </section>
     </section>
   `, {
-    hidden: true
-  });
+      hidden: true
+    });
+  } catch (error) {
+    outcome = "failure";
+    throw error;
+  } finally {
+    logClientTiming("client_render_home", {
+      durationMs: elapsedMs(startedAt),
+      outcome,
+      source
+    });
+  }
 }
 
 function renderPublicAbout(root) {
@@ -1242,12 +1287,36 @@ function renderAuthRequiredPage(root, title, summary) {
 }
 
 async function renderGoalDashboardPage(root, page, context = getRouteContext()) {
+  const startedAt = performance.now();
+  let outcome = "success";
   if (!context.demoMode && !getSessionState().authenticated) {
     renderAuthRequiredPage(root, "Sign in to open RiftSense", "This area uses your authenticated setup and review state.");
+    logClientTiming("client_render_dashboard", {
+      durationMs: elapsedMs(startedAt),
+      outcome,
+      page,
+      source: "auth_required"
+    });
     return;
   }
 
-  const { home } = await requestJson(context.homeApiUrl, context.requestOptions);
+  let home;
+  try {
+    ({ home } = await requestJson(context.homeApiUrl, context.requestOptions));
+  } catch (error) {
+    outcome = "failure";
+    throw error;
+  } finally {
+    if (outcome === "failure") {
+      logClientTiming("client_render_dashboard", {
+        durationMs: elapsedMs(startedAt),
+        outcome,
+        page,
+        source: "request_failed"
+      });
+    }
+  }
+
   const dashboard = home.goalDashboard ?? {};
   const goal = dashboard.activePersonalGoal ?? {};
   const action = dashboard.todaysAction ?? {};
@@ -1413,6 +1482,12 @@ async function renderGoalDashboardPage(root, page, context = getRouteContext()) 
     title: config.title,
     text: config.text,
     compact: true
+  });
+  logClientTiming("client_render_dashboard", {
+    durationMs: elapsedMs(startedAt),
+    outcome,
+    page,
+    source: home.user?.source ?? "unknown"
   });
 }
 

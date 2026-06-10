@@ -389,10 +389,12 @@ export async function resolveRecentGames({
   profile,
   config,
   riotMatchesRepository,
-  fetchImpl = fetch
+  fetchImpl = fetch,
+  timing
 }) {
   const riotPuuid = normalizeString(profile?.riotPuuid ?? identity?.riot?.puuid);
   if (!riotPuuid) {
+    timing?.log("recent_games_identity", "skipped", { reason: "riot_puuid_missing" });
     return {
       status: "riot_account_not_linked",
       code: "riot-account-not-linked",
@@ -407,6 +409,7 @@ export async function resolveRecentGames({
 
   const recentGamesConfig = buildRecentGamesConfig(config);
   if (!recentGamesConfig.apiKey) {
+    timing?.log("recent_games_fetch_ids", "skipped", { reason: "riot_api_key_missing" });
     return buildUnavailableResult(
       "riot-config-missing",
       "Riot account linked. Recent games are unavailable until RiftSense Riot access is configured."
@@ -423,8 +426,11 @@ export async function resolveRecentGames({
     `${encodeURIComponent(riotPuuid)}/ids?start=0&count=${recentGamesConfig.matchCount}`;
 
   try {
-    const matchIds = await fetchJson(idsUrl, { headers }, fetchImpl);
+    const matchIds = await (timing
+      ? timing.time("recent_games_fetch_ids", () => fetchJson(idsUrl, { headers }, fetchImpl))
+      : fetchJson(idsUrl, { headers }, fetchImpl));
     if (!Array.isArray(matchIds) || matchIds.length === 0) {
+      timing?.log("recent_games_db_read", "skipped", { reason: "no_match_ids" });
       return {
         status: "recent_games_unavailable",
         code: "no-recent-games",
@@ -438,17 +444,29 @@ export async function resolveRecentGames({
     }
 
     if (riotMatchesRepository) {
-      const storedMatches = await Promise.all(
-        matchIds.map(async (matchId) => ({
-          matchId,
-          summary: await resolveStoredMatch({
-            matchId,
-            riotPuuid,
-            riotMatchesRepository,
-            recentGamesConfig
-          })
-        }))
-      );
+      const storedMatches = await (timing
+        ? timing.time("recent_games_db_read", () => Promise.all(
+            matchIds.map(async (matchId) => ({
+              matchId,
+              summary: await resolveStoredMatch({
+                matchId,
+                riotPuuid,
+                riotMatchesRepository,
+                recentGamesConfig
+              })
+            }))
+          ), { matchCount: matchIds.length })
+        : Promise.all(
+            matchIds.map(async (matchId) => ({
+              matchId,
+              summary: await resolveStoredMatch({
+                matchId,
+                riotPuuid,
+                riotMatchesRepository,
+                recentGamesConfig
+              })
+            }))
+          ));
       const missingMatchIds = storedMatches
         .filter((entry) => !entry.summary)
         .map((entry) => entry.matchId);
@@ -466,6 +484,10 @@ export async function resolveRecentGames({
         fetchImpl,
         recentGamesConfig,
         riotMatchesRepository
+      });
+      timing?.log("recent_games_backfill_queue", queuedMatchIds.length > 0 ? "success" : "skipped", {
+        queuedCount: queuedMatchIds.length,
+        missingCount: missingMatchIds.length
       });
 
       return {
@@ -489,24 +511,43 @@ export async function resolveRecentGames({
       };
     }
 
-    const settledMatches = await Promise.allSettled(
-      matchIds.map(async (matchId) =>
-        (await resolveStoredMatch({
-          matchId,
-          riotPuuid,
-          riotMatchesRepository,
-          recentGamesConfig
-        })) ??
-        fetchAndStoreMatch({
-          matchId,
-          riotPuuid,
-          headers,
-          fetchImpl,
-          recentGamesConfig,
-          riotMatchesRepository
-        })
-      )
-    );
+    const settledMatches = await (timing
+      ? timing.time("recent_games_fetch_match_details", () => Promise.allSettled(
+          matchIds.map(async (matchId) =>
+            (await resolveStoredMatch({
+              matchId,
+              riotPuuid,
+              riotMatchesRepository,
+              recentGamesConfig
+            })) ??
+            fetchAndStoreMatch({
+              matchId,
+              riotPuuid,
+              headers,
+              fetchImpl,
+              recentGamesConfig,
+              riotMatchesRepository
+            })
+          )
+        ), { matchCount: matchIds.length })
+      : Promise.allSettled(
+          matchIds.map(async (matchId) =>
+            (await resolveStoredMatch({
+              matchId,
+              riotPuuid,
+              riotMatchesRepository,
+              recentGamesConfig
+            })) ??
+            fetchAndStoreMatch({
+              matchId,
+              riotPuuid,
+              headers,
+              fetchImpl,
+              recentGamesConfig,
+              riotMatchesRepository
+            })
+          )
+        ));
 
     const games = settledMatches
       .filter((result) => result.status === "fulfilled")
