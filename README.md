@@ -1,129 +1,45 @@
-# RiftSense
+# RiftSense Wiggum Loop: Match Evaluator Milestone
 
-## Local MVP
+This bundle is intended to be copied into `jmirving/rift-sense` and run from the repository root.
 
-Install dependencies:
+Assumptions:
+- Tasks 1 and 2 are already complete:
+  - Postgres-only persistence is deployed and working.
+  - `riftsense.riot_raw_matches` and `riftsense.riot_match_perspectives` are populated from recent games.
+- Local DB validation should use:
+  - `DATABASE_URL=postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev`
+  - `RIFTSENSE_DB_SCHEMA=riftsense`
+
+Milestone target:
+
+> RiftSense can take a real authenticated user's persisted Riot match, run deterministic evaluation, persist the evaluation, and show useful goal-relevant review evidence in the UI.
+
+## Files
+
+- `docs/specs/050-open-match-evaluator-persistence.md`
+- `docs/specs/051-open-match-evaluator-backfill-api.md`
+- `docs/specs/052-open-match-evaluator-ui-goal-evidence.md`
+- `prompts/050-match-evaluator-persistence.md`
+- `prompts/051-match-evaluator-backfill-api.md`
+- `prompts/052-match-evaluator-ui-goal-evidence.md`
+- `scripts/wiggum_match_evaluator_loop.sh`
+
+## Execution
+
+From the repo root:
 
 ```bash
-npm install
-```
-
-RiftSense requires Postgres for persistence. For local Docker Desktop/Postgres,
-use the shared Nexus suite database and give RiftSense its own schema:
-
-```bash
-DATABASE_URL=postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev
-RIFTSENSE_DB_SCHEMA=riftsense
-```
-
-RiftSense owns only the `riftsense` schema in that database. This avoids
-creating a second local database while keeping RiftSense tables separate from
-Nexus tables. `DATABASE_URL` is required. `RIFTSENSE_DB_SCHEMA` defaults to
-`riftsense`, but local commands set it explicitly.
-
-Run the local MVP with seeded sample content and no Nexus dependency:
-
-```bash
+chmod +x scripts/wiggum_match_evaluator_loop.sh
 DATABASE_URL=postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev \
 RIFTSENSE_DB_SCHEMA=riftsense \
-npm run local:mvp
+scripts/wiggum_match_evaluator_loop.sh
 ```
 
-Open `http://localhost:3000`.
+The script does not implement the feature itself. It organizes the agent loop:
+1. Displays each phase prompt.
+2. Runs a pre-check.
+3. Waits for the agent/developer to implement the phase.
+4. Runs validation commands.
+5. Requires confirmation before proceeding to the next phase.
 
-This mode:
-
-- starts only `RiftSense`
-- runs database migrations automatically on startup
-- seeds sample content into Postgres on first run
-- leaves shared auth disabled
-- is the fastest way to iterate on the current UI and content workflows
-
-Production only needs `DATABASE_URL` configured. No build or start command
-change is required; migrations run automatically during startup.
-
-## Local Auth Testing
-
-Run `RiftSense` with Nexus-style auth enabled:
-
-```bash
-PORT=3101 \
-NEXUS_AUTH_ENABLED=true \
-NEXUS_AUTH_ISSUER=nexus-local \
-NEXUS_APP_SIGNING_SECRET=change-me-local-dev-secret \
-NEXUS_EXCHANGE_URL=http://127.0.0.1:3000/api/auth/exchange \
-RIFTSENSE_EXCHANGE_SECRET=change-me-riftsense-exchange-secret \
-NEXUS_PORTAL_BASE_URL=http://127.0.0.1:3000 \
-DATABASE_URL=postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev \
-RIFTSENSE_DB_SCHEMA=riftsense \
-npm run local:mvp:auth
-```
-
-In this mode, direct visits to `RiftSense` show an app-owned sign-in form.
-Use the same canonical account that exists in `Nexus` and `DraftEngine`.
-
-For local contract testing without a live `Nexus` instance, you can still
-mint a compatible dev token:
-
-```bash
-npm run local:token
-```
-
-The token can be pasted into the small developer-only session tool in the
-sidebar. That fallback is for local testing only, not the primary product
-flow.
-
-## Local Hosted Nexus Launch
-
-`RiftSense` supports the hosted callback flow described by the Nexus
-launch-grant exchange contract.
-
-To run against a live local `Nexus` instance:
-
-```bash
-PORT=3101 \
-NEXUS_AUTH_ENABLED=true \
-NEXUS_AUTH_ISSUER=nexus-local \
-NEXUS_APP_SIGNING_SECRET=change-me-local-dev-secret \
-NEXUS_EXCHANGE_URL=http://127.0.0.1:3000/api/auth/exchange \
-RIFTSENSE_EXCHANGE_SECRET=change-me-riftsense-exchange-secret \
-NEXUS_PORTAL_BASE_URL=http://127.0.0.1:3000 \
-DATABASE_URL=postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev \
-RIFTSENSE_DB_SCHEMA=riftsense \
-npm run local:mvp:auth
-```
-
-With the matching local `Nexus` env active:
-
-- launching `RiftSense` from the portal should redirect through
-  `/auth/nexus/callback`, redeem the grant, set the RiftSense session
-  cookie, and land in the authenticated app
-- opening `RiftSense` directly should still show the standalone sign-in
-  form
-
-## Automated Checks
-
-Run the test suite:
-
-```bash
-DATABASE_URL=postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev \
-RIFTSENSE_DB_SCHEMA=riftsense \
-npm test
-```
-
-Without `DATABASE_URL`, tests that require Postgres are skipped; startup/config
-tests still verify that the app refuses to run without a database URL.
-
-Verify the RiftSense schema:
-
-```bash
-psql 'postgres://nexus:nexus@127.0.0.1:54329/nexus_suite_dev' \
-  -c "select table_schema, table_name from information_schema.tables where table_schema = 'riftsense' order by table_name;"
-```
-
-## Current Routes
-
-- `/library`
-- `/curator/content`
-- `/curator/content/new`
-- `/content/:id`
+Use the prompts with the implementing agent. After each phase lands, return to the script and continue.
