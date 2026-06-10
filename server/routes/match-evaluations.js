@@ -1,11 +1,12 @@
 import express from "express";
 
 import { buildSharedProfileIdentity, resolveSharedProfile } from "../auth/shared-profile.js";
-import { badRequest } from "../errors.js";
+import { badRequest, notFound } from "../errors.js";
 import { createTimingContext } from "../observability/timing.js";
 import {
   DETERMINISTIC_MATCH_EVALUATOR_VERSION,
   ensureRecentMatchEvaluations,
+  summarizeMatchEvaluation,
   summarizeMatchEvaluationDeaths
 } from "../riot/match-evaluator.js";
 
@@ -43,6 +44,35 @@ function gameFieldsFromPerspective(record) {
   };
 }
 
+const QUEUE_LABELS = new Map([
+  [400, "Normal Draft"],
+  [420, "Ranked Solo/Duo"],
+  [430, "Normal Blind"],
+  [440, "Ranked Flex"],
+  [450, "ARAM"],
+  [700, "Clash"]
+]);
+
+function queueLabel(queueId) {
+  const number = Number(queueId);
+  if (!Number.isFinite(number) || number <= 0) {
+    return null;
+  }
+  return QUEUE_LABELS.get(number) ?? `Queue ${number}`;
+}
+
+function resultLabel(win) {
+  return typeof win === "boolean" ? (win ? "Win" : "Loss") : null;
+}
+
+function roleFromRecord(record, summary = {}) {
+  return normalizeString(summary.role) ??
+    normalizeString(summary.teamPosition) ??
+    normalizeString(record?.teamPosition) ??
+    normalizeString(record?.individualPosition) ??
+    normalizeString(record?.lane);
+}
+
 function toApiMatch(match) {
   return {
     matchId: match.matchId,
@@ -54,12 +84,83 @@ function toApiMatch(match) {
   };
 }
 
+function reviewSummaryFields(record, evaluation) {
+  const summary = evaluation?.summaryJson ?? {};
+  const queueId = summary.queueId ?? record?.queueId ?? null;
+  const win = typeof summary.win === "boolean" ? summary.win : record?.win;
+
+  return {
+    championName: summary.championName ?? record?.championName ?? null,
+    queueId,
+    queueLabel: summary.queueLabel ?? record?.queueLabel ?? queueLabel(queueId),
+    gameCreation: summary.gameCreation ?? record?.gameCreation ?? null,
+    playedAt: summary.playedAt ?? record?.playedAt ?? record?.gameEnd ?? null,
+    result: summary.result ?? record?.result ?? resultLabel(win),
+    kills: summary.kills ?? record?.kills ?? null,
+    deaths: summary.deaths ?? record?.deaths ?? null,
+    assists: summary.assists ?? record?.assists ?? null,
+    role: roleFromRecord(record, summary),
+    lane: summary.lane ?? record?.lane ?? null
+  };
+}
+
+function toApiMatchReview(review) {
+  const evaluation = review.evaluation;
+  const tagsJson = evaluation?.tagsJson ?? null;
+
+  return {
+    matchId: review.matchId,
+    evaluationStatus: evaluation ? "current" : "not_evaluated",
+    evaluationVersion: evaluation?.evaluationVersion ?? DETERMINISTIC_MATCH_EVALUATOR_VERSION,
+    matchSummary: reviewSummaryFields(review.perspectiveRecord, evaluation),
+    evaluationSummary: evaluation ? summarizeMatchEvaluation(evaluation) : null,
+    deathEvents: evaluation ? summarizeMatchEvaluationDeaths(evaluation) : [],
+    deterministicTagCounts: tagsJson?.counts ?? tagsJson?.deathTagCounts ?? null,
+    sourceTimestamps: {
+      sourceRawMatchUpdatedAt: evaluation?.sourceRawMatchUpdatedAt ?? null,
+      sourcePerspectiveUpdatedAt: evaluation?.sourcePerspectiveUpdatedAt ?? review.sourcePerspectiveUpdatedAt ?? null,
+      evaluatedAt: evaluation?.updatedAt ?? null
+    }
+  };
+}
+
 export function createMatchEvaluationsRouter({
   config,
   fetchSharedProfile,
   matchEvaluationsRepository
 }) {
   const router = express.Router();
+
+  router.get("/:matchId/evaluation", config.requireAuth, async (request, response) => {
+    const matchId = normalizeString(request.params.matchId);
+    if (!matchId) {
+      throw badRequest("Match ID required.");
+    }
+
+    const sharedProfile = await resolveSharedProfile({
+      request,
+      config,
+      fetchSharedProfileImpl: fetchSharedProfile
+    });
+    const riotIdentity = sharedProfile ? buildSharedProfileIdentity(sharedProfile) : request.identity?.riot ?? null;
+    const puuid = normalizeString(riotIdentity?.puuid);
+
+    if (!puuid) {
+      throw badRequest("Linked Riot account required.");
+    }
+
+    const review = await matchEvaluationsRepository.getPersistedMatchReview({
+      matchId,
+      puuid,
+      evaluationVersion: DETERMINISTIC_MATCH_EVALUATOR_VERSION
+    });
+
+    if (!review) {
+      throw notFound("Match review not found.");
+    }
+
+    response.json(toApiMatchReview(review));
+  });
 
   router.get("/recent/evaluations", config.requireAuth, async (request, response) => {
     const timing = createTimingContext({

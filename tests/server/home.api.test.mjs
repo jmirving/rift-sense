@@ -499,6 +499,9 @@ describe("home API", () => {
       getMatchEvaluation: vi.fn(async () => {
         throw new Error("home should not read evaluations one-by-one");
       }),
+      getPersistedMatchReview: vi.fn(async () => {
+        throw new Error("home should not load single-match reviews");
+      }),
       saveMatchEvaluation: vi.fn(async () => {
         throw new Error("home should not compute evaluations");
       }),
@@ -580,6 +583,7 @@ describe("home API", () => {
     expect(riotMatchesRepository.getRawMatchData).not.toHaveBeenCalled();
     expect(matchEvaluationsRepository.listRecentPersistedPerspectivesForUser).not.toHaveBeenCalled();
     expect(matchEvaluationsRepository.getMatchEvaluation).not.toHaveBeenCalled();
+    expect(matchEvaluationsRepository.getPersistedMatchReview).not.toHaveBeenCalled();
     expect(matchEvaluationsRepository.saveMatchEvaluation).not.toHaveBeenCalled();
   });
 

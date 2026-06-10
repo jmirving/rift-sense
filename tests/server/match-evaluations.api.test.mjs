@@ -91,8 +91,49 @@ function createEvaluationRepository() {
     async getPersistedMatchInput() {
       return input;
     },
+    async getPersistedMatchReview({ matchId, puuid }) {
+      if (matchId !== input.matchId || puuid !== input.puuid) {
+        return null;
+      }
+      return {
+        matchId: input.matchId,
+        puuid: input.puuid,
+        perspectiveRecord: input.perspectiveRecord,
+        sourcePerspectiveUpdatedAt: input.sourcePerspectiveUpdatedAt,
+        evaluation
+      };
+    },
     async saveMatchEvaluation() {
       throw new Error("current evaluation should not be recomputed");
+    }
+  };
+}
+
+function createMissingEvaluationRepository() {
+  return {
+    async getPersistedMatchReview({ matchId, puuid }) {
+      if (matchId !== "NA1_pending" || puuid !== "puuid_owner") {
+        return null;
+      }
+
+      return {
+        matchId: "NA1_pending",
+        puuid: "puuid_owner",
+        perspectiveRecord: {
+          matchId: "NA1_pending",
+          puuid: "puuid_owner",
+          championName: "Jhin",
+          queueId: 420,
+          gameEnd: 1_780_000_000_000,
+          win: false,
+          kills: 4,
+          deaths: 3,
+          assists: 5,
+          teamPosition: "BOTTOM"
+        },
+        sourcePerspectiveUpdatedAt: "2026-06-01T00:01:00.000Z",
+        evaluation: null
+      };
     }
   };
 }
@@ -229,6 +270,123 @@ describe("match evaluations API", () => {
     const response = await request(app).get("/api/matches/recent/evaluations");
 
     expect(response.status).toBe(401);
+  });
+
+  it("rejects unauthenticated access to a match evaluation", async () => {
+    const app = await createTestApp({ matchEvaluationsRepository: createEvaluationRepository() });
+
+    const response = await request(app).get("/api/matches/NA1_051/evaluation");
+
+    expect(response.status).toBe(401);
+  });
+
+  it("loads the authenticated user's own persisted match evaluation", async () => {
+    const app = await createTestApp({
+      matchEvaluationsRepository: createEvaluationRepository(),
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_local_dev",
+          riotGameName: "Owner",
+          riotTagline: "NA1",
+          riotPuuid: "puuid_owner"
+        };
+      }
+    });
+
+    const response = await request(app)
+      .get("/api/matches/NA1_051/evaluation")
+      .set("Authorization", `Bearer ${token({ riot: { puuid: "puuid_owner" } })}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      matchId: "NA1_051",
+      evaluationStatus: "current",
+      evaluationVersion: "deterministic-v1",
+      matchSummary: {
+        championName: "Ahri",
+        queueId: 420,
+        queueLabel: "Ranked Solo/Duo",
+        result: "Loss",
+        kills: 1,
+        deaths: 2,
+        assists: 3
+      },
+      evaluationSummary: {
+        deathCount: 2,
+        reviewSignals: ["2 deaths", "1 objective-window candidate", "1 solo death candidate"]
+      },
+      deathEvents: [
+        {
+          deathIndex: 1,
+          timestampSeconds: 494,
+          killerChampionName: "LeBlanc",
+          assistingChampionNames: ["Briar"],
+          tags: ["solo_death_candidate"]
+        },
+        {
+          deathIndex: 2
+        }
+      ],
+      deterministicTagCounts: {
+        death_count: 2,
+        solo_death_candidate: 1,
+        objective_window_candidate: 1
+      }
+    });
+    expect(JSON.stringify(response.body)).not.toContain("SECRET_TIMELINE_EVENT");
+    expect(JSON.stringify(response.body)).not.toContain("timelineJson");
+  });
+
+  it("does not return another user's match evaluation", async () => {
+    const app = await createTestApp({
+      matchEvaluationsRepository: createEvaluationRepository(),
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_local_dev",
+          riotPuuid: "puuid_other"
+        };
+      }
+    });
+
+    const response = await request(app)
+      .get("/api/matches/NA1_051/evaluation")
+      .set("Authorization", `Bearer ${token({ riot: { puuid: "puuid_other" } })}`);
+
+    expect(response.status).toBe(404);
+  });
+
+  it("returns not_evaluated state with perspective summary when evaluation is missing", async () => {
+    const app = await createTestApp({
+      matchEvaluationsRepository: createMissingEvaluationRepository(),
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_local_dev",
+          riotPuuid: "puuid_owner"
+        };
+      }
+    });
+
+    const response = await request(app)
+      .get("/api/matches/NA1_pending/evaluation")
+      .set("Authorization", `Bearer ${token({ riot: { puuid: "puuid_owner" } })}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      matchId: "NA1_pending",
+      evaluationStatus: "not_evaluated",
+      matchSummary: {
+        championName: "Jhin",
+        queueId: 420,
+        queueLabel: "Ranked Solo/Duo",
+        result: "Loss",
+        kills: 4,
+        deaths: 3,
+        assists: 5,
+        role: "BOTTOM"
+      },
+      evaluationSummary: null,
+      deathEvents: []
+    });
   });
 
   it("uses the authenticated user's Riot puuid and returns evaluation summaries", async () => {

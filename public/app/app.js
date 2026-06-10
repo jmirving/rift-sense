@@ -798,6 +798,14 @@ function formatDeathTimestamp(death) {
   return `${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
 }
 
+function reviewHrefForGame(game, context = {}) {
+  if (!game?.matchId) {
+    return toAppHref("/review", context) ?? "/review";
+  }
+
+  return toAppHref(`/review?matchId=${encodeURIComponent(game.matchId)}`, context) ?? "/review";
+}
+
 function evaluationSummaryBlock(game) {
   const summary = game?.evaluationSummary ?? null;
   const status = game?.evaluationStatus ?? "none";
@@ -819,41 +827,12 @@ function evaluationSummaryBlock(game) {
   `;
 }
 
-function deathDetailsBlock(game) {
-  const deaths = Array.isArray(game?.evaluationDeaths) ? game.evaluationDeaths : [];
-  if (!game?.evaluationSummary) {
-    return "";
-  }
-  if (deaths.length === 0) {
-    return `<p class="muted">No deaths recorded for this evaluation.</p>`;
-  }
-
-  return `
-    <details class="death-details">
-      <summary>Death facts</summary>
-      <section class="death-list">
-        ${deaths.map((death) => {
-          const assists = (death.assistingChampionNames ?? []).join(", ");
-          const tags = (death.tags ?? []).map(tagLabel).join(", ");
-          return `
-            <article class="death-row">
-              <p><strong>${escapeHtml(formatDeathTimestamp(death))}</strong> — killed by ${escapeHtml(death.killerChampionName ?? "Unknown")}${assists ? `, assisted by ${escapeHtml(assists)}` : ""}</p>
-              <p class="muted">Tags: ${escapeHtml(tags || "None")}</p>
-            </article>
-          `;
-        }).join("")}
-      </section>
-    </details>
-  `;
-}
-
 function riotEvidenceCard(riotEvidence, context = {}) {
   if (!riotEvidence) {
     return "";
   }
 
   const sourceLabel = riotEvidence.sourceLabel ? `<p class="eyebrow">${escapeHtml(riotEvidence.sourceLabel)}</p>` : "";
-  const reviewHref = toAppHref("/review", context) ?? "/review";
   return `
     <section class="panel riot-evidence-panel">
       <div class="panel-header">
@@ -875,11 +854,10 @@ function riotEvidenceCard(riotEvidence, context = {}) {
                 <span class="compact-row-value">${escapeHtml(`${game.kda} · ${game.csPerMinute ?? "?"} cs/min`)}</span>
                 <span class="muted">${escapeHtml(game.relevanceReason ?? "")}</span>
                 ${evaluationSummaryBlock(game)}
-                ${deathDetailsBlock(game)}
               </div>
               <div class="game-evidence-actions">
                 <span class="muted">${escapeHtml((game.confidenceLabel ?? "").toUpperCase())}</span>
-                <a class="button secondary compact-row-action" href="${escapeHtml(reviewHref)}">Review</a>
+                <a class="button secondary compact-row-action" href="${escapeHtml(reviewHrefForGame(game, context))}">Review</a>
               </div>
             </article>
           `).join("")
@@ -887,6 +865,221 @@ function riotEvidenceCard(riotEvidence, context = {}) {
       </section>
     </section>
   `;
+}
+
+function matchSummaryTitle(review) {
+  const summary = review?.matchSummary ?? {};
+  const champion = summary.championName ?? "Unknown champion";
+  const result = summary.result ?? "Unknown result";
+  const queue = summary.queueLabel ?? (summary.queueId ? `Queue ${summary.queueId}` : "Unknown queue");
+  return `${champion} · ${result} · ${queue}`;
+}
+
+function kdaLabel(summary = {}) {
+  const kills = summary.kills ?? "?";
+  const deaths = summary.deaths ?? "?";
+  const assists = summary.assists ?? "?";
+  return `${kills}/${deaths}/${assists}`;
+}
+
+function renderSignalList(signals, emptyText) {
+  return `
+    <section class="compact-list">
+      ${(signals ?? []).length > 0
+        ? signals.map((signal) => `<article class="compact-row"><span>${escapeHtml(signal)}</span></article>`).join("")
+        : `<p class="muted">${escapeHtml(emptyText)}</p>`}
+    </section>
+  `;
+}
+
+function renderDeathFacts(deaths) {
+  if (!Array.isArray(deaths) || deaths.length === 0) {
+    return '<p class="muted">No deterministic death facts are available for this match.</p>';
+  }
+
+  return `
+    <section class="death-list">
+      ${deaths.map((death) => {
+        const assists = (death.assistingChampionNames ?? []).join(", ");
+        const enemies = (death.nearbyEnemyChampionNames ?? []).join(", ");
+        const tags = (death.tags ?? []).map(tagLabel).join(", ");
+        const levels = [
+          death.victimLevel ? `victim level ${death.victimLevel}` : "",
+          death.killerLevel ? `killer level ${death.killerLevel}` : ""
+        ].filter(Boolean).join(" · ");
+        return `
+          <article class="death-row">
+            <p><strong>${escapeHtml(formatDeathTimestamp(death))}</strong> killed by ${escapeHtml(death.killerChampionName ?? "Unknown")}${assists ? `, assisted by ${escapeHtml(assists)}` : ""}</p>
+            <p class="muted">Tags: ${escapeHtml(tags || "None")}</p>
+            ${enemies ? `<p class="muted">Nearby enemies: ${escapeHtml(enemies)}</p>` : ""}
+            ${levels ? `<p class="muted">${escapeHtml(levels)}</p>` : ""}
+          </article>
+        `;
+      }).join("")}
+    </section>
+  `;
+}
+
+function renderTagCounts(counts) {
+  const entries = Object.entries(counts ?? {})
+    .filter(([, count]) => Number(count) > 0)
+    .sort((left, right) => Number(right[1]) - Number(left[1]) || left[0].localeCompare(right[0]));
+
+  return renderSignalList(
+    entries.map(([tag, count]) => `${count} ${tagLabel(tag)}`),
+    "No deterministic tags are available yet."
+  );
+}
+
+function renderReviewLanding(root, context = getRouteContext()) {
+  root.innerHTML = appShell(`
+    <section class="goal-dashboard-stack">
+      <section class="panel active-goal-panel">
+        <p class="eyebrow">Review</p>
+        <h2>Choose a recent game from the dashboard to review.</h2>
+        <div class="action-row">
+          <a class="button" href="${escapeHtml(toAppHref("/", context) ?? "/")}">Open dashboard</a>
+        </div>
+      </section>
+    </section>
+  `, {
+    eyebrow: "Review",
+    title: "Review",
+    text: "Choose a recent game from the dashboard.",
+    compact: true
+  });
+}
+
+function renderMatchReview(root, review, context = getRouteContext()) {
+  const summary = review.matchSummary ?? {};
+  const evaluationSummary = review.evaluationSummary ?? null;
+  const reviewSignals = evaluationSummary?.reviewSignals ?? [];
+  const goalRelevance = review.goalRelevance ?? review.relevanceReason ?? null;
+
+  root.innerHTML = appShell(`
+    <section class="section-heading">
+      <div>
+        <p class="eyebrow">Deterministic Review</p>
+        <h2>${escapeHtml(matchSummaryTitle(review))}</h2>
+      </div>
+      <p class="section-copy">${escapeHtml(kdaLabel(summary))} KDA${summary.role ? ` · ${escapeHtml(summary.role)}` : ""}</p>
+    </section>
+    <section class="review-workspace-layout">
+      <article class="panel review-run-panel">
+        <p class="eyebrow">Match Summary</p>
+        <h3>${escapeHtml(summary.championName ?? "Unknown champion")}</h3>
+        <div class="badge-row">
+          ${statusBadge(summary.result ?? "Unknown result", summary.result === "Win" ? "positive" : "watch")}
+          <span class="context-badge">${escapeHtml(summary.queueLabel ?? "Unknown queue")}</span>
+          <span class="context-badge">${escapeHtml(kdaLabel(summary))} KDA</span>
+        </div>
+        <p class="muted">Evaluation: ${escapeHtml(review.evaluationStatus ?? "unknown")}</p>
+      </article>
+      <article class="panel">
+        <p class="eyebrow">Review Signals</p>
+        ${renderSignalList(reviewSignals, "No review signals are available yet.")}
+      </article>
+      <article class="panel">
+        <p class="eyebrow">Deterministic Death Facts</p>
+        ${review.evaluationSummary ? renderDeathFacts(review.deathEvents) : '<p class="muted">Evaluation is not prepared for this match yet.</p>'}
+      </article>
+      <article class="panel">
+        <p class="eyebrow">Deterministic Tags</p>
+        ${renderTagCounts(review.deterministicTagCounts)}
+      </article>
+      ${goalRelevance ? `
+        <article class="panel">
+          <p class="eyebrow">Goal Relevance</p>
+          <p class="muted">${escapeHtml(goalRelevance)}</p>
+        </article>
+      ` : ""}
+      ${!review.evaluationSummary ? `
+        <article class="panel">
+          <p class="eyebrow">Preparing</p>
+          <p class="muted">No persisted evaluation exists yet for this match.</p>
+        </article>
+      ` : ""}
+    </section>
+  `, {
+    eyebrow: "Review",
+    title: summary.championName ?? "Match Review",
+    text: matchSummaryTitle(review),
+    compact: true
+  });
+}
+
+function candidateToReview(game) {
+  if (!game) {
+    return null;
+  }
+
+  const kdaParts = typeof game.kda === "string" ? game.kda.split("/") : [];
+  return {
+    matchId: game.matchId,
+    evaluationStatus: game.evaluationStatus ?? "not_evaluated",
+    evaluationVersion: game.evaluationVersion ?? null,
+    matchSummary: {
+      championName: game.championName ?? game.champion ?? null,
+      queueLabel: game.queueLabel ?? null,
+      result: game.result ?? null,
+      kills: game.kills ?? kdaParts[0] ?? null,
+      deaths: game.deaths ?? kdaParts[1] ?? null,
+      assists: game.assists ?? kdaParts[2] ?? null
+    },
+    evaluationSummary: game.evaluationSummary ?? null,
+    deathEvents: game.evaluationDeaths ?? [],
+    deterministicTagCounts: Object.fromEntries((game.evaluationSummary?.topTags ?? []).map((entry) => [entry.tag, entry.count])),
+    relevanceReason: game.relevanceReason ?? null
+  };
+}
+
+async function renderReviewPage(root, context = getRouteContext()) {
+  const url = new URL(window.location.href);
+  const matchId = url.searchParams.get("matchId");
+
+  if (!matchId) {
+    renderReviewLanding(root, context);
+    return;
+  }
+
+  if (!context.demoMode && !getSessionState().authenticated) {
+    renderAuthRequiredPage(root, "Sign in to open review", "This match review uses your authenticated Riot identity.");
+    return;
+  }
+
+  try {
+    if (context.demoMode) {
+      const { home } = await requestJson(context.homeApiUrl, context.requestOptions);
+      const candidates = home?.goalDashboard?.activePersonalGoal?.riotEvidence?.candidateGames ?? [];
+      const review = candidateToReview(candidates.find((game) => game.matchId === matchId));
+      if (!review) {
+        throw new Error("Match review not found.");
+      }
+      renderMatchReview(root, review, context);
+      return;
+    }
+
+    const review = await requestJson(`/api/matches/${encodeURIComponent(matchId)}/evaluation`);
+    renderMatchReview(root, review, context);
+  } catch (error) {
+    root.innerHTML = appShell(`
+      <section class="goal-dashboard-stack">
+        <section class="panel active-goal-panel">
+          <p class="eyebrow">Review</p>
+          <h2>Match review not found.</h2>
+          <p class="muted">${escapeHtml(error instanceof Error ? error.message : "The selected match is not available.")}</p>
+          <div class="action-row">
+            <a class="button" href="${escapeHtml(toAppHref("/", context) ?? "/")}">Open dashboard</a>
+          </div>
+        </section>
+      </section>
+    `, {
+      eyebrow: "Review",
+      title: "Review not found",
+      text: "The selected match is not available.",
+      compact: true
+    });
+  }
 }
 
 function insightCard(insight) {
@@ -2424,7 +2617,7 @@ export async function renderApp(root) {
     }
 
     if (pathname === "/review" || pathname === "/demo/review") {
-      await renderGoalDashboardPage(root, "review", context);
+      await renderReviewPage(root, context);
       bindNavControls(root);
       bindNavSectionControls(root);
       bindSessionControls(root);

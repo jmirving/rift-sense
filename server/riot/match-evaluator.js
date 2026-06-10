@@ -213,7 +213,11 @@ export function summarizeMatchEvaluationDeaths(evaluation) {
     timestampMs: normalizeNumber(death?.timestampMs),
     killerChampionName: normalizeString(death?.killerChampionName),
     assistingChampionNames: normalizeArray(death?.assistingChampionNames).map(normalizeString).filter(Boolean),
-    tags: normalizeArray(death?.tags).map(normalizeString).filter(Boolean)
+    tags: normalizeArray(death?.tags).map(normalizeString).filter(Boolean),
+    nearbyEnemyChampionNames: normalizeArray(death?.nearbyEnemyChampionNames).map(normalizeString).filter(Boolean),
+    victimLevel: normalizeNumber(death?.victimLevel),
+    killerLevel: normalizeNumber(death?.killerLevel),
+    position: normalizePosition(death?.position)
   }));
 }
 

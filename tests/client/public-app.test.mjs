@@ -240,6 +240,7 @@ describe("public app routes", () => {
                   preparingCount: 2,
                   candidateGames: [
                     {
+                      matchId: "NA1_1",
                       championName: "Jhin",
                       queueLabel: "Ranked Solo/Duo",
                       result: "Loss",
@@ -266,6 +267,7 @@ describe("public app routes", () => {
                       ]
                     },
                     {
+                      matchId: "NA1_2",
                       championName: "Ashe",
                       queueLabel: "Normal Draft",
                       result: "Win",
@@ -281,6 +283,7 @@ describe("public app routes", () => {
                       evaluationDeaths: []
                     },
                     {
+                      matchId: "NA1_3",
                       championName: "Ahri",
                       queueLabel: "Ranked Solo/Duo",
                       result: "Loss",
@@ -317,13 +320,142 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Review Signals · current");
     expect(document.body.textContent).toContain("5 deaths");
     expect(document.body.textContent).toContain("2 multi-enemy collapse candidates");
+    expect(document.body.textContent).not.toContain("08:14");
+    expect(document.body.textContent).not.toContain("killed by LeBlanc, assisted by Briar");
+    expect(document.body.textContent).toContain("0 deaths");
+    expect(document.body.textContent).toContain("Evaluation: none");
+    expect(document.body.textContent).not.toContain("SECRET_TIMELINE_EVENT");
+    expect(document.querySelector('a[href="/review?matchId=NA1_1"]')?.textContent).toContain("Review");
+  });
+
+  it("preserves matchId on demo Review links", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/demo/home") {
+        return mockJsonResponse({
+          home: {
+            user: { id: null, source: "demo", profile: {} },
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Die Less",
+                riotEvidence: {
+                  candidateGames: [
+                    {
+                      matchId: "NA1_demo",
+                      championName: "Jinx",
+                      queueLabel: "Ranked Solo/Duo",
+                      result: "Loss",
+                      kda: "3/4/8",
+                      confidenceLabel: "high"
+                    }
+                  ]
+                }
+              },
+              todaysAction: {},
+              activeTeamFocus: {},
+              recentInsights: [],
+              suggestedNextSteps: []
+            }
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/demo");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.querySelector('a[href="/demo/review?matchId=NA1_demo"]')?.textContent).toContain("Review");
+  });
+
+  it("renders a review landing state without matchId", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/review");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("Choose a recent game from the dashboard to review.");
+    expect(document.querySelector('.button[href="/"]')?.textContent).toContain("Open dashboard");
+  });
+
+  it("renders match summary and death facts for review matchId", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/matches/NA1_1/evaluation") {
+        return mockJsonResponse({
+          matchId: "NA1_1",
+          evaluationStatus: "current",
+          evaluationVersion: "deterministic-v1",
+          matchSummary: {
+            championName: "Jhin",
+            queueLabel: "Ranked Solo/Duo",
+            result: "Loss",
+            kills: 8,
+            deaths: 5,
+            assists: 6,
+            role: "ADC"
+          },
+          evaluationSummary: {
+            deathCount: 5,
+            reviewSignals: ["5 deaths", "2 multi-enemy collapse candidates"]
+          },
+          deathEvents: [
+            {
+              timestampSeconds: 494,
+              killerChampionName: "LeBlanc",
+              assistingChampionNames: ["Briar"],
+              tags: ["multi_enemy_collapse_candidate"],
+              victimLevel: 8,
+              killerLevel: 9
+            }
+          ],
+          deterministicTagCounts: {
+            death_count: 5,
+            multi_enemy_collapse_candidate: 2
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/review?matchId=NA1_1");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("Jhin · Loss · Ranked Solo/Duo");
+    expect(document.body.textContent).toContain("8/5/6 KDA");
+    expect(document.body.textContent).toContain("Review Signals");
+    expect(document.body.textContent).toContain("2 multi-enemy collapse candidates");
+    expect(document.body.textContent).toContain("Deterministic Death Facts");
     expect(document.body.textContent).toContain("08:14");
     expect(document.body.textContent).toContain("killed by LeBlanc, assisted by Briar");
     expect(document.body.textContent).toContain("Tags: Multi Enemy Collapse Candidate");
-    expect(document.body.textContent).toContain("0 deaths");
-    expect(document.body.textContent).toContain("No deaths recorded for this evaluation.");
-    expect(document.body.textContent).toContain("Evaluation: none");
-    expect(document.body.textContent).not.toContain("SECRET_TIMELINE_EVENT");
-    expect(document.querySelector('a[href="/review"]')?.textContent).toContain("Review");
+    expect(document.body.textContent).toContain("victim level 8");
   });
 });

@@ -107,6 +107,35 @@ function rowToRecentPerspectiveInput(row) {
   };
 }
 
+function rowToMatchReview(row) {
+  if (!row) {
+    return null;
+  }
+
+  const evaluation = row.evaluation_version
+    ? rowToEvaluation({
+        match_id: row.match_id,
+        puuid: row.puuid,
+        evaluation_version: row.evaluation_version,
+        source_raw_match_updated_at: row.source_raw_match_updated_at,
+        source_perspective_updated_at: row.source_perspective_updated_at,
+        summary_json: row.summary_json,
+        deaths_json: row.deaths_json,
+        tags_json: row.tags_json,
+        created_at: row.evaluation_created_at,
+        updated_at: row.evaluation_updated_at
+      })
+    : null;
+
+  return {
+    matchId: row.match_id,
+    puuid: row.puuid,
+    perspectiveRecord: row.perspective_record,
+    sourcePerspectiveUpdatedAt: nullableIso(row.perspective_updated_at),
+    evaluation
+  };
+}
+
 export function createMatchEvaluationsRepository({ pool, schema = "riftsense" }) {
   const evaluationsTable = evaluationsTableName(schema);
   const rawTable = rawTableName(schema);
@@ -263,6 +292,34 @@ export function createMatchEvaluationsRepository({ pool, schema = "riftsense" })
     return result.rows.map(summaryFromEvaluationRow).filter(Boolean);
   }
 
+  async function getPersistedMatchReview({ matchId, puuid, evaluationVersion }) {
+    const result = await pool.query(
+      `
+        select
+          perspectives.match_id,
+          perspectives.puuid,
+          perspectives.record as perspective_record,
+          perspectives.updated_at as perspective_updated_at,
+          evaluations.evaluation_version,
+          evaluations.source_raw_match_updated_at,
+          evaluations.source_perspective_updated_at,
+          evaluations.summary_json,
+          evaluations.deaths_json,
+          evaluations.tags_json,
+          evaluations.created_at as evaluation_created_at,
+          evaluations.updated_at as evaluation_updated_at
+        from ${perspectivesTable} perspectives
+        left join ${evaluationsTable} evaluations
+          on evaluations.match_id = perspectives.match_id
+         and evaluations.puuid = perspectives.puuid
+         and evaluations.evaluation_version = $3
+        where perspectives.match_id = $1 and perspectives.puuid = $2
+      `,
+      [matchId, puuid, evaluationVersion]
+    );
+    return rowToMatchReview(result.rows[0]);
+  }
+
   return {
     initialize,
     getMatchEvaluation,
@@ -270,6 +327,7 @@ export function createMatchEvaluationsRepository({ pool, schema = "riftsense" })
     getPersistedMatchInput,
     listRecentPersistedMatchInputsForUser,
     listRecentPersistedPerspectivesForUser,
-    listRecentEvaluationSummariesForUser
+    listRecentEvaluationSummariesForUser,
+    getPersistedMatchReview
   };
 }
