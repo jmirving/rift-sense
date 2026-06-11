@@ -154,7 +154,8 @@ function readinessCounts(recentGamesResult, candidateGames = []) {
     summaryReadyCount,
     evaluationReadyCount,
     evaluationPreparingCount,
-    matchSummariesPreparingCount: Math.max(0, discoveredCount - summaryReadyCount)
+    matchSummariesPreparingCount: Math.max(0, discoveredCount - summaryReadyCount - Number(recentGamesResult.failedCount ?? 0)),
+    failedCount: Number(recentGamesResult.failedCount ?? 0)
   };
 }
 
@@ -176,7 +177,10 @@ function statusTitle(status, counts) {
 
 function readinessSummary(recentGamesResult, fallbackMessage, candidateGames = []) {
   const counts = readinessCounts(recentGamesResult, candidateGames);
-  const readiness = `${counts.discoveredCount} ${counts.discoveredCount === 1 ? "game" : "games"} discovered · ${counts.summaryReadyCount} match ${counts.summaryReadyCount === 1 ? "summary" : "summaries"} ready · ${counts.evaluationReadyCount} ${counts.evaluationReadyCount === 1 ? "evaluation" : "evaluations"} ready · ${counts.evaluationPreparingCount} ${counts.evaluationPreparingCount === 1 ? "evaluation" : "evaluations"} preparing`;
+  const failed = counts.failedCount > 0
+    ? ` · ${counts.failedCount} ${counts.failedCount === 1 ? "preparation" : "preparations"} failed`
+    : "";
+  const readiness = `${counts.discoveredCount} ${counts.discoveredCount === 1 ? "game" : "games"} discovered · ${counts.summaryReadyCount} match ${counts.summaryReadyCount === 1 ? "summary" : "summaries"} ready · ${counts.matchSummariesPreparingCount} match ${counts.matchSummariesPreparingCount === 1 ? "summary" : "summaries"} preparing · ${counts.evaluationReadyCount} ${counts.evaluationReadyCount === 1 ? "evaluation" : "evaluations"} ready · ${counts.evaluationPreparingCount} ${counts.evaluationPreparingCount === 1 ? "evaluation" : "evaluations"} preparing${failed}`;
 
   if (["some_games_ready", "games_found_parsing"].includes(recentGamesResult.status)) {
     return readiness;
@@ -276,7 +280,10 @@ async function mergeEvaluationEvidence({ recentGamesResult, puuid, matchEvaluati
     };
   }
 
-  const matchIds = (recentGamesResult.games ?? []).map((game) => game.matchId).filter(Boolean);
+  const matchIds = (recentGamesResult.games ?? [])
+    .filter(gameHasSummaryMetadata)
+    .map((game) => game.matchId)
+    .filter(Boolean);
   const evaluations = await matchEvaluationsRepository.listRecentEvaluationSummariesForUser({
     puuid,
     matchIds,

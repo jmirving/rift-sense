@@ -797,7 +797,8 @@ function riotReadinessCounts(riotEvidence) {
     summaryReadyCount,
     evaluationReadyCount,
     evaluationsPreparingCount,
-    matchSummariesPreparingCount: Math.max(0, discoveredCount - summaryReadyCount)
+    matchSummariesPreparingCount: Math.max(0, discoveredCount - summaryReadyCount - Number(riotEvidence?.failedCount ?? 0)),
+    failedCount: Number(riotEvidence?.failedCount ?? 0)
   };
 }
 
@@ -809,6 +810,9 @@ function riotEvidenceTitle(riotEvidence) {
   if (counts.summaryReadyCount > 0) {
     return `${counts.summaryReadyCount} match ${counts.summaryReadyCount === 1 ? "summary" : "summaries"} ready`;
   }
+  if (counts.failedCount > 0) {
+    return "Recent game parsing failed";
+  }
   if (counts.discoveredCount > 0) {
     return `${counts.discoveredCount} ${counts.discoveredCount === 1 ? "game" : "games"} found`;
   }
@@ -819,6 +823,9 @@ function riotEvidenceSummary(riotEvidence) {
   const counts = riotReadinessCounts(riotEvidence);
   if (counts.matchSummariesPreparingCount > 0 && counts.summaryReadyCount === 0) {
     return "Match summaries preparing.";
+  }
+  if (counts.failedCount > 0 && counts.summaryReadyCount === 0) {
+    return "Match preparation failed. Retry available.";
   }
   if (counts.evaluationsPreparingCount > 0 && counts.evaluationReadyCount === 0) {
     return "Match summaries are ready. Evaluations are preparing.";
@@ -836,8 +843,10 @@ function riotReadinessLine(riotEvidence) {
     <div class="riot-readiness" aria-live="polite">
       <span>${escapeHtml(`${counts.discoveredCount} ${counts.discoveredCount === 1 ? "game" : "games"} discovered`)}</span>
       <span>${escapeHtml(`${counts.summaryReadyCount} match ${counts.summaryReadyCount === 1 ? "summary" : "summaries"} ready`)}</span>
+      <span>${escapeHtml(`${counts.matchSummariesPreparingCount} match ${counts.matchSummariesPreparingCount === 1 ? "summary" : "summaries"} preparing`)}</span>
       <span>${escapeHtml(`${counts.evaluationReadyCount} ${counts.evaluationReadyCount === 1 ? "evaluation" : "evaluations"} ready`)}</span>
       <span>${escapeHtml(`${counts.evaluationsPreparingCount} ${counts.evaluationsPreparingCount === 1 ? "evaluation" : "evaluations"} preparing`)}</span>
+      ${counts.failedCount > 0 ? `<span>${escapeHtml(`${counts.failedCount} ${counts.failedCount === 1 ? "preparation" : "preparations"} failed`)}</span>` : ""}
     </div>
   `;
 }

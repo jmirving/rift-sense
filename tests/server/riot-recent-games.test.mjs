@@ -254,6 +254,292 @@ describe("riot recent-games service", () => {
     });
   });
 
+  it("reports discovered cards-mode matches as preparing when no summaries are stored", async () => {
+    const repository = await createRiotRepository();
+    const matchIds = ["NA1_cards_missing_1", "NA1_cards_missing_2"];
+    const fetchedMatchIds = [];
+    const logs = [];
+
+    const result = await resolveRecentGames({
+      profile: {
+        riotPuuid: "puuid_cards_missing"
+      },
+      config: {
+        riot: {
+          apiKey: "riot-key",
+          routingRegion: "americas",
+          matchCount: 2
+        }
+      },
+      riotMatchesRepository: repository,
+      readMode: "cards",
+      timing: {
+        async time(_step, fn) {
+          return fn();
+        },
+        log(step, status, details) {
+          logs.push({ step, status, details });
+        }
+      },
+      fetchImpl: async (url) => {
+        if (url.includes("/ids?")) {
+          return {
+            ok: true,
+            async json() {
+              return matchIds;
+            }
+          };
+        }
+
+        const matchId = decodeURIComponent(url.match(/\/matches\/([^/]+)/)?.[1]);
+        fetchedMatchIds.push(matchId);
+        if (url.endsWith("/timeline")) {
+          return {
+            ok: true,
+            async json() {
+              return { metadata: { matchId }, info: { frames: [] } };
+            }
+          };
+        }
+
+        return {
+          ok: true,
+          async json() {
+            return {
+              metadata: { matchId },
+              info: {
+                queueId: 420,
+                gameDuration: 1800,
+                participants: [
+                  {
+                    puuid: "puuid_cards_missing",
+                    participantId: 2,
+                    championName: "Ashe",
+                    teamId: 100,
+                    teamPosition: "BOTTOM",
+                    individualPosition: "BOTTOM",
+                    win: true,
+                    kills: 5,
+                    deaths: 2,
+                    assists: 8
+                  }
+                ]
+              }
+            };
+          }
+        };
+      }
+    });
+
+    expect(result).toMatchObject({
+      status: "games_found_parsing",
+      readyCount: 0,
+      summaryReadyCount: 0,
+      preparingCount: 2,
+      failedCount: 0,
+      discoveredCount: 2,
+      games: []
+    });
+    expect(logs.find((entry) => entry.step === "recent_games_backfill_queue")).toMatchObject({
+      status: "success",
+      details: {
+        discoveredMatchIds: matchIds,
+        queuedMatchIds: matchIds,
+        queuedCount: 2,
+        summaryReadyCount: 0
+      }
+    });
+    await waitFor(async () => expect([...new Set(fetchedMatchIds)]).toEqual(matchIds));
+    await waitFor(async () => {
+      expect(logs.filter((entry) => entry.step === "recent_games_raw_match_saved").map((entry) => entry.details.matchId)).toEqual(matchIds);
+      expect(logs.filter((entry) => entry.step === "recent_games_perspective_saved").map((entry) => ({
+        matchId: entry.details.matchId,
+        parseStatus: entry.details.parseStatus,
+        summaryReady: entry.details.summaryReady
+      }))).toEqual([
+        { matchId: "NA1_cards_missing_1", parseStatus: "parsed", summaryReady: true },
+        { matchId: "NA1_cards_missing_2", parseStatus: "parsed", summaryReady: true }
+      ]);
+    });
+  });
+
+  it("counts only persisted perspective cards with queue, result, KDA, champion, and matchId as summary-ready", async () => {
+    const repository = await createRiotRepository();
+    await repository.saveUserMatchPerspective({
+      matchId: "NA1_summary_ready",
+      puuid: "puuid_summary_ready",
+      championName: "Jinx",
+      queueId: 420,
+      win: false,
+      kills: 8,
+      deaths: 3,
+      assists: 9,
+      parseStatus: "parsed"
+    });
+    await repository.saveUserMatchPerspective({
+      matchId: "NA1_partial_only_champion",
+      puuid: "puuid_summary_ready",
+      championName: "Brand",
+      parseStatus: "parsed"
+    });
+
+    const result = await resolveRecentGames({
+      profile: {
+        riotPuuid: "puuid_summary_ready"
+      },
+      config: {
+        riot: {
+          apiKey: "riot-key",
+          routingRegion: "americas",
+          matchCount: 2
+        }
+      },
+      riotMatchesRepository: repository,
+      readMode: "cards",
+      fetchImpl: async (url) => {
+        if (url.includes("/ids?")) {
+          return {
+            ok: true,
+            async json() {
+              return ["NA1_summary_ready", "NA1_partial_only_champion"];
+            }
+          };
+        }
+
+        return {
+          ok: false,
+          status: 503,
+          async json() {
+            return {};
+          }
+        };
+      }
+    });
+
+    expect(result.status).toBe("some_games_ready");
+    expect(result.readyCount).toBe(1);
+    expect(result.summaryReadyCount).toBe(1);
+    expect(result.preparingCount).toBe(1);
+    expect(result.games.find((game) => game.matchId === "NA1_summary_ready")).toMatchObject({
+      championName: "Jinx",
+      queueLabel: "Ranked Solo/Duo",
+      result: "Loss",
+      kda: "8/3/9"
+    });
+    expect(JSON.stringify(result.games)).not.toContain("summaryJson");
+    expect(JSON.stringify(result.games)).not.toContain("timelineJson");
+    expect(result.games.find((game) => game.matchId === "NA1_partial_only_champion")).toMatchObject({
+      championName: "Brand",
+      queueLabel: null,
+      result: null,
+      kda: null
+    });
+  });
+
+  it("does not fabricate KDA for partial perspective cards when scoring recent games", () => {
+    const scored = scoreRecentGames({
+      games: [
+        {
+          matchId: "NA1_partial_scored",
+          championName: "Brand",
+          queueLabel: null,
+          result: null,
+          kills: null,
+          deaths: null,
+          assists: null,
+          sourceMetadata: { queueBucket: "normal" }
+        }
+      ],
+      goal: { title: "Die Less", role: "SUPPORT" },
+      profile: { primaryRole: "SUPPORT" }
+    });
+
+    expect(scored[0]).toMatchObject({
+      matchId: "NA1_partial_scored",
+      championName: "Brand",
+      kda: null
+    });
+  });
+
+  it("surfaces persisted raw match fetch failures in cards mode", async () => {
+    const repository = await createRiotRepository();
+    const matchId = "NA1_raw_failure";
+
+    await resolveRecentGames({
+      profile: {
+        riotPuuid: "puuid_raw_failure"
+      },
+      config: {
+        riot: {
+          apiKey: "riot-key",
+          routingRegion: "americas",
+          matchCount: 1
+        }
+      },
+      riotMatchesRepository: repository,
+      readMode: "cards",
+      fetchImpl: async (url) => {
+        if (url.includes("/ids?")) {
+          return {
+            ok: true,
+            async json() {
+              return [matchId];
+            }
+          };
+        }
+
+        return {
+          ok: false,
+          status: 503,
+          async json() {
+            return {};
+          }
+        };
+      }
+    });
+    await waitFor(async () => expect(await repository.getUserMatchPerspective(matchId, "puuid_raw_failure")).toMatchObject({
+      matchId,
+      puuid: "puuid_raw_failure",
+      parseStatus: "parse_failed",
+      parseStatusReason: "raw_match_fetch_failed_503"
+    }));
+
+    const result = await resolveRecentGames({
+      profile: {
+        riotPuuid: "puuid_raw_failure"
+      },
+      config: {
+        riot: {
+          apiKey: "riot-key",
+          routingRegion: "americas",
+          matchCount: 1
+        }
+      },
+      riotMatchesRepository: repository,
+      readMode: "cards",
+      fetchImpl: async (url) => {
+        if (url.includes("/ids?")) {
+          return {
+            ok: true,
+            async json() {
+              return [matchId];
+            }
+          };
+        }
+
+        throw new Error(`Unexpected retry fetch: ${url}`);
+      }
+    });
+
+    expect(result).toMatchObject({
+      status: "parse_failed_retry_available",
+      readyCount: 0,
+      preparingCount: 0,
+      failedCount: 1,
+      discoveredCount: 1
+    });
+  });
+
   it("starts uncached match preparation without blocking recent game status", async () => {
     const repository = await createRiotRepository();
 

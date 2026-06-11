@@ -122,11 +122,23 @@ function kdaFromParts({ kills, deaths, assists, fallback = null } = {}) {
     return normalizedFallback;
   }
 
-  if ([kills, deaths, assists].every((value) => Number.isFinite(Number(value)))) {
+  if ([kills, deaths, assists].every((value) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)))) {
     return `${Number(kills)}/${Number(deaths)}/${Number(assists)}`;
   }
 
   return null;
+}
+
+function gameHasMatchSummary(game) {
+  return Boolean(game?.matchId && game?.championName && game?.queueLabel && game?.result && (game?.kda ?? kdaFromParts(game)));
+}
+
+function perspectiveParseStatus(game) {
+  return normalizeString(game?.sourceMetadata?.parseStatus ?? game?.parseStatus);
+}
+
+function gameHasFailedPreparation(game) {
+  return perspectiveParseStatus(game) === "parse_failed";
 }
 
 function computeCsPerMinute(participant, durationSeconds) {
@@ -345,7 +357,8 @@ async function savePerspective(
   matchTimeline,
   riotPuuid,
   parseStatus,
-  parseStatusReason = null
+  parseStatusReason = null,
+  timing = null
 ) {
   const matchId = normalizeString(matchPayload?.metadata?.matchId);
   if (!matchId) {
@@ -395,10 +408,16 @@ async function savePerspective(
 
   if (perspective) {
     await riotMatchesRepository?.saveUserMatchPerspective?.(perspective);
+    timing?.log("recent_games_perspective_saved", "success", {
+      matchId,
+      parseStatus: perspective.parseStatus,
+      parseStatusReason: perspective.parseStatusReason ?? null,
+      summaryReady: Boolean(perspective.championName && perspective.queueId && typeof perspective.win === "boolean" && perspective.kills !== null && perspective.deaths !== null && perspective.assists !== null)
+    });
   }
 }
 
-async function resolveStoredMatch({ matchId, riotPuuid, riotMatchesRepository, recentGamesConfig }) {
+async function resolveStoredMatch({ matchId, riotPuuid, riotMatchesRepository, recentGamesConfig, timing }) {
   if (!riotMatchesRepository) {
     return null;
   }
@@ -414,11 +433,11 @@ async function resolveStoredMatch({ matchId, riotPuuid, riotMatchesRepository, r
     return null;
   }
 
-  await savePerspective(riotMatchesRepository, rawRecord.summaryJson, rawRecord.timelineJson, riotPuuid, "raw_data_available");
+  await savePerspective(riotMatchesRepository, rawRecord.summaryJson, rawRecord.timelineJson, riotPuuid, "raw_data_available", null, timing);
   return rawRecord.summaryJson;
 }
 
-function prepareMatchesInBackground({ matchIds, riotPuuid, headers, fetchImpl, recentGamesConfig, riotMatchesRepository }) {
+function prepareMatchesInBackground({ matchIds, riotPuuid, headers, fetchImpl, recentGamesConfig, riotMatchesRepository, timing }) {
   const queuedMatchIds = [];
   for (const matchId of matchIds) {
     if (queuedMatchIds.length >= MAX_NEW_MATCHES_TO_QUEUE_PER_REFRESH) {
@@ -433,7 +452,7 @@ function prepareMatchesInBackground({ matchIds, riotPuuid, headers, fetchImpl, r
   }
 
   if (queuedMatchIds.length === 0) {
-    return;
+    return [];
   }
 
   Promise.allSettled(
@@ -444,7 +463,8 @@ function prepareMatchesInBackground({ matchIds, riotPuuid, headers, fetchImpl, r
         headers,
         fetchImpl,
         recentGamesConfig,
-        riotMatchesRepository
+        riotMatchesRepository,
+        timing
       })
     )
   )
@@ -452,14 +472,41 @@ function prepareMatchesInBackground({ matchIds, riotPuuid, headers, fetchImpl, r
     .finally(() => {
       queuedMatchIds.forEach((matchId) => inFlightMatchPreparations.delete(`${riotPuuid}:${matchId}`));
     });
+
+  return queuedMatchIds;
 }
 
-async function fetchAndStoreMatch({ matchId, riotPuuid, headers, fetchImpl, recentGamesConfig, riotMatchesRepository }) {
-  const summary = await fetchJson(
-    `https://${recentGamesConfig.routingRegion}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchId)}`,
-    { headers },
-    fetchImpl
-  );
+async function fetchAndStoreMatch({ matchId, riotPuuid, headers, fetchImpl, recentGamesConfig, riotMatchesRepository, timing }) {
+  let summary;
+  try {
+    summary = await fetchJson(
+      `https://${recentGamesConfig.routingRegion}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchId)}`,
+      { headers },
+      fetchImpl
+    );
+  } catch (error) {
+    await riotMatchesRepository?.saveUserMatchPerspective?.({
+      matchId,
+      puuid: riotPuuid,
+      participantId: null,
+      championName: null,
+      teamId: null,
+      teamPosition: null,
+      individualPosition: null,
+      gameCreation: null,
+      gameStart: null,
+      gameEnd: null,
+      duration: null,
+      parseStatus: "parse_failed",
+      parseStatusReason: error?.status ? `raw_match_fetch_failed_${error.status}` : "raw_match_fetch_failed"
+    });
+    timing?.log("recent_games_match_prepare_failed", "error", {
+      matchId,
+      stage: "raw_match",
+      status: error?.status ?? null
+    });
+    throw error;
+  }
 
   let timeline = null;
   let parseStatus = "fetching_timeline";
@@ -482,9 +529,19 @@ async function fetchAndStoreMatch({ matchId, riotPuuid, headers, fetchImpl, rece
       summaryJson: summary,
       timelineJson: timeline
     });
+    timing?.log("recent_games_raw_match_saved", "success", {
+      matchId: summary?.metadata?.matchId ?? matchId
+    });
   }
 
-  await savePerspective(riotMatchesRepository, summary, timeline, riotPuuid, parseStatus, parseStatusReason);
+  await savePerspective(riotMatchesRepository, summary, timeline, riotPuuid, parseStatus, parseStatusReason, timing);
+  if (parseStatus === "parse_failed") {
+    timing?.log("recent_games_match_prepare_failed", "error", {
+      matchId: summary?.metadata?.matchId ?? matchId,
+      stage: "timeline",
+      reason: parseStatusReason
+    });
+  }
   return summary;
 }
 
@@ -561,24 +618,39 @@ export async function resolveRecentGames({
               matchIds,
               limit: recentGamesConfig.matchCount
             }));
-        const seen = new Set(storedCards.map((entry) => entry.matchId));
-        const missingMatchIds = matchIds.filter((matchId) => !seen.has(matchId));
-        const queuedMatchIds = missingMatchIds.slice(0, MAX_NEW_MATCHES_TO_QUEUE_PER_REFRESH);
         const games = storedCards
           .map(recentGameFromPerspectiveCard)
           .filter(Boolean);
+        const gamesByMatchId = new Map(games.map((game) => [game.matchId, game]));
+        const summaryReadyGames = games.filter(gameHasMatchSummary);
+        const failedGames = games.filter(gameHasFailedPreparation);
+        const preparationNeededMatchIds = matchIds.filter((matchId) => {
+          const game = gamesByMatchId.get(matchId);
+          return !game || (!gameHasMatchSummary(game) && !gameHasFailedPreparation(game));
+        });
 
-        prepareMatchesInBackground({
-          matchIds: queuedMatchIds,
+        const queuedMatchIds = prepareMatchesInBackground({
+          matchIds: preparationNeededMatchIds,
           riotPuuid,
           headers,
           fetchImpl,
           recentGamesConfig,
-          riotMatchesRepository
+          riotMatchesRepository,
+          timing
         });
         timing?.log("recent_games_backfill_queue", queuedMatchIds.length > 0 ? "success" : "skipped", {
+          discoveredMatchIds: matchIds,
+          queuedMatchIds,
           queuedCount: queuedMatchIds.length,
-          missingCount: missingMatchIds.length
+          missingCount: matchIds.filter((matchId) => !gamesByMatchId.has(matchId)).length,
+          incompleteCount: games.length - summaryReadyGames.length - failedGames.length,
+          failedCount: failedGames.length,
+          summaryReadyCount: summaryReadyGames.length,
+          parseStatuses: games.map((game) => ({
+            matchId: game.matchId,
+            parseStatus: perspectiveParseStatus(game),
+            summaryReady: gameHasMatchSummary(game)
+          }))
         });
 
         return {
@@ -586,8 +658,9 @@ export async function resolveRecentGames({
             riotPuuid,
             apiKey: recentGamesConfig.apiKey,
             matchIdsKnown: true,
-            readyCount: games.length,
-            preparingCount: queuedMatchIds.length
+            readyCount: summaryReadyGames.length,
+            preparingCount: queuedMatchIds.length,
+            failedCount: failedGames.length
           }),
           code: "ok",
           sourceLabel: "Riot recent games",
@@ -595,9 +668,10 @@ export async function resolveRecentGames({
             ? "Recent games loaded from cache while newer matches are prepared."
             : "Recent games found. Match details are being prepared.",
           games,
-          readyCount: games.length,
+          readyCount: summaryReadyGames.length,
+          summaryReadyCount: summaryReadyGames.length,
           preparingCount: queuedMatchIds.length,
-          failedCount: 0,
+          failedCount: failedGames.length,
           discoveredCount: matchIds.length
         };
       }
@@ -610,7 +684,8 @@ export async function resolveRecentGames({
                 matchId,
                 riotPuuid,
                 riotMatchesRepository,
-                recentGamesConfig
+                recentGamesConfig,
+                timing
               })
             }))
           ), { matchCount: matchIds.length })
@@ -635,16 +710,19 @@ export async function resolveRecentGames({
         .map((summary) => normalizeRecentGame(summary, riotPuuid))
         .filter(Boolean);
 
-      prepareMatchesInBackground({
+      const actuallyQueuedMatchIds = prepareMatchesInBackground({
         matchIds: queuedMatchIds,
         riotPuuid,
         headers,
         fetchImpl,
         recentGamesConfig,
-        riotMatchesRepository
+        riotMatchesRepository,
+        timing
       });
-      timing?.log("recent_games_backfill_queue", queuedMatchIds.length > 0 ? "success" : "skipped", {
-        queuedCount: queuedMatchIds.length,
+      timing?.log("recent_games_backfill_queue", actuallyQueuedMatchIds.length > 0 ? "success" : "skipped", {
+        discoveredMatchIds: matchIds,
+        queuedMatchIds: actuallyQueuedMatchIds,
+        queuedCount: actuallyQueuedMatchIds.length,
         missingCount: missingMatchIds.length
       });
 
@@ -654,7 +732,7 @@ export async function resolveRecentGames({
           apiKey: recentGamesConfig.apiKey,
           matchIdsKnown: true,
           readyCount: games.length,
-          preparingCount: queuedMatchIds.length
+          preparingCount: actuallyQueuedMatchIds.length
         }),
         code: "ok",
         sourceLabel: "Riot recent games",
@@ -663,7 +741,8 @@ export async function resolveRecentGames({
           : "Recent games found. Match details are being prepared.",
         games,
         readyCount: games.length,
-        preparingCount: queuedMatchIds.length,
+        summaryReadyCount: games.length,
+        preparingCount: actuallyQueuedMatchIds.length,
         failedCount: 0,
         discoveredCount: matchIds.length
       };
@@ -676,7 +755,8 @@ export async function resolveRecentGames({
               matchId,
               riotPuuid,
               riotMatchesRepository,
-              recentGamesConfig
+              recentGamesConfig,
+              timing
             })) ??
             fetchAndStoreMatch({
               matchId,
@@ -684,7 +764,8 @@ export async function resolveRecentGames({
               headers,
               fetchImpl,
               recentGamesConfig,
-              riotMatchesRepository
+              riotMatchesRepository,
+              timing
             })
           )
         ), { matchCount: matchIds.length })
@@ -694,7 +775,8 @@ export async function resolveRecentGames({
               matchId,
               riotPuuid,
               riotMatchesRepository,
-              recentGamesConfig
+              recentGamesConfig,
+              timing
             })) ??
             fetchAndStoreMatch({
               matchId,
@@ -702,7 +784,8 @@ export async function resolveRecentGames({
               headers,
               fetchImpl,
               recentGamesConfig,
-              riotMatchesRepository
+              riotMatchesRepository,
+              timing
             })
           )
         ));
@@ -927,7 +1010,7 @@ export function scoreRecentGames({
     return {
       ...game,
       champion: game.championName ?? `Champion ${game.championId ?? "Unknown"}`,
-      kda: `${game.kills}/${game.deaths}/${game.assists}`,
+      kda: game.kda ?? kdaFromParts(game),
       confidenceLabel: confidenceLabel(scored.score),
       relevanceReason: scored.reasons.join(" · "),
       relevanceScore: scored.score,

@@ -486,6 +486,7 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Preparing match summary");
     expect(document.body.textContent).toContain("10 games discovered");
     expect(document.body.textContent).toContain("0 match summaries ready");
+    expect(document.body.textContent).toContain("10 match summaries preparing");
     expect(document.body.textContent).toContain("Match summaries preparing.");
     expect(document.body.textContent).not.toContain("Unknown queue");
     expect(document.body.textContent).not.toContain("Unknown result");
@@ -494,6 +495,62 @@ describe("public app routes", () => {
     expect(document.body.textContent).not.toContain("Review this game");
     expect(document.querySelector('a[href="/review?matchId=NA1_incomplete"]')).toBeNull();
     expect(document.body.textContent).toContain("Preparing");
+  });
+
+  it("renders failed recent-game preparation counts", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Die Less",
+                role: "ADC",
+                evidenceSource: {},
+                riotEvidence: {
+                  status: "parse_failed_retry_available",
+                  title: "Recent game parsing failed",
+                  summary: "1 game discovered · 0 match summaries ready · 0 evaluations ready · 0 evaluations preparing · 1 preparation failed",
+                  readyCount: 0,
+                  preparingCount: 0,
+                  failedCount: 1,
+                  discoveredCount: 1,
+                  candidateGames: [],
+                  reviewCandidate: null
+                }
+              },
+              todaysAction: {},
+              activeTeamFocus: {},
+              recentInsights: [],
+              suggestedNextSteps: []
+            }
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("Recent game parsing failed");
+    expect(document.body.textContent).toContain("1 game discovered");
+    expect(document.body.textContent).toContain("0 match summaries ready");
+    expect(document.body.textContent).toContain("1 preparation failed");
   });
 
   it("preserves matchId on demo Review links", async () => {

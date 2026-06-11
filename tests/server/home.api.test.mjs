@@ -601,6 +601,77 @@ describe("home API", () => {
     expect(matchEvaluationsRepository.saveMatchEvaluation).not.toHaveBeenCalled();
   });
 
+  it("does not request evaluation summaries for incomplete recent-game perspectives", async () => {
+    const riotMatchesRepository = createInMemoryRiotMatchesRepository();
+    await riotMatchesRepository.initialize();
+    await riotMatchesRepository.saveUserMatchPerspective({
+      matchId: "NA1_ready_for_eval_lookup",
+      puuid: "puuid_eval_filter",
+      championName: "Jhin",
+      queueId: 420,
+      win: false,
+      kills: 6,
+      deaths: 2,
+      assists: 7,
+      parseStatus: "parsed"
+    });
+    await riotMatchesRepository.saveUserMatchPerspective({
+      matchId: "NA1_partial_no_eval_lookup",
+      puuid: "puuid_eval_filter",
+      championName: "Brand",
+      parseStatus: "parsed"
+    });
+    const matchEvaluationsRepository = {
+      async listRecentEvaluationSummariesForUser({ matchIds }) {
+        expect(matchIds).toEqual(["NA1_ready_for_eval_lookup"]);
+        return [];
+      }
+    };
+    const app = await createTestApp({
+      authEnabled: true,
+      riotApiKey: "riot-key",
+      riotMatchesRepository,
+      matchEvaluationsRepository,
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_local_dev",
+          primaryRole: "ADC",
+          riotPuuid: "puuid_eval_filter"
+        };
+      },
+      async fetchImpl(url) {
+        if (url.includes("/ids?")) {
+          return {
+            ok: true,
+            async json() {
+              return ["NA1_ready_for_eval_lookup", "NA1_partial_no_eval_lookup"];
+            }
+          };
+        }
+        return {
+          ok: false,
+          status: 503,
+          async json() {
+            return {};
+          }
+        };
+      }
+    });
+    const token = jwt.sign(
+      { sub: "usr_local_dev", iss: "nexus", aud: "riftsense" },
+      "test-secret",
+      { algorithm: "HS256", expiresIn: "1h" }
+    );
+
+    const response = await request(app)
+      .get("/api/home")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.readyCount).toBe(1);
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.preparingCount).toBe(1);
+  });
+
   it("ignores authenticated identity on the dedicated demo endpoint", async () => {
     const app = await createTestApp({ authEnabled: true });
     const token = jwt.sign(
