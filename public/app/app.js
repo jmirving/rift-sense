@@ -8,8 +8,11 @@ function escapeHtml(value) {
 }
 
 const state = {
-  session: null
+  session: null,
+  recentEvaluationPreparationKeys: new Set()
 };
+
+const RECENT_EVALUATION_PREPARATION_LIMIT = 3;
 
 function elapsedMs(startedAt) {
   return Math.round((performance.now() - startedAt) * 100) / 100;
@@ -788,7 +791,9 @@ function riotReadinessCounts(riotEvidence) {
   const discoveredCount = Number.isFinite(Number(riotEvidence?.discoveredCount))
     ? Number(riotEvidence.discoveredCount)
     : Math.max(candidateGames.length + Number(riotEvidence?.preparingCount ?? 0), summaryReadyCount, Number(riotEvidence?.readyCount ?? 0));
-  const evaluationsPreparingCount = Number.isFinite(Number(riotEvidence?.evaluationPreparingCount))
+  const evaluationsPendingCount = Number.isFinite(Number(riotEvidence?.evaluationPendingCount))
+    ? Number(riotEvidence.evaluationPendingCount)
+    : Number.isFinite(Number(riotEvidence?.evaluationPreparingCount))
     ? Number(riotEvidence.evaluationPreparingCount)
     : Math.max(0, summaryReadyCount - evaluationReadyCount);
 
@@ -796,7 +801,7 @@ function riotReadinessCounts(riotEvidence) {
     discoveredCount,
     summaryReadyCount,
     evaluationReadyCount,
-    evaluationsPreparingCount,
+    evaluationsPendingCount,
     matchSummariesPreparingCount: Math.max(0, discoveredCount - summaryReadyCount - Number(riotEvidence?.failedCount ?? 0)),
     failedCount: Number(riotEvidence?.failedCount ?? 0)
   };
@@ -827,8 +832,8 @@ function riotEvidenceSummary(riotEvidence) {
   if (counts.failedCount > 0 && counts.summaryReadyCount === 0) {
     return "Match preparation failed. Retry available.";
   }
-  if (counts.evaluationsPreparingCount > 0 && counts.evaluationReadyCount === 0) {
-    return "Match summaries are ready. Evaluations are preparing.";
+  if (counts.evaluationsPendingCount > 0 && counts.evaluationReadyCount === 0) {
+    return "Match summaries are ready. Evaluations are pending.";
   }
   return riotEvidence?.summary ?? "";
 }
@@ -845,7 +850,7 @@ function riotReadinessLine(riotEvidence) {
       <span>${escapeHtml(`${counts.summaryReadyCount} match ${counts.summaryReadyCount === 1 ? "summary" : "summaries"} ready`)}</span>
       <span>${escapeHtml(`${counts.matchSummariesPreparingCount} match ${counts.matchSummariesPreparingCount === 1 ? "summary" : "summaries"} preparing`)}</span>
       <span>${escapeHtml(`${counts.evaluationReadyCount} ${counts.evaluationReadyCount === 1 ? "evaluation" : "evaluations"} ready`)}</span>
-      <span>${escapeHtml(`${counts.evaluationsPreparingCount} ${counts.evaluationsPreparingCount === 1 ? "evaluation" : "evaluations"} preparing`)}</span>
+      <span>${escapeHtml(`${counts.evaluationsPendingCount} ${counts.evaluationsPendingCount === 1 ? "evaluation" : "evaluations"} pending`)}</span>
       ${counts.failedCount > 0 ? `<span>${escapeHtml(`${counts.failedCount} ${counts.failedCount === 1 ? "preparation" : "preparations"} failed`)}</span>` : ""}
     </div>
   `;
@@ -1085,14 +1090,14 @@ function reviewCandidateCard(riotEvidence, goal, context = {}) {
     if (!hasEvaluatedGame && (riotEvidence?.readyCount > 0 || (riotEvidence?.candidateGames ?? []).length > 0)) {
       const counts = riotReadinessCounts(riotEvidence);
       const message = counts.summaryReadyCount > 0
-        ? "Match summaries are ready. Evaluations are preparing."
+        ? "Match summaries are ready. Evaluations are pending."
         : "Recent games found. Match summaries are preparing.";
       return `
         <section class="panel review-candidate-panel">
           <div class="panel-header">
             <div>
               <p class="eyebrow">Today's Review Candidate</p>
-              <h2>Review candidate preparing</h2>
+              <h2>${escapeHtml(counts.summaryReadyCount > 0 ? "Review candidate pending" : "Review candidate preparing")}</h2>
             </div>
           </div>
           <p class="muted">${escapeHtml(message)}</p>
@@ -1129,6 +1134,43 @@ function reviewCandidateCard(riotEvidence, goal, context = {}) {
       ${goalRelevance ? `<p class="muted">Goal relevance: ${escapeHtml(goalRelevance)}</p>` : ""}
     </section>
   `;
+}
+
+function shouldPrepareRecentEvaluations(riotEvidence, context = getRouteContext()) {
+  if (context.demoMode || !getSessionState().authenticated) {
+    return false;
+  }
+
+  const counts = riotReadinessCounts(riotEvidence);
+  return counts.summaryReadyCount > 0 && counts.evaluationReadyCount < counts.summaryReadyCount;
+}
+
+function scheduleRecentEvaluationPreparation(root, riotEvidence, context = getRouteContext()) {
+  if (!shouldPrepareRecentEvaluations(riotEvidence, context)) {
+    return;
+  }
+
+  const counts = riotReadinessCounts(riotEvidence);
+  const key = `${context.pathname}:${counts.summaryReadyCount}:${counts.evaluationReadyCount}`;
+  if (state.recentEvaluationPreparationKeys.has(key)) {
+    return;
+  }
+  state.recentEvaluationPreparationKeys.add(key);
+
+  Promise.resolve()
+    .then(() => requestJson(`/api/matches/recent/evaluations?limit=${RECENT_EVALUATION_PREPARATION_LIMIT}`))
+    .then(() => {
+      if (window.location.pathname !== context.pathname || !root.isConnected) {
+        return null;
+      }
+      return renderApp(root);
+    })
+    .catch((error) => {
+      logClientTiming("client_recent_evaluation_preparation", {
+        outcome: "failure",
+        message: error instanceof Error ? error.message : "Evaluation preparation failed."
+      });
+    });
 }
 
 function matchSummaryTitle(review) {
@@ -1721,6 +1763,7 @@ async function renderHome(root, context = getRouteContext()) {
   `, {
       hidden: true
     });
+    scheduleRecentEvaluationPreparation(root, riotEvidence, context);
   } catch (error) {
     outcome = "failure";
     throw error;

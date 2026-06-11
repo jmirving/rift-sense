@@ -145,7 +145,9 @@ function readinessCounts(recentGamesResult, candidateGames = []) {
         summaryReadyCount,
         Number(recentGamesResult.readyCount ?? recentGamesResult.games?.length ?? 0)
       );
-  const evaluationPreparingCount = Number.isFinite(Number(recentGamesResult.evaluationPreparingCount))
+  const evaluationPendingCount = Number.isFinite(Number(recentGamesResult.evaluationPendingCount))
+    ? Number(recentGamesResult.evaluationPendingCount)
+    : Number.isFinite(Number(recentGamesResult.evaluationPreparingCount))
     ? Number(recentGamesResult.evaluationPreparingCount)
     : Math.max(0, summaryReadyCount - evaluationReadyCount);
 
@@ -153,7 +155,8 @@ function readinessCounts(recentGamesResult, candidateGames = []) {
     discoveredCount,
     summaryReadyCount,
     evaluationReadyCount,
-    evaluationPreparingCount,
+    evaluationPendingCount,
+    evaluationPreparingCount: evaluationPendingCount,
     matchSummariesPreparingCount: Math.max(0, discoveredCount - summaryReadyCount - Number(recentGamesResult.failedCount ?? 0)),
     failedCount: Number(recentGamesResult.failedCount ?? 0)
   };
@@ -180,7 +183,7 @@ function readinessSummary(recentGamesResult, fallbackMessage, candidateGames = [
   const failed = counts.failedCount > 0
     ? ` · ${counts.failedCount} ${counts.failedCount === 1 ? "preparation" : "preparations"} failed`
     : "";
-  const readiness = `${counts.discoveredCount} ${counts.discoveredCount === 1 ? "game" : "games"} discovered · ${counts.summaryReadyCount} match ${counts.summaryReadyCount === 1 ? "summary" : "summaries"} ready · ${counts.matchSummariesPreparingCount} match ${counts.matchSummariesPreparingCount === 1 ? "summary" : "summaries"} preparing · ${counts.evaluationReadyCount} ${counts.evaluationReadyCount === 1 ? "evaluation" : "evaluations"} ready · ${counts.evaluationPreparingCount} ${counts.evaluationPreparingCount === 1 ? "evaluation" : "evaluations"} preparing${failed}`;
+  const readiness = `${counts.discoveredCount} ${counts.discoveredCount === 1 ? "game" : "games"} discovered · ${counts.summaryReadyCount} match ${counts.summaryReadyCount === 1 ? "summary" : "summaries"} ready · ${counts.matchSummariesPreparingCount} match ${counts.matchSummariesPreparingCount === 1 ? "summary" : "summaries"} preparing · ${counts.evaluationReadyCount} ${counts.evaluationReadyCount === 1 ? "evaluation" : "evaluations"} ready · ${counts.evaluationPendingCount} ${counts.evaluationPendingCount === 1 ? "evaluation" : "evaluations"} pending${failed}`;
 
   if (["some_games_ready", "games_found_parsing"].includes(recentGamesResult.status)) {
     return readiness;
@@ -209,6 +212,7 @@ function buildUnavailableEvidence(riotIdentity, recentGamesResult) {
     discoveredCount: counts.discoveredCount,
     summaryReadyCount: counts.summaryReadyCount,
     evaluationReadyCount: counts.evaluationReadyCount,
+    evaluationPendingCount: counts.evaluationPendingCount,
     evaluationPreparingCount: counts.evaluationPreparingCount,
     preparingCount: Number(recentGamesResult.preparingCount ?? 0),
     failedCount: Number(recentGamesResult.failedCount ?? 0)
@@ -241,6 +245,7 @@ function buildAvailableEvidence(candidateGames, recentGamesResult, { goal, profi
     discoveredCount: counts.discoveredCount,
     summaryReadyCount: counts.summaryReadyCount,
     evaluationReadyCount: counts.evaluationReadyCount,
+    evaluationPendingCount: counts.evaluationPendingCount,
     evaluationPreparingCount: counts.evaluationPreparingCount,
     preparingCount,
     failedCount: Number(recentGamesResult.failedCount ?? 0)

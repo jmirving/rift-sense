@@ -14,6 +14,11 @@ function mockJsonResponse(body) {
   };
 }
 
+async function flushAsyncWork() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe("public app routes", () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="app"></div>';
@@ -339,7 +344,7 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("5 games discovered");
     expect(document.body.textContent).toContain("3 match summaries ready");
     expect(document.body.textContent).toContain("2 evaluations ready");
-    expect(document.body.textContent).toContain("1 evaluation preparing");
+    expect(document.body.textContent).toContain("1 evaluation pending");
     expect(document.body.textContent).toContain("Today's Review Candidate");
     expect(document.body.textContent).toContain("Review this game");
     expect(document.body.textContent).toContain("Goal relevance: Die Less · ADC");
@@ -357,6 +362,7 @@ describe("public app routes", () => {
   });
 
   it("renders a preparing review candidate state when no evaluated game exists", async () => {
+    let homeRequests = 0;
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
         return mockJsonResponse({
@@ -370,6 +376,7 @@ describe("public app routes", () => {
       }
 
       if (url === "/api/home") {
+        homeRequests += 1;
         return mockJsonResponse({
           home: {
             user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
@@ -385,6 +392,9 @@ describe("public app routes", () => {
                   readyCount: 10,
                   preparingCount: 0,
                   discoveredCount: 10,
+                  summaryReadyCount: 1,
+                  evaluationReadyCount: homeRequests > 1 ? 1 : 0,
+                  evaluationPendingCount: homeRequests > 1 ? 0 : 1,
                   candidateGames: [
                     {
                       matchId: "NA1_pending",
@@ -392,11 +402,32 @@ describe("public app routes", () => {
                       queueLabel: "Ranked Solo/Duo",
                       result: "Loss",
                       kda: "4/3/5",
-                      evaluationStatus: "not_evaluated",
-                      evaluationSummary: null
+                      evaluationStatus: homeRequests > 1 ? "current" : "not_evaluated",
+                      evaluationSummary: homeRequests > 1
+                        ? {
+                            deathCount: 3,
+                            reviewSignals: ["3 deaths"],
+                            topTags: [{ tag: "death_count", count: 3 }]
+                          }
+                        : null
                     }
                   ],
-                  reviewCandidate: null
+                  reviewCandidate: homeRequests > 1
+                    ? {
+                        matchId: "NA1_pending",
+                        championName: "Jhin",
+                        queueLabel: "Ranked Solo/Duo",
+                        result: "Loss",
+                        kda: "4/3/5",
+                        evaluationStatus: "current",
+                        evaluationSummary: {
+                          deathCount: 3,
+                          reviewSignals: ["3 deaths"],
+                          topTags: [{ tag: "death_count", count: 3 }]
+                        },
+                        topDeterministicSignals: [{ tag: "death_count", count: 3, label: "3 deaths" }]
+                      }
+                    : null
                 }
               },
               todaysAction: {},
@@ -408,6 +439,29 @@ describe("public app routes", () => {
         });
       }
 
+      if (url === "/api/matches/recent/evaluations?limit=3") {
+        return mockJsonResponse({
+          evaluationVersion: "deterministic-v2",
+          summary: {
+            evaluated: 1,
+            cached: 0,
+            skipped: 0,
+            failed: 0
+          },
+          games: [
+            {
+              matchId: "NA1_pending",
+              evaluationStatus: "current",
+              evaluationSummary: {
+                deathCount: 3,
+                reviewSignals: ["3 deaths"]
+              },
+              evaluationDeaths: []
+            }
+          ]
+        });
+      }
+
       throw new Error(`Unexpected fetch: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -415,14 +469,26 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Review candidate preparing");
+    expect(document.body.textContent).toContain("Review candidate pending");
     expect(document.body.textContent).toContain("1 match summary ready");
     expect(document.body.textContent).toContain("0 evaluations ready");
-    expect(document.body.textContent).toContain("1 evaluation preparing");
-    expect(document.body.textContent).toContain("Match summaries are ready. Evaluations are preparing.");
+    expect(document.body.textContent).toContain("1 evaluation pending");
+    expect(document.body.textContent).toContain("Match summaries are ready. Evaluations are pending.");
     expect(document.body.textContent).not.toContain("10 games ready");
     expect(document.body.textContent).not.toContain("Review this game");
     expect(document.querySelector('a[href="/review?matchId=NA1_pending"]')?.textContent).toContain("Open summary");
+
+    await flushAsyncWork();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/matches/recent/evaluations?limit=3",
+      expect.objectContaining({ credentials: "same-origin" })
+    );
+    expect(homeRequests).toBe(2);
+    expect(document.body.textContent).toContain("1 evaluation ready");
+    expect(document.body.textContent).toContain("0 evaluations pending");
+    expect(document.body.textContent).toContain("Review this game");
+    expect(document.body.textContent).toContain("3 deaths");
   });
 
   it("renders preparing match summary instead of fabricated candidate metadata", async () => {
@@ -522,7 +588,7 @@ describe("public app routes", () => {
                 riotEvidence: {
                   status: "parse_failed_retry_available",
                   title: "Recent game parsing failed",
-                  summary: "1 game discovered · 0 match summaries ready · 0 evaluations ready · 0 evaluations preparing · 1 preparation failed",
+                  summary: "1 game discovered · 0 match summaries ready · 0 evaluations ready · 0 evaluations pending · 1 preparation failed",
                   readyCount: 0,
                   preparingCount: 0,
                   failedCount: 1,
