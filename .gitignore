@@ -4,3 +4,5 @@ coverage/
 .codex
 .local/
 .wiggum/
+prompts/wiggum*
+scripts/wiggum*
