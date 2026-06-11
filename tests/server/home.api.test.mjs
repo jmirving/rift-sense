@@ -448,12 +448,7 @@ describe("home API", () => {
       confidenceLabel: "high"
     });
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.candidateGames[0].relevanceReason).toContain("ADC role match");
-    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.reviewCandidate).toMatchObject({
-      matchId: "NA1_1",
-      championName: "Jhin",
-      queueLabel: "Ranked Solo/Duo",
-      kda: "8/5/6"
-    });
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.reviewCandidate).toBeNull();
     expect(JSON.stringify(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.reviewCandidate)).not.toContain("timelineJson");
   });
 
@@ -576,6 +571,9 @@ describe("home API", () => {
       expect.objectContaining({
         matchId: "NA1_card_1",
         championName: "Jhin",
+        queueLabel: "Ranked Solo/Duo",
+        result: "Loss",
+        kda: "6/2/7",
         evaluationStatus: "current",
         evaluationSummary: expect.objectContaining({ deathCount: 2 }),
         evaluationDeaths: []
@@ -583,6 +581,9 @@ describe("home API", () => {
       expect.objectContaining({
         matchId: "NA1_card_2",
         championName: "Ashe",
+        queueLabel: "Ranked Solo/Duo",
+        result: "Win",
+        kda: "4/1/9",
         evaluationStatus: "not_evaluated",
         evaluationSummary: null,
         evaluationDeaths: []

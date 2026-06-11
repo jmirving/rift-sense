@@ -952,6 +952,10 @@ function evaluationSummaryBlock(game) {
   `;
 }
 
+function gameHasSummaryMetadata(game) {
+  return Boolean(game?.queueLabel && game?.result && game?.kda);
+}
+
 function riotEvidenceCard(riotEvidence, context = {}) {
   if (!riotEvidence) {
     return "";
@@ -972,20 +976,30 @@ function riotEvidenceCard(riotEvidence, context = {}) {
       ${riotReadinessLine(riotEvidence)}
       <section class="compact-list">
         ${(riotEvidence.candidateGames ?? []).length > 0
-          ? riotEvidence.candidateGames.slice(0, 3).map((game) => `
-            <article class="compact-row game-evidence-row">
-              <div class="game-evidence-main">
-                <span class="compact-row-main">${escapeHtml(`${game.champion ?? game.championName ?? "Unknown champion"} · ${game.queueLabel ?? "Unknown queue"} · ${game.result ?? "Unknown result"}`)}</span>
-                <span class="compact-row-value">${escapeHtml(`${game.kda} · ${game.csPerMinute ?? "?"} cs/min`)}</span>
-                <span class="muted">${escapeHtml(game.relevanceReason ?? "")}</span>
-                ${evaluationSummaryBlock(game)}
-              </div>
-              <div class="game-evidence-actions">
-                <span class="muted">${escapeHtml((game.confidenceLabel ?? "").toUpperCase())}</span>
-                <a class="button secondary compact-row-action" href="${escapeHtml(reviewHrefForGame(game, context))}">Review</a>
-              </div>
-            </article>
-          `).join("")
+          ? riotEvidence.candidateGames.slice(0, 3).map((game) => {
+            const hasSummaryMetadata = gameHasSummaryMetadata(game);
+            const title = hasSummaryMetadata
+              ? `${game.champion ?? game.championName ?? "Unknown champion"} · ${game.queueLabel} · ${game.result}`
+              : `${game.champion ?? game.championName ?? "Unknown champion"} · Preparing match summary`;
+            const value = hasSummaryMetadata
+              ? `${game.kda} · ${game.csPerMinute ?? "?"} cs/min`
+              : "Preparing match summary";
+
+            return `
+              <article class="compact-row game-evidence-row">
+                <div class="game-evidence-main">
+                  <span class="compact-row-main">${escapeHtml(title)}</span>
+                  <span class="compact-row-value">${escapeHtml(value)}</span>
+                  <span class="muted">${escapeHtml(game.relevanceReason ?? "")}</span>
+                  ${evaluationSummaryBlock(game)}
+                </div>
+                <div class="game-evidence-actions">
+                  <span class="muted">${escapeHtml((game.confidenceLabel ?? "").toUpperCase())}</span>
+                  <a class="button secondary compact-row-action" href="${escapeHtml(reviewHrefForGame(game, context))}">Review</a>
+                </div>
+              </article>
+            `;
+          }).join("")
           : '<p class="muted">No Riot candidate games are available yet.</p>'}
       </section>
     </section>
@@ -993,8 +1007,25 @@ function riotEvidenceCard(riotEvidence, context = {}) {
 }
 
 function reviewCandidateCard(riotEvidence, goal, context = {}) {
-  const candidate = riotEvidence?.reviewCandidate ?? riotEvidence?.candidateGames?.[0] ?? null;
+  const candidate = riotEvidence?.reviewCandidate ?? null;
   if (!candidate?.matchId) {
+    const hasEvaluatedGame = (riotEvidence?.candidateGames ?? []).some((game) =>
+      game?.evaluationStatus === "current" && game?.evaluationSummary
+    );
+    if (!hasEvaluatedGame && (riotEvidence?.readyCount > 0 || (riotEvidence?.candidateGames ?? []).length > 0)) {
+      return `
+        <section class="panel review-candidate-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Today's Review Candidate</p>
+              <h2>Review candidate preparing</h2>
+            </div>
+          </div>
+          <p class="muted">Recent games are ready, but deterministic evaluations are still being prepared.</p>
+        </section>
+      `;
+    }
+
     return "";
   }
 
@@ -1015,9 +1046,9 @@ function reviewCandidateCard(riotEvidence, goal, context = {}) {
         <a class="button" href="${escapeHtml(reviewHrefForGame(candidate, context))}">Review this game</a>
       </div>
       <div class="badge-row">
-        ${statusBadge(candidate.result ?? "Unknown result", candidate.result === "Win" ? "positive" : "watch")}
-        <span class="context-badge">${escapeHtml(candidate.queueLabel ?? "Unknown queue")}</span>
-        <span class="context-badge">${escapeHtml(candidate.kda ?? "0/0/0")} KDA</span>
+        ${statusBadge(candidate.result, candidate.result === "Win" ? "positive" : "watch")}
+        <span class="context-badge">${escapeHtml(candidate.queueLabel)}</span>
+        <span class="context-badge">${escapeHtml(candidate.kda)} KDA</span>
       </div>
       ${signals.length > 0 ? renderSignalList(signals.slice(0, 3), "") : '<p class="muted">No deterministic signals are available yet.</p>'}
       <p class="muted">${escapeHtml(candidate.selectionReason ?? candidate.relevanceReason ?? "Selected from recent reviewable games.")}</p>

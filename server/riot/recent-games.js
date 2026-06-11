@@ -111,6 +111,24 @@ function resultFromRecord(record) {
   return normalizeString(record?.result);
 }
 
+function normalizeNumberOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function kdaFromParts({ kills, deaths, assists, fallback = null } = {}) {
+  const normalizedFallback = normalizeString(fallback);
+  if (normalizedFallback) {
+    return normalizedFallback;
+  }
+
+  if ([kills, deaths, assists].every((value) => Number.isFinite(Number(value)))) {
+    return `${Number(kills)}/${Number(deaths)}/${Number(assists)}`;
+  }
+
+  return null;
+}
+
 function computeCsPerMinute(participant, durationSeconds) {
   const seconds = Number(durationSeconds);
   if (!Number.isFinite(seconds) || seconds <= 0) {
@@ -211,20 +229,24 @@ function recentGameFromPerspectiveCard(card) {
   const queueId = Number(record.queueId ?? 0);
   const durationSeconds = Number(record.duration ?? record.gameDurationSeconds ?? 0);
   const { role, roleConfidence } = inferRole(record);
+  const kills = normalizeNumberOrNull(record.kills);
+  const deaths = normalizeNumberOrNull(record.deaths);
+  const assists = normalizeNumberOrNull(record.assists);
 
   return {
     matchId,
     playedAt: isoDate(record.gameEnd ?? record.gameStart ?? record.gameCreation),
     queueId: Number.isFinite(queueId) ? queueId : 0,
-    queueLabel: Number.isFinite(queueId) && queueId > 0 ? queueLabel(queueId) : "Unknown queue",
+    queueLabel: normalizeString(record.queueLabel) ?? (Number.isFinite(queueId) && queueId > 0 ? queueLabel(queueId) : null),
     championId: Number.isFinite(Number(record.championId)) ? Number(record.championId) : null,
     championName: normalizeString(record.championName),
     role,
     roleConfidence,
     result: resultFromRecord(record),
-    kills: Number.isFinite(Number(record.kills)) ? Number(record.kills) : 0,
-    deaths: Number.isFinite(Number(record.deaths)) ? Number(record.deaths) : 0,
-    assists: Number.isFinite(Number(record.assists)) ? Number(record.assists) : 0,
+    kills,
+    deaths,
+    assists,
+    kda: kdaFromParts({ kills, deaths, assists, fallback: record.kda }),
     csPerMinute: computeCsPerMinuteFromRecord(record),
     gameDurationSeconds: Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : null,
     sourceMetadata: {
@@ -817,11 +839,10 @@ function scoreOneGame(game, { activeSince, preferredRole, now, goalTitle }) {
 
   if (deathGoal) {
     if (evaluationDeathCount > 0) {
-      score += 12 + Math.min(evaluationDeathCount, 10);
+      score += 30 + Math.min(evaluationDeathCount, 10);
       reasons.push("contains deaths to review");
     } else {
-      score -= 4;
-      reasons.push("no deaths to review");
+      score -= 18;
     }
   }
 
@@ -863,6 +884,19 @@ function deterministicSignalEntries(game) {
   }
 
   return entries;
+}
+
+function hasUsefulDeterministicSignals(game) {
+  const evaluationSummary = game?.evaluationSummary ?? null;
+  if (game?.evaluationStatus !== "current" || !evaluationSummary) {
+    return false;
+  }
+
+  return deterministicSignalEntries(game).length > 0;
+}
+
+function hasReviewCandidateSummary(game) {
+  return Boolean(game?.matchId && game?.queueLabel && game?.result && (game?.kda ?? kdaFromParts(game)));
 }
 
 function confidenceLabel(score) {
@@ -911,7 +945,9 @@ export function scoreRecentGames({
 }
 
 export function selectReviewCandidate({ candidateGames, goal, profile } = {}) {
-  const game = (candidateGames ?? [])[0] ?? null;
+  const game = (candidateGames ?? []).find((candidateGame) =>
+    hasUsefulDeterministicSignals(candidateGame) && hasReviewCandidateSummary(candidateGame)
+  ) ?? null;
   if (!game) {
     return null;
   }
@@ -934,7 +970,7 @@ export function selectReviewCandidate({ candidateGames, goal, profile } = {}) {
     champion: game.champion ?? game.championName ?? null,
     championName: game.championName ?? game.champion ?? null,
     result: game.result ?? null,
-    kda: game.kda ?? `${game.kills ?? "?"}/${game.deaths ?? "?"}/${game.assists ?? "?"}`,
+    kda: game.kda ?? kdaFromParts(game),
     kills: game.kills ?? null,
     deaths: game.deaths ?? null,
     assists: game.assists ?? null,

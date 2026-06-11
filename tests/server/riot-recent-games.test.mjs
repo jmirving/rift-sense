@@ -204,6 +204,56 @@ describe("riot recent-games service", () => {
     expect(calls.some((url) => url.endsWith("/matches/NA1_1/timeline"))).toBe(true);
   });
 
+  it("preserves queue, result, and KDA from persisted perspective cards", async () => {
+    const repository = await createRiotRepository();
+    await repository.saveUserMatchPerspective({
+      matchId: "NA1_card_summary",
+      puuid: "puuid_1",
+      championName: "Jhin",
+      teamPosition: "BOTTOM",
+      queueLabel: "Ranked Solo/Duo",
+      result: "Loss",
+      kda: "9/4/8",
+      gameEnd: Date.parse("2026-06-01T03:00:00.000Z"),
+      parseStatus: "parsed"
+    });
+
+    const result = await resolveRecentGames({
+      profile: {
+        riotPuuid: "puuid_1"
+      },
+      config: {
+        riot: {
+          apiKey: "riot-key",
+          routingRegion: "americas",
+          platformRegion: "na1",
+          matchCount: 4
+        }
+      },
+      riotMatchesRepository: repository,
+      readMode: "cards",
+      fetchImpl: async (url) => {
+        if (url.includes("/ids?")) {
+          return {
+            ok: true,
+            async json() {
+              return ["NA1_card_summary"];
+            }
+          };
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      }
+    });
+
+    expect(result.games[0]).toMatchObject({
+      matchId: "NA1_card_summary",
+      queueLabel: "Ranked Solo/Duo",
+      result: "Loss",
+      kda: "9/4/8"
+    });
+  });
+
   it("starts uncached match preparation without blocking recent game status", async () => {
     const repository = await createRiotRepository();
 
@@ -675,6 +725,35 @@ describe("riot recent-games service", () => {
     expect(candidates[0].relevanceReason).toContain("evaluation ready");
   });
 
+  it("does not promote not_evaluated games as primary review candidates", () => {
+    const candidates = scoreRecentGames({
+      goal: { title: "Die Less", role: "ADC" },
+      profile: { primaryRole: "ADC" },
+      now: new Date("2026-06-01T12:00:00.000Z"),
+      games: [
+        {
+          matchId: "not-evaluated",
+          playedAt: "2026-06-01T04:00:00.000Z",
+          queueLabel: "Ranked Solo/Duo",
+          championName: "Caitlyn",
+          role: "ADC",
+          result: "Loss",
+          kda: "8/3/4",
+          kills: 8,
+          deaths: 3,
+          assists: 4,
+          csPerMinute: 8.4,
+          gameDurationSeconds: 1800,
+          sourceMetadata: { queueBucket: "ranked" },
+          evaluationStatus: "not_evaluated",
+          evaluationSummary: null
+        }
+      ]
+    });
+
+    expect(selectReviewCandidate({ candidateGames: candidates, goal: { title: "Die Less", role: "ADC" } })).toBeNull();
+  });
+
   it("selects an evaluated review candidate over an unevaluated game", () => {
     const candidates = scoreRecentGames({
       goal: { title: "Die Less", role: "ADC" },
@@ -688,6 +767,7 @@ describe("riot recent-games service", () => {
           championName: "Caitlyn",
           role: "ADC",
           result: "Loss",
+          kda: "8/3/4",
           kills: 8,
           deaths: 3,
           assists: 4,
@@ -702,6 +782,7 @@ describe("riot recent-games service", () => {
           championName: "Jhin",
           role: "ADC",
           result: "Loss",
+          kda: "5/2/6",
           kills: 5,
           deaths: 2,
           assists: 6,
@@ -722,6 +803,59 @@ describe("riot recent-games service", () => {
     expect(candidate.matchId).toBe("evaluated");
     expect(candidate.selectionReason).toContain("evaluation ready");
     expect(candidate.topDeterministicSignals[0]).toMatchObject({ tag: "death_count", count: 2 });
+  });
+
+  it("prefers evaluated Die Less games with deaths over zero-death games", () => {
+    const candidates = scoreRecentGames({
+      goal: { title: "Die Less", role: "ADC" },
+      profile: { primaryRole: "ADC" },
+      now: new Date("2026-06-01T12:00:00.000Z"),
+      games: [
+        {
+          matchId: "zero-deaths",
+          playedAt: "2026-06-01T04:00:00.000Z",
+          queueLabel: "Ranked Solo/Duo",
+          championName: "Sivir",
+          role: "ADC",
+          result: "Win",
+          kda: "4/0/9",
+          kills: 4,
+          deaths: 0,
+          assists: 9,
+          csPerMinute: 8.1,
+          gameDurationSeconds: 1800,
+          sourceMetadata: { queueBucket: "ranked" },
+          evaluationStatus: "current",
+          evaluationSummary: { deathCount: 0, topTags: [], reviewSignals: ["0 deaths"] }
+        },
+        {
+          matchId: "death-review",
+          playedAt: "2026-06-01T03:00:00.000Z",
+          queueLabel: "Ranked Solo/Duo",
+          championName: "Jhin",
+          role: "ADC",
+          result: "Loss",
+          kda: "5/3/6",
+          kills: 5,
+          deaths: 3,
+          assists: 6,
+          csPerMinute: 7.8,
+          gameDurationSeconds: 1800,
+          sourceMetadata: { queueBucket: "ranked" },
+          evaluationStatus: "current",
+          evaluationSummary: {
+            deathCount: 3,
+            topTags: [{ tag: "objective_window_candidate", count: 1 }],
+            reviewSignals: ["3 deaths", "1 objective-window candidate"]
+          }
+        }
+      ]
+    });
+
+    expect(candidates[0].matchId).toBe("death-review");
+    expect(candidates[0].relevanceReason).toContain("contains deaths to review");
+    expect(candidates[0].relevanceReason).not.toContain("no deaths to review");
+    expect(selectReviewCandidate({ candidateGames: candidates, goal: { title: "Die Less" } }).matchId).toBe("death-review");
   });
 
   it("prefers ranked role-matched games over unrelated normals when otherwise similar", () => {
@@ -769,7 +903,7 @@ describe("riot recent-games service", () => {
     expect(selectReviewCandidate({ candidateGames: candidates }).matchId).toBe("ranked-adc");
   });
 
-  it("keeps a review candidate when evaluated games have zero deaths", () => {
+  it("does not select zero-signal evaluated games as a primary review candidate", () => {
     const candidates = scoreRecentGames({
       goal: { title: "Die Less", role: "ADC" },
       profile: { primaryRole: "ADC" },
@@ -782,6 +916,7 @@ describe("riot recent-games service", () => {
           championName: "Sivir",
           role: "ADC",
           result: "Win",
+          kda: "4/0/9",
           kills: 4,
           deaths: 0,
           assists: 9,
@@ -794,9 +929,37 @@ describe("riot recent-games service", () => {
       ]
     });
 
-    expect(selectReviewCandidate({ candidateGames: candidates, goal: { title: "Die Less" } })).toMatchObject({
-      matchId: "zero-deaths",
-      evaluationStatus: "current"
+    expect(selectReviewCandidate({ candidateGames: candidates, goal: { title: "Die Less" } })).toBeNull();
+    expect(candidates[0].relevanceReason).not.toContain("no deaths to review");
+  });
+
+  it("does not select incomplete metadata as a primary review candidate", () => {
+    const candidates = scoreRecentGames({
+      goal: { title: "Die Less", role: "ADC" },
+      profile: { primaryRole: "ADC" },
+      now: new Date("2026-06-01T12:00:00.000Z"),
+      games: [
+        {
+          matchId: "incomplete",
+          playedAt: "2026-06-01T03:00:00.000Z",
+          championName: "Jhin",
+          role: "ADC",
+          kills: null,
+          deaths: null,
+          assists: null,
+          csPerMinute: null,
+          gameDurationSeconds: 1800,
+          sourceMetadata: { queueBucket: "ranked" },
+          evaluationStatus: "current",
+          evaluationSummary: {
+            deathCount: 3,
+            topTags: [{ tag: "death_count", count: 3 }],
+            reviewSignals: ["3 deaths"]
+          }
+        }
+      ]
     });
+
+    expect(selectReviewCandidate({ candidateGames: candidates, goal: { title: "Die Less" } })).toBeNull();
   });
 });

@@ -238,6 +238,28 @@ describe("public app routes", () => {
                   sourceLabel: "Riot recent games",
                   readyCount: 1,
                   preparingCount: 2,
+                  reviewCandidate: {
+                    matchId: "NA1_1",
+                    championName: "Jhin",
+                    queueLabel: "Ranked Solo/Duo",
+                    result: "Loss",
+                    kda: "8/5/6",
+                    selectionReason: "Selected for ADC role match.",
+                    goalRelevance: "Die Less · ADC",
+                    topDeterministicSignals: [
+                      { tag: "death_count", count: 5, label: "5 deaths" },
+                      { tag: "multi_enemy_collapse_candidate", count: 2, label: "2 multi-enemy collapse candidates" }
+                    ],
+                    evaluationStatus: "current",
+                    evaluationSummary: {
+                      deathCount: 5,
+                      reviewSignals: [
+                        "5 deaths",
+                        "2 multi-enemy collapse candidates",
+                        "1 objective-window candidate"
+                      ]
+                    }
+                  },
                   candidateGames: [
                     {
                       matchId: "NA1_1",
@@ -332,6 +354,133 @@ describe("public app routes", () => {
     expect(document.querySelector('a[href="/review?matchId=NA1_1"]')?.textContent).toContain("Review");
   });
 
+  it("renders a preparing review candidate state when no evaluated game exists", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Die Less",
+                role: "ADC",
+                evidenceSource: {},
+                riotEvidence: {
+                  status: "all_recent_games_ready",
+                  title: "10 games ready",
+                  summary: "10 games ready",
+                  readyCount: 10,
+                  preparingCount: 0,
+                  candidateGames: [
+                    {
+                      matchId: "NA1_pending",
+                      championName: "Jhin",
+                      queueLabel: "Ranked Solo/Duo",
+                      result: "Loss",
+                      kda: "4/3/5",
+                      evaluationStatus: "not_evaluated",
+                      evaluationSummary: null
+                    }
+                  ],
+                  reviewCandidate: null
+                }
+              },
+              todaysAction: {},
+              activeTeamFocus: {},
+              recentInsights: [],
+              suggestedNextSteps: []
+            }
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("Review candidate preparing");
+    expect(document.body.textContent).toContain("Recent games are ready, but deterministic evaluations are still being prepared.");
+    expect(document.body.textContent).not.toContain("Review this game");
+  });
+
+  it("renders preparing match summary instead of fabricated candidate metadata", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Die Less",
+                role: "ADC",
+                evidenceSource: {},
+                riotEvidence: {
+                  status: "all_recent_games_ready",
+                  title: "10 games ready",
+                  summary: "10 games ready",
+                  readyCount: 10,
+                  candidateGames: [
+                    {
+                      matchId: "NA1_incomplete",
+                      championName: "Jhin",
+                      evaluationStatus: "current",
+                      evaluationSummary: {
+                        deathCount: 3,
+                        reviewSignals: ["3 deaths"]
+                      }
+                    }
+                  ],
+                  reviewCandidate: null
+                }
+              },
+              todaysAction: {},
+              activeTeamFocus: {},
+              recentInsights: [],
+              suggestedNextSteps: []
+            }
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("Preparing match summary");
+    expect(document.body.textContent).not.toContain("Unknown queue");
+    expect(document.body.textContent).not.toContain("Unknown result");
+    expect(document.body.textContent).not.toContain("0/0/0");
+    expect(document.body.textContent).not.toContain("Review this game");
+  });
+
   it("preserves matchId on demo Review links", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/demo/home") {
@@ -342,6 +491,16 @@ describe("public app routes", () => {
               activePersonalGoal: {
                 title: "Die Less",
                 riotEvidence: {
+                  reviewCandidate: {
+                    matchId: "NA1_demo",
+                    championName: "Jinx",
+                    queueLabel: "Ranked Solo/Duo",
+                    result: "Loss",
+                    kda: "3/4/8",
+                    topDeterministicSignals: [{ tag: "death_count", count: 4, label: "4 deaths" }],
+                    evaluationStatus: "current",
+                    evaluationSummary: { deathCount: 4, reviewSignals: ["4 deaths"] }
+                  },
                   candidateGames: [
                     {
                       matchId: "NA1_demo",
