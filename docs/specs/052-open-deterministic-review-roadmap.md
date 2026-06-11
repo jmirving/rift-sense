@@ -63,8 +63,7 @@ Remaining work:
 
 - define a small set of new tag IDs and summary labels
 - add evaluator fixtures and tests for each tag
-- preserve `deterministic-v1` semantics unless a version bump is chosen
-  deliberately
+- preserve evaluator semantics unless a version bump is chosen deliberately
 - keep summaries concise for cards and review pages
 
 Candidate tag areas:
@@ -74,6 +73,12 @@ Candidate tag areas:
 - low-vision death candidates when vision facts are available
 - fight participation and tempo conversion signals already represented
   elsewhere in deterministic Riot evidence
+
+Phase 2 versioning:
+
+- expanded evaluator output uses `deterministic-v2`
+- `isolated_forward_death_candidate` is reserved as a deterministic tag ID,
+  but is not emitted until forward-side position rules are fixture-backed
 
 ## Phase 3: Goal-Linked Review Candidate Selection
 

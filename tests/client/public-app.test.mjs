@@ -410,7 +410,7 @@ describe("public app routes", () => {
         return mockJsonResponse({
           matchId: "NA1_1",
           evaluationStatus: "current",
-          evaluationVersion: "deterministic-v1",
+          evaluationVersion: "deterministic-v2",
           matchSummary: {
             championName: "Jhin",
             queueLabel: "Ranked Solo/Duo",
@@ -493,7 +493,7 @@ describe("public app routes", () => {
         return mockJsonResponse({
           matchId: "NA1_zero",
           evaluationStatus: "current",
-          evaluationVersion: "deterministic-v1",
+          evaluationVersion: "deterministic-v2",
           matchSummary: {
             championName: "Ashe",
             queueLabel: "Ranked Solo/Duo",
@@ -543,7 +543,7 @@ describe("public app routes", () => {
         return mockJsonResponse({
           matchId: "NA1_pending",
           evaluationStatus: "not_evaluated",
-          evaluationVersion: "deterministic-v1",
+          evaluationVersion: "deterministic-v2",
           matchSummary: {
             championName: "Jhin",
             queueLabel: "Ranked Solo/Duo",

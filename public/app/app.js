@@ -816,6 +816,30 @@ const REVIEW_PRIORITY_TAGS = [
     }
   },
   {
+    tag: "objective_setup_death_candidate",
+    label: "objective setup deaths",
+    singularLabel: "objective setup death",
+    priorityLabel() {
+      return "Objective setup deaths";
+    }
+  },
+  {
+    tag: "objective_exit_death_candidate",
+    label: "objective exit deaths",
+    singularLabel: "objective exit death",
+    priorityLabel() {
+      return "Objective exit deaths";
+    }
+  },
+  {
+    tag: "level_up_all_in_candidate",
+    label: "level-up all-in deaths",
+    singularLabel: "level-up all-in death",
+    priorityLabel() {
+      return "Level-up all-in deaths";
+    }
+  },
+  {
     tag: "enemy_level_up_recently_candidate",
     label: "level-up timing deaths",
     singularLabel: "level-up timing death",

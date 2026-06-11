@@ -508,7 +508,7 @@ describe("home API", () => {
       async listRecentEvaluationSummariesForUser({ puuid, matchIds, evaluationVersion }) {
         expect(puuid).toBe("puuid_owner");
         expect(matchIds).toEqual(["NA1_card_1", "NA1_card_2"]);
-        expect(evaluationVersion).toBe("deterministic-v1");
+        expect(evaluationVersion).toBe("deterministic-v2");
         return [
           {
             matchId: "NA1_card_1",

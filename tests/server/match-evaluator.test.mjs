@@ -2,7 +2,8 @@ import { expect, it } from "vitest";
 
 import {
   DETERMINISTIC_MATCH_EVALUATOR_VERSION,
-  evaluateMatchFacts
+  evaluateMatchFacts,
+  summarizeMatchEvaluation
 } from "../../server/riot/match-evaluator.js";
 
 const baseNow = new Date("2026-06-09T12:00:00.000Z");
@@ -44,7 +45,12 @@ function frame(timestamp, levels = {}) {
   return {
     timestamp,
     participantFrames: Object.fromEntries(
-      Object.entries(levels).map(([participantId, level]) => [participantId, { participantId: Number(participantId), level }])
+      Object.entries(levels).map(([participantId, value]) => {
+        const participantFrame = typeof value === "object" && value !== null
+          ? { participantId: Number(participantId), ...value }
+          : { participantId: Number(participantId), level: value };
+        return [participantId, participantFrame];
+      })
     )
   };
 }
@@ -79,7 +85,7 @@ it("finds participant by puuid and emits the stable evaluation version", () => {
     participantId: 1,
     role: "MIDDLE",
     evaluatedAt: "2026-06-09T12:00:00.000Z",
-    evaluationVersion: "deterministic-v1"
+    evaluationVersion: "deterministic-v2"
   });
 });
 
@@ -92,7 +98,7 @@ it("extracts death events and conservative deterministic tags", () => {
           {
             ...frame(120_000, { 1: 8, 6: 10, 7: 8 }),
             events: [
-              { type: "LEVEL_UP", timestamp: 105_000, participantId: 6 },
+              { type: "LEVEL_UP", timestamp: 105_000, participantId: 6, level: 10 },
               { type: "ELITE_MONSTER_KILL", timestamp: 112_000, monsterType: "DRAGON", killerId: 7 },
               {
                 type: "CHAMPION_KILL",
@@ -124,10 +130,21 @@ it("extracts death events and conservative deterministic tags", () => {
       victimLevel: 8,
       killerLevel: 10,
       enemyParticipantsInvolved: [6, 7],
+      enemyLevelUpsBeforeDeath: [
+        {
+          participantId: 6,
+          timestampMs: 105_000,
+          level: 10,
+          championName: "Zed",
+          secondsBeforeDeath: 15
+        }
+      ],
       tags: [
         "multi_enemy_collapse_candidate",
         "objective_window_candidate",
-        "enemy_level_up_recently_candidate"
+        "objective_exit_death_candidate",
+        "enemy_level_up_recently_candidate",
+        "level_up_all_in_candidate"
       ]
     }
   ]);
@@ -136,7 +153,11 @@ it("extracts death events and conservative deterministic tags", () => {
     solo_death_candidate: 0,
     multi_enemy_collapse_candidate: 1,
     objective_window_candidate: 1,
+    objective_setup_death_candidate: 0,
+    objective_exit_death_candidate: 1,
     enemy_level_up_recently_candidate: 1,
+    level_up_all_in_candidate: 1,
+    isolated_forward_death_candidate: 0,
     missing_timeline: 0,
     missing_participant: 0
   });
@@ -209,4 +230,203 @@ it("tags solo deaths when exactly one enemy participant is involved", () => {
 
   expect(result.deathsJson[0].tags).toEqual(["solo_death_candidate"]);
   expect(result.tagsJson.counts.solo_death_candidate).toBe(1);
+});
+
+it("emits level_up_all_in_candidate only for enemy level-ups before death", () => {
+  const result = evaluate({
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(120_000, { 1: 8, 6: 10 }),
+            events: [
+              { type: "LEVEL_UP", timestamp: 105_000, participantId: 6, level: 10 },
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 120_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: []
+              }
+            ]
+          }
+        ]
+      }
+    }
+  });
+
+  expect(result.deathsJson[0].tags).toContain("level_up_all_in_candidate");
+  expect(result.deathsJson[0].enemyLevelUpsBeforeDeath).toEqual([
+    {
+      participantId: 6,
+      timestampMs: 105_000,
+      level: 10,
+      championName: "Zed",
+      secondsBeforeDeath: 15
+    }
+  ]);
+  expect(result.tagsJson.counts.level_up_all_in_candidate).toBe(1);
+});
+
+it("does not emit level_up_all_in_candidate for enemy level-ups after death", () => {
+  const result = evaluate({
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(120_000, { 1: 8, 6: 10 }),
+            events: [
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 120_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: []
+              },
+              { type: "LEVEL_UP", timestamp: 121_000, participantId: 6, level: 10 }
+            ]
+          }
+        ]
+      }
+    }
+  });
+
+  expect(result.deathsJson[0].tags).not.toContain("level_up_all_in_candidate");
+  expect(result.deathsJson[0].enemyLevelUpsBeforeDeath).toEqual([]);
+  expect(result.tagsJson.counts.level_up_all_in_candidate).toBe(0);
+});
+
+it("emits distinct objective setup and exit death windows", () => {
+  const result = evaluate({
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(100_000, { 1: 8, 6: 8 }),
+            events: [
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 100_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: []
+              },
+              { type: "ELITE_MONSTER_KILL", timestamp: 120_000, monsterType: "DRAGON", killerId: 6 },
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 150_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: []
+              }
+            ]
+          }
+        ]
+      }
+    }
+  });
+
+  expect(result.deathsJson[0].tags).toContain("objective_setup_death_candidate");
+  expect(result.deathsJson[0].tags).not.toContain("objective_exit_death_candidate");
+  expect(result.deathsJson[1].tags).toContain("objective_exit_death_candidate");
+  expect(result.deathsJson[1].tags).not.toContain("objective_setup_death_candidate");
+  expect(result.tagsJson.counts.objective_setup_death_candidate).toBe(1);
+  expect(result.tagsJson.counts.objective_exit_death_candidate).toBe(1);
+});
+
+it("adds nearby death counts when participant frame positions support them", () => {
+  const result = evaluate({
+    summaryJson: summary([
+      participant({ puuid: "target_puuid", participantId: 1, championName: "Ahri", teamId: 100 }),
+      participant({ participantId: 2, championName: "Vi", teamId: 100 }),
+      participant({ participantId: 6, championName: "Zed", teamId: 200 }),
+      participant({ participantId: 7, championName: "LeeSin", teamId: 200 })
+    ]),
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(120_000, {
+              1: { level: 8, position: { x: 5000, y: 5000 } },
+              2: { level: 8, position: { x: 5600, y: 5000 } },
+              6: { level: 9, position: { x: 5900, y: 5000 } },
+              7: { level: 8, position: { x: 9000, y: 9000 } }
+            }),
+            events: [
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 120_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: [],
+                position: { x: 5000, y: 5000 }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  });
+
+  expect(result.deathsJson[0]).toMatchObject({
+    nearbyEnemyCount: 1,
+    nearbyAllyCount: 1,
+    nearbyEnemyChampionNames: ["Zed"],
+    nearbyAllyChampionNames: ["Vi"]
+  });
+});
+
+it("omits nearby death counts when participant frame positions are unavailable", () => {
+  const result = evaluate({
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(120_000, { 1: 8, 6: 9 }),
+            events: [
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 120_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: []
+              }
+            ]
+          }
+        ]
+      }
+    }
+  });
+
+  expect(result.deathsJson[0]).not.toHaveProperty("nearbyEnemyCount");
+  expect(result.deathsJson[0]).not.toHaveProperty("nearbyAllyCount");
+});
+
+it("includes new tags in summaries and top tags when present", () => {
+  const result = evaluate({
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(120_000, { 1: 8, 6: 10 }),
+            events: [
+              { type: "LEVEL_UP", timestamp: 105_000, participantId: 6, level: 10 },
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 120_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: []
+              }
+            ]
+          }
+        ]
+      }
+    }
+  });
+
+  const summaryResult = summarizeMatchEvaluation(result);
+
+  expect(summaryResult.topTags.map((entry) => entry.tag)).toContain("level_up_all_in_candidate");
+  expect(summaryResult.reviewSignals).toContain("1 level-up all-in candidate");
 });

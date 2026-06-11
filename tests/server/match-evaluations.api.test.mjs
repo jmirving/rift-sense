@@ -44,7 +44,7 @@ function createEvaluationRepository() {
   const evaluation = {
     matchId: "NA1_051",
     puuid: "puuid_owner",
-    evaluationVersion: "deterministic-v1",
+    evaluationVersion: "deterministic-v2",
     sourceRawMatchUpdatedAt: "2026-06-01T00:00:00.000Z",
     sourcePerspectiveUpdatedAt: "2026-06-01T00:01:00.000Z",
     summaryJson: {
@@ -301,7 +301,7 @@ describe("match evaluations API", () => {
     expect(response.body).toMatchObject({
       matchId: "NA1_051",
       evaluationStatus: "current",
-      evaluationVersion: "deterministic-v1",
+      evaluationVersion: "deterministic-v2",
       matchSummary: {
         championName: "Ahri",
         queueId: 420,
@@ -410,7 +410,7 @@ describe("match evaluations API", () => {
     expect(response.status).toBe(200);
     expect(repository.seenPuuids).toEqual(["puuid_owner"]);
     expect(response.body).toMatchObject({
-      evaluationVersion: "deterministic-v1",
+      evaluationVersion: "deterministic-v2",
       summary: {
         evaluated: 0,
         cached: 1,
@@ -428,7 +428,7 @@ describe("match evaluations API", () => {
           deaths: 2,
           assists: 3,
           evaluationStatus: "current",
-          evaluationVersion: "deterministic-v1",
+          evaluationVersion: "deterministic-v2",
           evaluationSummary: {
             deathCount: 2,
             topTags: [

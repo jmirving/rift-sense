@@ -181,7 +181,7 @@ describeWithPostgres("match evaluations repository", () => {
     expect(result[0]).toMatchObject({
       matchId: "NA1_050",
       puuid: "puuid_1",
-      evaluationVersion: "deterministic-v1"
+      evaluationVersion: "deterministic-v2"
     });
   });
 });

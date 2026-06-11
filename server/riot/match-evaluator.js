@@ -1,13 +1,20 @@
-export const DETERMINISTIC_MATCH_EVALUATOR_VERSION = "deterministic-v1";
+export const DETERMINISTIC_MATCH_EVALUATOR_VERSION = "deterministic-v2";
 
 const OBJECTIVE_WINDOW_MS = 45_000;
+const OBJECTIVE_SETUP_WINDOW_MS = 45_000;
+const OBJECTIVE_EXIT_WINDOW_MS = 45_000;
 const LEVEL_UP_WINDOW_MS = 20_000;
+const NEARBY_PARTICIPANT_RADIUS = 2500;
 const TAG_IDS = [
   "death_count",
   "solo_death_candidate",
   "multi_enemy_collapse_candidate",
   "objective_window_candidate",
+  "objective_setup_death_candidate",
+  "objective_exit_death_candidate",
   "enemy_level_up_recently_candidate",
+  "level_up_all_in_candidate",
+  "isolated_forward_death_candidate",
   "missing_timeline",
   "missing_participant"
 ];
@@ -15,7 +22,11 @@ const SUMMARY_TAGS = new Map([
   ["solo_death_candidate", "solo death candidates"],
   ["multi_enemy_collapse_candidate", "multi-enemy collapse candidates"],
   ["objective_window_candidate", "objective-window candidates"],
+  ["objective_setup_death_candidate", "objective setup death candidates"],
+  ["objective_exit_death_candidate", "objective exit death candidates"],
   ["enemy_level_up_recently_candidate", "enemy level-up timing candidates"],
+  ["level_up_all_in_candidate", "level-up all-in candidates"],
+  ["isolated_forward_death_candidate", "isolated forward death candidates"],
   ["missing_timeline", "missing timeline"],
   ["missing_participant", "missing participant"]
 ]);
@@ -130,20 +141,42 @@ function objectiveNearDeath(events, timestampMs) {
   return events.some((event) => isObjectiveEvent(event) && Math.abs(event.timestamp - timestampMs) <= OBJECTIVE_WINDOW_MS);
 }
 
-function enemyLevelUpNearDeath(events, timestampMs, enemyParticipantIds) {
+function objectiveSetupNearDeath(events, timestampMs) {
+  return events.some((event) => (
+    isObjectiveEvent(event) &&
+    event.timestamp >= timestampMs &&
+    event.timestamp - timestampMs <= OBJECTIVE_SETUP_WINDOW_MS
+  ));
+}
+
+function objectiveExitNearDeath(events, timestampMs) {
+  return events.some((event) => (
+    isObjectiveEvent(event) &&
+    event.timestamp <= timestampMs &&
+    timestampMs - event.timestamp <= OBJECTIVE_EXIT_WINDOW_MS
+  ));
+}
+
+function enemyLevelUpsNearDeath(events, timestampMs, enemyParticipantIds, participantIndex) {
   const enemyIds = new Set(enemyParticipantIds);
-  return events.some((event) => {
-    if (event?.type !== "LEVEL_UP" && event?.type !== "CHAMPION_LEVEL_UP") {
-      return false;
-    }
-    const participantId = normalizeNumber(event?.participantId);
-    return (
+  return events
+    .filter((event) => event?.type === "LEVEL_UP" || event?.type === "CHAMPION_LEVEL_UP")
+    .map((event) => ({
+      participantId: normalizeNumber(event?.participantId),
+      timestampMs: normalizeNumber(event?.timestamp) ?? 0,
+      level: normalizeNumber(event?.level)
+    }))
+    .filter(({ participantId, timestampMs: eventTimestampMs }) => (
       participantId !== null &&
       enemyIds.has(participantId) &&
-      event.timestamp <= timestampMs &&
-      timestampMs - event.timestamp <= LEVEL_UP_WINDOW_MS
-    );
-  });
+      eventTimestampMs <= timestampMs &&
+      timestampMs - eventTimestampMs <= LEVEL_UP_WINDOW_MS
+    ))
+    .map((event) => ({
+      ...event,
+      championName: championName(participantIndex, event.participantId),
+      secondsBeforeDeath: Math.round((timestampMs - event.timestampMs) / 1000)
+    }));
 }
 
 function findPriorLevel(frames, participantId, timestampMs) {
@@ -151,6 +184,63 @@ function findPriorLevel(frames, participantId, timestampMs) {
     .filter((entry) => (normalizeNumber(entry?.timestamp) ?? -1) <= timestampMs)
     .sort((left, right) => (normalizeNumber(right?.timestamp) ?? 0) - (normalizeNumber(left?.timestamp) ?? 0))[0];
   return normalizeNumber(frame?.participantFrames?.[String(participantId)]?.level);
+}
+
+function findFrameAtOrBefore(frames, timestampMs) {
+  return normalizeArray(frames)
+    .filter((entry) => (normalizeNumber(entry?.timestamp) ?? -1) <= timestampMs)
+    .sort((left, right) => (normalizeNumber(right?.timestamp) ?? 0) - (normalizeNumber(left?.timestamp) ?? 0))[0] ?? null;
+}
+
+function nearbyParticipantsAtDeath({ frames, participantIndex, victimParticipantId, victimTeamId, timestampMs, position }) {
+  if (!position || victimTeamId === null) {
+    return null;
+  }
+
+  const frame = findFrameAtOrBefore(frames, timestampMs);
+  const participantFrames = frame?.participantFrames;
+  if (!participantFrames || typeof participantFrames !== "object") {
+    return null;
+  }
+
+  let comparableParticipants = 0;
+  const nearby = Object.values(participantFrames)
+    .map((participantFrame) => {
+      const participantId = normalizeNumber(participantFrame?.participantId);
+      const participantPosition = normalizePosition(participantFrame?.position);
+      const teamId = participantTeam(participantIndex, participantId);
+      if (
+        participantId === null ||
+        participantId === victimParticipantId ||
+        teamId === null ||
+        !participantPosition
+      ) {
+        return null;
+      }
+
+      comparableParticipants += 1;
+      const distance = Math.hypot(participantPosition.x - position.x, participantPosition.y - position.y);
+      if (!Number.isFinite(distance) || distance > NEARBY_PARTICIPANT_RADIUS) {
+        return null;
+      }
+
+      return {
+        participantId,
+        championName: championName(participantIndex, participantId),
+        teamId,
+        distance: Math.round(distance)
+      };
+    })
+    .filter(Boolean);
+
+  if (comparableParticipants === 0) {
+    return null;
+  }
+
+  return {
+    enemies: nearby.filter((entry) => entry.teamId !== victimTeamId),
+    allies: nearby.filter((entry) => entry.teamId === victimTeamId)
+  };
 }
 
 function zeroTagCounts() {
@@ -215,6 +305,9 @@ export function summarizeMatchEvaluationDeaths(evaluation) {
     assistingChampionNames: normalizeArray(death?.assistingChampionNames).map(normalizeString).filter(Boolean),
     tags: normalizeArray(death?.tags).map(normalizeString).filter(Boolean),
     nearbyEnemyChampionNames: normalizeArray(death?.nearbyEnemyChampionNames).map(normalizeString).filter(Boolean),
+    nearbyAllyChampionNames: normalizeArray(death?.nearbyAllyChampionNames).map(normalizeString).filter(Boolean),
+    nearbyEnemyCount: normalizeNumber(death?.nearbyEnemyCount),
+    nearbyAllyCount: normalizeNumber(death?.nearbyAllyCount),
     victimLevel: normalizeNumber(death?.victimLevel),
     killerLevel: normalizeNumber(death?.killerLevel),
     position: normalizePosition(death?.position)
@@ -257,6 +350,16 @@ export function evaluateMatchFacts({
     const killerParticipantId = normalizeNumber(event?.killerId);
     const assistingParticipantIds = normalizeArray(event?.assistingParticipantIds).map(normalizeNumber).filter((value) => value !== null);
     const enemyParticipantsInvolved = enemyParticipantIdsForDeath(event, participantIndex, victimTeamId);
+    const position = normalizePosition(event?.position);
+    const enemyLevelUpsBeforeDeath = enemyLevelUpsNearDeath(events, timestampMs, enemyParticipantsInvolved, participantIndex);
+    const nearbyParticipants = nearbyParticipantsAtDeath({
+      frames,
+      participantIndex,
+      victimParticipantId: participantId,
+      victimTeamId,
+      timestampMs,
+      position
+    });
     const tags = [];
 
     if (enemyParticipantsInvolved.length === 1) {
@@ -268,8 +371,15 @@ export function evaluateMatchFacts({
     if (objectiveNearDeath(events, timestampMs)) {
       tags.push("objective_window_candidate");
     }
-    if (enemyLevelUpNearDeath(events, timestampMs, enemyParticipantsInvolved)) {
+    if (objectiveSetupNearDeath(events, timestampMs)) {
+      tags.push("objective_setup_death_candidate");
+    }
+    if (objectiveExitNearDeath(events, timestampMs)) {
+      tags.push("objective_exit_death_candidate");
+    }
+    if (enemyLevelUpsBeforeDeath.length > 0) {
       tags.push("enemy_level_up_recently_candidate");
+      tags.push("level_up_all_in_candidate");
     }
 
     for (const tag of tags) {
@@ -286,10 +396,17 @@ export function evaluateMatchFacts({
       killerChampionName: killerParticipantId === null ? null : championName(participantIndex, killerParticipantId),
       assistingParticipantIds,
       assistingChampionNames: assistingParticipantIds.map((id) => championName(participantIndex, id)).filter(Boolean),
-      position: normalizePosition(event?.position),
+      position,
       victimLevel: findPriorLevel(frames, participantId, timestampMs),
       killerLevel: killerParticipantId === null ? null : findPriorLevel(frames, killerParticipantId, timestampMs),
       enemyParticipantsInvolved,
+      enemyLevelUpsBeforeDeath,
+      ...(nearbyParticipants ? {
+        nearbyEnemyChampionNames: nearbyParticipants.enemies.map((entry) => entry.championName).filter(Boolean),
+        nearbyAllyChampionNames: nearbyParticipants.allies.map((entry) => entry.championName).filter(Boolean),
+        nearbyEnemyCount: nearbyParticipants.enemies.length,
+        nearbyAllyCount: nearbyParticipants.allies.length
+      } : {}),
       tags
     };
   });
