@@ -39,8 +39,8 @@ Feature specs live in `docs/specs/`.
 
 Current specs:
 
-- [specs/001-learning-content-library-and-ingestion.md](./specs/001-learning-content-library-and-ingestion.md)
 - [specs/001-implementation-plan.md](./specs/001-implementation-plan.md)
+- [specs/001-learning-content-library-and-ingestion.md](./specs/001-learning-content-library-and-ingestion.md)
 - [specs/002-hosted-nexus-auth-callback.md](./specs/002-hosted-nexus-auth-callback.md)
 - [specs/003-public-demo-dashboard-route.md](./specs/003-public-demo-dashboard-route.md)
 - [specs/050-closed-match-evaluator-persistence.md](./specs/050-closed-match-evaluator-persistence.md)

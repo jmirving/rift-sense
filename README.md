@@ -98,6 +98,8 @@ Opening a route with `?perf=1` also enables client timing logs for that browser 
 - `/demo`
 - `/goals`
 - `/review`
+- `/review?matchId=:matchId`
+- `/demo/review?matchId=:matchId`
 - `/training`
 - `/team`
 - `/onboarding`

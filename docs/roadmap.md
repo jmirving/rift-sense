@@ -25,6 +25,11 @@ Target outcomes:
 - remaining review work is captured in open specs
 - the content-library direction is preserved as later work
 
+Status:
+
+Complete. Specs 050 and 051 are closed; spec 052 tracks remaining
+deterministic review work.
+
 ## Milestone 1: Deterministic Review MVP
 
 Objective:
@@ -38,6 +43,11 @@ Target outcomes:
 - deterministic evaluations are current, versioned, and persisted
 - recent-game APIs expose evaluator summaries without raw timeline JSON
 
+Status:
+
+Implemented as the current foundation. Keep future changes scoped to
+versioned evaluator specs.
+
 ## Milestone 2: Useful Match Review Page
 
 Objective:
@@ -50,6 +60,11 @@ Target outcomes:
   death facts
 - missing or pending evaluation states are handled clearly
 - review links preserve the selected `matchId`
+
+Status:
+
+Partially implemented. The remaining work is a clear deterministic
+priority or focus area for the selected match.
 
 ## Milestone 3: Expanded Deterministic Evaluator Tags
 
@@ -76,6 +91,11 @@ Target outcomes:
 - candidate ranking prefers goal-relevant deterministic evidence
 - fallback behavior still offers reviewable games when no saved goal
   exists
+
+Status:
+
+Partially implemented. Candidate ordering already uses evaluator
+signals; a dedicated dashboard `reviewCandidate` is still open.
 
 ## Later Tracks
 

@@ -21,6 +21,13 @@ The recent-game deterministic review slice is partially implemented:
 This spec tracks the remaining Wiggum Phases 1-3 work. It should not
 add AI coaching prose or reopen the content-library roadmap.
 
+## Audit Result
+
+Specs 050 and 051 are closed by the current persistence, backfill, API,
+home summary, and raw timeline exclusion behavior. This spec remains
+open because the app still needs a deterministic review priority,
+expanded evaluator tags, and a single goal-linked review candidate.
+
 ## Phase 1: Useful Match Review Page
 
 Goal:
@@ -42,7 +49,9 @@ Already satisfied:
 - match summary renders
 - review signals render
 - death facts render
+- deterministic tag counts render
 - missing `matchId` and missing evaluation states render
+- authenticated and demo review links preserve `matchId`
 
 ## Phase 2: Expanded Deterministic Evaluator Tags
 
@@ -88,6 +97,12 @@ Already satisfied:
   signals
 - recent-game rows link to match-specific review pages
 - demo review links preserve `matchId`
+
+Not yet satisfied:
+
+- the dashboard does not expose a single dedicated `reviewCandidate`
+- selection rationale is still row-level `relevanceReason`, not a
+  primary review-candidate explanation
 
 ## Acceptance Criteria
 
