@@ -930,6 +930,12 @@ p {
   grid-row: span 2;
 }
 
+.review-priority-panel {
+  display: grid;
+  gap: 12px;
+  border-color: var(--border-strong);
+}
+
 .review-tag-grid {
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }

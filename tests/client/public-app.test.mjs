@@ -393,7 +393,7 @@ describe("public app routes", () => {
     expect(document.querySelector('.button[href="/"]')?.textContent).toContain("Open dashboard");
   });
 
-  it("renders match summary and death facts for review matchId", async () => {
+  it("renders a review priority and death facts for a multi-death evaluated match", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
         return mockJsonResponse({
@@ -432,12 +432,23 @@ describe("public app routes", () => {
               tags: ["multi_enemy_collapse_candidate"],
               victimLevel: 8,
               killerLevel: 9
+            },
+            {
+              timestampSeconds: 600,
+              killerChampionName: "Briar",
+              assistingChampionNames: ["LeBlanc"],
+              tags: ["multi_enemy_collapse_candidate", "objective_window_candidate"],
+              victimLevel: 9,
+              killerLevel: 10
             }
           ],
           deterministicTagCounts: {
             death_count: 5,
-            multi_enemy_collapse_candidate: 2
-          }
+            multi_enemy_collapse_candidate: 2,
+            objective_window_candidate: 1
+          },
+          timelineJson: { secret: "SECRET_TIMELINE_EVENT" },
+          rawMatchJson: { secret: "SECRET_MATCH_JSON" }
         });
       }
 
@@ -450,6 +461,10 @@ describe("public app routes", () => {
 
     expect(document.body.textContent).toContain("Jhin · Loss · Ranked Solo/Duo");
     expect(document.body.textContent).toContain("8/5/6 KDA");
+    expect(document.body.textContent).toContain("Review First");
+    expect(document.body.textContent).toContain("Review first: Repeated multi-enemy deaths");
+    expect(document.body.textContent).toContain("Deterministic evidence only.");
+    expect(document.body.textContent).toContain("Inspect first: 08:14, 10:00");
     expect(document.body.textContent).toContain("Review Signals");
     expect(document.body.textContent).toContain("2 multi-enemy collapse candidates");
     expect(document.body.textContent).toContain("Deterministic Death Facts");
@@ -457,5 +472,102 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("killed by LeBlanc, assisted by Briar");
     expect(document.body.textContent).toContain("Tags: Multi Enemy Collapse Candidate");
     expect(document.body.textContent).toContain("victim level 8");
+    expect(document.body.textContent).not.toContain("SECRET_TIMELINE_EVENT");
+    expect(document.body.textContent).not.toContain("SECRET_MATCH_JSON");
+  });
+
+  it("renders a useful zero-death review priority", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/matches/NA1_zero/evaluation") {
+        return mockJsonResponse({
+          matchId: "NA1_zero",
+          evaluationStatus: "current",
+          evaluationVersion: "deterministic-v1",
+          matchSummary: {
+            championName: "Ashe",
+            queueLabel: "Ranked Solo/Duo",
+            result: "Win",
+            kills: 4,
+            deaths: 0,
+            assists: 11
+          },
+          evaluationSummary: {
+            deathCount: 0,
+            reviewSignals: ["0 deaths"]
+          },
+          deathEvents: [],
+          deterministicTagCounts: {
+            death_count: 0
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/review?matchId=NA1_zero");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("Review First");
+    expect(document.body.textContent).toContain("No deaths detected");
+    expect(document.body.textContent).toContain("This evaluated match has zero deterministic death events.");
+    expect(document.body.textContent).toContain("No deterministic death facts are available for this match.");
+  });
+
+  it("renders a useful pending state for a missing evaluation", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/matches/NA1_pending/evaluation") {
+        return mockJsonResponse({
+          matchId: "NA1_pending",
+          evaluationStatus: "not_evaluated",
+          evaluationVersion: "deterministic-v1",
+          matchSummary: {
+            championName: "Jhin",
+            queueLabel: "Ranked Solo/Duo",
+            result: "Loss",
+            kills: 4,
+            deaths: 3,
+            assists: 5
+          },
+          evaluationSummary: null,
+          deathEvents: [],
+          deterministicTagCounts: null
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/review?matchId=NA1_pending");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("Review First");
+    expect(document.body.textContent).toContain("Evaluation pending");
+    expect(document.body.textContent).toContain("No persisted deterministic evaluation exists yet for this match.");
+    expect(document.body.textContent).toContain("Evaluation is not prepared for this match yet.");
   });
 });

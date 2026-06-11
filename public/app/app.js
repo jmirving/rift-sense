@@ -798,6 +798,107 @@ function formatDeathTimestamp(death) {
   return `${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
 }
 
+const REVIEW_PRIORITY_TAGS = [
+  {
+    tag: "multi_enemy_collapse_candidate",
+    label: "multi-enemy deaths",
+    singularLabel: "multi-enemy death",
+    priorityLabel(count) {
+      return count > 1 ? "Repeated multi-enemy deaths" : "Multi-enemy death";
+    }
+  },
+  {
+    tag: "objective_window_candidate",
+    label: "objective-window deaths",
+    singularLabel: "objective-window death",
+    priorityLabel() {
+      return "Objective-window deaths";
+    }
+  },
+  {
+    tag: "enemy_level_up_recently_candidate",
+    label: "level-up timing deaths",
+    singularLabel: "level-up timing death",
+    priorityLabel() {
+      return "Level-up timing deaths";
+    }
+  },
+  {
+    tag: "solo_death_candidate",
+    label: "solo deaths",
+    singularLabel: "solo death",
+    priorityLabel(count) {
+      return count > 1 ? "Repeated solo deaths" : "Solo death";
+    }
+  }
+];
+
+function tagCountFromReview(review, tag, deaths) {
+  const count = Number(review?.deterministicTagCounts?.[tag]);
+  if (Number.isFinite(count) && count > 0) {
+    return count;
+  }
+
+  return deaths.filter((death) => (death.tags ?? []).includes(tag)).length;
+}
+
+export function deriveReviewPriority(review) {
+  const evaluationSummary = review?.evaluationSummary ?? null;
+  const deaths = Array.isArray(review?.deathEvents) ? review.deathEvents : [];
+
+  if (!evaluationSummary) {
+    return {
+      state: "pending",
+      title: "Evaluation pending",
+      detail: "No persisted deterministic evaluation exists yet for this match.",
+      groups: [],
+      timestamps: []
+    };
+  }
+
+  const deathCount = Number(evaluationSummary.deathCount ?? review?.deterministicTagCounts?.death_count ?? deaths.length ?? 0);
+  if (deathCount === 0) {
+    return {
+      state: "safe",
+      title: "No deaths detected",
+      detail: "This evaluated match has zero deterministic death events.",
+      groups: [],
+      timestamps: []
+    };
+  }
+
+  const groups = REVIEW_PRIORITY_TAGS
+    .map((definition) => {
+      const matchingDeaths = deaths.filter((death) => (death.tags ?? []).includes(definition.tag));
+      const count = tagCountFromReview(review, definition.tag, deaths);
+      const timestamps = matchingDeaths
+        .filter((death) => Number.isFinite(Number(death?.timestampSeconds)) || Number.isFinite(Number(death?.timestampMs)))
+        .map(formatDeathTimestamp);
+
+      return {
+        tag: definition.tag,
+        label: `${count} ${count === 1 ? definition.singularLabel : definition.label}`,
+        priorityLabel: definition.priorityLabel(count),
+        count,
+        timestamps
+      };
+    })
+    .filter((group) => group.count > 0);
+
+  const primaryGroup = groups[0] ?? null;
+  const fallbackTimestamps = deaths.slice(0, 3).map(formatDeathTimestamp);
+  const timestamps = (primaryGroup?.timestamps.length ? primaryGroup.timestamps : fallbackTimestamps).slice(0, 3);
+  const title = primaryGroup ? `Review first: ${primaryGroup.priorityLabel}` : "Review first: death events";
+
+  return {
+    state: "ready",
+    title,
+    detail: "Deterministic evidence only.",
+    groups: groups.length > 0 ? groups : [{ tag: "death_count", label: `${deathCount} ${deathCount === 1 ? "death" : "deaths"}`, count: deathCount, timestamps }],
+    timestamps
+  };
+}
+
 function reviewHrefForGame(game, context = {}) {
   if (!game?.matchId) {
     return toAppHref("/review", context) ?? "/review";
@@ -931,6 +1032,32 @@ function renderTagCounts(counts) {
   );
 }
 
+function renderReviewPriority(priority) {
+  const timestampLine = priority.timestamps.length > 0
+    ? `<p class="muted">Inspect first: ${escapeHtml(priority.timestamps.join(", "))}</p>`
+    : "";
+  const groupList = priority.groups.length > 0
+    ? `
+      <section class="compact-list">
+        ${priority.groups.map((group) => {
+          const timestamps = group.timestamps?.length ? ` · ${group.timestamps.slice(0, 3).join(", ")}` : "";
+          return `<article class="compact-row"><span>${escapeHtml(group.label)}${escapeHtml(timestamps)}</span></article>`;
+        }).join("")}
+      </section>
+    `
+    : "";
+
+  return `
+    <article class="panel review-priority-panel">
+      <p class="eyebrow">Review First</p>
+      <h3>${escapeHtml(priority.title)}</h3>
+      <p class="muted">${escapeHtml(priority.detail)}</p>
+      ${timestampLine}
+      ${groupList}
+    </article>
+  `;
+}
+
 function renderReviewLanding(root, context = getRouteContext()) {
   root.innerHTML = appShell(`
     <section class="goal-dashboard-stack">
@@ -955,6 +1082,7 @@ function renderMatchReview(root, review, context = getRouteContext()) {
   const evaluationSummary = review.evaluationSummary ?? null;
   const reviewSignals = evaluationSummary?.reviewSignals ?? [];
   const goalRelevance = review.goalRelevance ?? review.relevanceReason ?? null;
+  const reviewPriority = deriveReviewPriority(review);
 
   root.innerHTML = appShell(`
     <section class="section-heading">
@@ -964,6 +1092,7 @@ function renderMatchReview(root, review, context = getRouteContext()) {
       </div>
       <p class="section-copy">${escapeHtml(kdaLabel(summary))} KDA${summary.role ? ` · ${escapeHtml(summary.role)}` : ""}</p>
     </section>
+    ${renderReviewPriority(reviewPriority)}
     <section class="review-workspace-layout">
       <article class="panel review-run-panel">
         <p class="eyebrow">Match Summary</p>
