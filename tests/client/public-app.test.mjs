@@ -336,8 +336,10 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("1 game ready");
-    expect(document.body.textContent).toContain("2 games still being prepared");
+    expect(document.body.textContent).toContain("5 games discovered");
+    expect(document.body.textContent).toContain("3 match summaries ready");
+    expect(document.body.textContent).toContain("2 evaluations ready");
+    expect(document.body.textContent).toContain("1 evaluation preparing");
     expect(document.body.textContent).toContain("Today's Review Candidate");
     expect(document.body.textContent).toContain("Review this game");
     expect(document.body.textContent).toContain("Goal relevance: Die Less · ADC");
@@ -382,6 +384,7 @@ describe("public app routes", () => {
                   summary: "10 games ready",
                   readyCount: 10,
                   preparingCount: 0,
+                  discoveredCount: 10,
                   candidateGames: [
                     {
                       matchId: "NA1_pending",
@@ -413,8 +416,13 @@ describe("public app routes", () => {
     await renderApp(document.querySelector("#app"));
 
     expect(document.body.textContent).toContain("Review candidate preparing");
-    expect(document.body.textContent).toContain("Recent games are ready, but deterministic evaluations are still being prepared.");
+    expect(document.body.textContent).toContain("1 match summary ready");
+    expect(document.body.textContent).toContain("0 evaluations ready");
+    expect(document.body.textContent).toContain("1 evaluation preparing");
+    expect(document.body.textContent).toContain("Match summaries are ready. Evaluations are preparing.");
+    expect(document.body.textContent).not.toContain("10 games ready");
     expect(document.body.textContent).not.toContain("Review this game");
+    expect(document.querySelector('a[href="/review?matchId=NA1_pending"]')?.textContent).toContain("Open summary");
   });
 
   it("renders preparing match summary instead of fabricated candidate metadata", async () => {
@@ -444,6 +452,7 @@ describe("public app routes", () => {
                   title: "10 games ready",
                   summary: "10 games ready",
                   readyCount: 10,
+                  discoveredCount: 10,
                   candidateGames: [
                     {
                       matchId: "NA1_incomplete",
@@ -475,10 +484,16 @@ describe("public app routes", () => {
     await renderApp(document.querySelector("#app"));
 
     expect(document.body.textContent).toContain("Preparing match summary");
+    expect(document.body.textContent).toContain("10 games discovered");
+    expect(document.body.textContent).toContain("0 match summaries ready");
+    expect(document.body.textContent).toContain("Match summaries preparing.");
     expect(document.body.textContent).not.toContain("Unknown queue");
     expect(document.body.textContent).not.toContain("Unknown result");
     expect(document.body.textContent).not.toContain("0/0/0");
+    expect(document.body.textContent).not.toContain("10 games ready");
     expect(document.body.textContent).not.toContain("Review this game");
+    expect(document.querySelector('a[href="/review?matchId=NA1_incomplete"]')).toBeNull();
+    expect(document.body.textContent).toContain("Preparing");
   });
 
   it("preserves matchId on demo Review links", async () => {

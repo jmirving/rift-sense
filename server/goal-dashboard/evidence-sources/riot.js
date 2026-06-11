@@ -121,28 +121,68 @@ function buildSeededDemoEvidence() {
   };
 }
 
-function statusTitle(status, readyCount) {
+function gameHasSummaryMetadata(game) {
+  return Boolean(game?.matchId && game?.queueLabel && game?.result && game?.kda);
+}
+
+function gameIsEvaluationReady(game) {
+  return Boolean(gameHasSummaryMetadata(game) && game?.evaluationStatus === "current" && game?.evaluationSummary);
+}
+
+function readinessCounts(recentGamesResult, candidateGames = []) {
+  const summaryReadyCount = Number.isFinite(Number(recentGamesResult.summaryReadyCount))
+    ? Number(recentGamesResult.summaryReadyCount)
+    : candidateGames.length > 0
+      ? candidateGames.filter(gameHasSummaryMetadata).length
+      : Number(recentGamesResult.readyCount ?? recentGamesResult.games?.length ?? 0);
+  const evaluationReadyCount = Number.isFinite(Number(recentGamesResult.evaluationReadyCount))
+    ? Number(recentGamesResult.evaluationReadyCount)
+    : candidateGames.filter(gameIsEvaluationReady).length;
+  const discoveredCount = Number.isFinite(Number(recentGamesResult.discoveredCount))
+    ? Number(recentGamesResult.discoveredCount)
+    : Math.max(
+        candidateGames.length + Number(recentGamesResult.preparingCount ?? 0),
+        summaryReadyCount,
+        Number(recentGamesResult.readyCount ?? recentGamesResult.games?.length ?? 0)
+      );
+  const evaluationPreparingCount = Number.isFinite(Number(recentGamesResult.evaluationPreparingCount))
+    ? Number(recentGamesResult.evaluationPreparingCount)
+    : Math.max(0, summaryReadyCount - evaluationReadyCount);
+
+  return {
+    discoveredCount,
+    summaryReadyCount,
+    evaluationReadyCount,
+    evaluationPreparingCount,
+    matchSummariesPreparingCount: Math.max(0, discoveredCount - summaryReadyCount)
+  };
+}
+
+function statusTitle(status, counts) {
   return {
     riot_access_not_configured: "Riot access not configured",
     checking_recent_games: "Checking recent games",
     recent_games_unavailable: "Recent games unavailable",
     games_found_parsing: "Preparing recent games",
-    some_games_ready: `${readyCount} ${readyCount === 1 ? "game" : "games"} ready`,
-    all_recent_games_ready: `${readyCount} ${readyCount === 1 ? "game" : "games"} ready`,
+    some_games_ready: counts.evaluationReadyCount > 0
+      ? `${counts.evaluationReadyCount} ${counts.evaluationReadyCount === 1 ? "evaluation" : "evaluations"} ready`
+      : `${counts.discoveredCount} ${counts.discoveredCount === 1 ? "game" : "games"} found`,
+    all_recent_games_ready: counts.evaluationReadyCount > 0
+      ? `${counts.evaluationReadyCount} ${counts.evaluationReadyCount === 1 ? "evaluation" : "evaluations"} ready`
+      : `${counts.discoveredCount} ${counts.discoveredCount === 1 ? "game" : "games"} found`,
     parse_failed_retry_available: "Recent game parsing failed"
   }[status] ?? "Recent games unavailable";
 }
 
-function readinessSummary(recentGamesResult, fallbackMessage) {
-  const readyCount = Number(recentGamesResult.readyCount ?? recentGamesResult.games?.length ?? 0);
-  const preparingCount = Number(recentGamesResult.preparingCount ?? 0);
-  const readiness = `${readyCount} ${readyCount === 1 ? "game" : "games"} ready · ${preparingCount} ${preparingCount === 1 ? "game" : "games"} still being prepared`;
+function readinessSummary(recentGamesResult, fallbackMessage, candidateGames = []) {
+  const counts = readinessCounts(recentGamesResult, candidateGames);
+  const readiness = `${counts.discoveredCount} ${counts.discoveredCount === 1 ? "game" : "games"} discovered · ${counts.summaryReadyCount} match ${counts.summaryReadyCount === 1 ? "summary" : "summaries"} ready · ${counts.evaluationReadyCount} ${counts.evaluationReadyCount === 1 ? "evaluation" : "evaluations"} ready · ${counts.evaluationPreparingCount} ${counts.evaluationPreparingCount === 1 ? "evaluation" : "evaluations"} preparing`;
 
   if (["some_games_ready", "games_found_parsing"].includes(recentGamesResult.status)) {
     return readiness;
   }
   if (recentGamesResult.status === "all_recent_games_ready") {
-    return `${readyCount} ${readyCount === 1 ? "game is" : "games are"} ready.`;
+    return readiness;
   }
 
   return fallbackMessage;
@@ -152,16 +192,20 @@ function buildUnavailableEvidence(riotIdentity, recentGamesResult) {
   const handle = riotIdentity.gameName && riotIdentity.tagLine
     ? `${riotIdentity.gameName}#${riotIdentity.tagLine}`
     : "Linked Riot account";
-  const readyCount = Number(recentGamesResult.readyCount ?? recentGamesResult.games?.length ?? 0);
+  const counts = readinessCounts(recentGamesResult, []);
 
   return {
     status: recentGamesResult.status,
-    title: statusTitle(recentGamesResult.status, readyCount),
+    title: statusTitle(recentGamesResult.status, counts),
     summary: readinessSummary(recentGamesResult, `${handle} is linked. ${recentGamesResult.message}`),
     confidence: "Pending",
     sourceLabel: recentGamesResult.sourceLabel ?? "Riot account linked",
     candidateGames: [],
-    readyCount,
+    readyCount: counts.summaryReadyCount,
+    discoveredCount: counts.discoveredCount,
+    summaryReadyCount: counts.summaryReadyCount,
+    evaluationReadyCount: counts.evaluationReadyCount,
+    evaluationPreparingCount: counts.evaluationPreparingCount,
     preparingCount: Number(recentGamesResult.preparingCount ?? 0),
     failedCount: Number(recentGamesResult.failedCount ?? 0)
   };
@@ -173,21 +217,27 @@ function buildAvailableEvidence(candidateGames, recentGamesResult, { goal, profi
   const readyCount = Number(recentGamesResult.readyCount ?? candidateGames.length);
   const preparingCount = Number(recentGamesResult.preparingCount ?? 0);
   const status = recentGamesResult.status ?? (preparingCount > 0 ? "some_games_ready" : "all_recent_games_ready");
+  const counts = readinessCounts({ ...recentGamesResult, readyCount, preparingCount }, candidateGames);
 
   return {
     status,
-    title: statusTitle(status, readyCount),
+    title: statusTitle(status, counts),
     summary: readinessSummary(
       { ...recentGamesResult, readyCount, preparingCount },
       candidateGames.length > 0
-        ? "Recent games are ready for review."
-        : "Recent games were found, but none scored as strong candidates yet."
+        ? "Recent games found."
+        : "Recent games were found, but none scored as strong candidates yet.",
+      candidateGames
     ),
     confidence: mapConfidenceLabel(topConfidence),
     sourceLabel,
     candidateGames,
     reviewCandidate: selectReviewCandidate({ candidateGames, goal, profile }),
-    readyCount,
+    readyCount: counts.summaryReadyCount,
+    discoveredCount: counts.discoveredCount,
+    summaryReadyCount: counts.summaryReadyCount,
+    evaluationReadyCount: counts.evaluationReadyCount,
+    evaluationPreparingCount: counts.evaluationPreparingCount,
     preparingCount,
     failedCount: Number(recentGamesResult.failedCount ?? 0)
   };

@@ -767,17 +767,77 @@ function riotStatusTrend(status) {
   return "unknown";
 }
 
+function gameHasSummaryMetadata(game) {
+  return Boolean(game?.matchId && game?.queueLabel && game?.result && game?.kda);
+}
+
+function gameIsEvaluationReady(game) {
+  return Boolean(gameHasSummaryMetadata(game) && game?.evaluationStatus === "current" && game?.evaluationSummary);
+}
+
+function riotReadinessCounts(riotEvidence) {
+  const candidateGames = riotEvidence?.candidateGames ?? [];
+  const summaryReadyCount = Number.isFinite(Number(riotEvidence?.summaryReadyCount))
+    ? Number(riotEvidence.summaryReadyCount)
+    : candidateGames.length > 0
+      ? candidateGames.filter(gameHasSummaryMetadata).length
+      : Number(riotEvidence?.readyCount ?? 0);
+  const evaluationReadyCount = Number.isFinite(Number(riotEvidence?.evaluationReadyCount))
+    ? Number(riotEvidence.evaluationReadyCount)
+    : candidateGames.filter(gameIsEvaluationReady).length;
+  const discoveredCount = Number.isFinite(Number(riotEvidence?.discoveredCount))
+    ? Number(riotEvidence.discoveredCount)
+    : Math.max(candidateGames.length + Number(riotEvidence?.preparingCount ?? 0), summaryReadyCount, Number(riotEvidence?.readyCount ?? 0));
+  const evaluationsPreparingCount = Number.isFinite(Number(riotEvidence?.evaluationPreparingCount))
+    ? Number(riotEvidence.evaluationPreparingCount)
+    : Math.max(0, summaryReadyCount - evaluationReadyCount);
+
+  return {
+    discoveredCount,
+    summaryReadyCount,
+    evaluationReadyCount,
+    evaluationsPreparingCount,
+    matchSummariesPreparingCount: Math.max(0, discoveredCount - summaryReadyCount)
+  };
+}
+
+function riotEvidenceTitle(riotEvidence) {
+  const counts = riotReadinessCounts(riotEvidence);
+  if (counts.evaluationReadyCount > 0) {
+    return `${counts.evaluationReadyCount} ${counts.evaluationReadyCount === 1 ? "evaluation" : "evaluations"} ready`;
+  }
+  if (counts.summaryReadyCount > 0) {
+    return `${counts.summaryReadyCount} match ${counts.summaryReadyCount === 1 ? "summary" : "summaries"} ready`;
+  }
+  if (counts.discoveredCount > 0) {
+    return `${counts.discoveredCount} ${counts.discoveredCount === 1 ? "game" : "games"} found`;
+  }
+  return riotEvidence?.title ?? "Riot evidence";
+}
+
+function riotEvidenceSummary(riotEvidence) {
+  const counts = riotReadinessCounts(riotEvidence);
+  if (counts.matchSummariesPreparingCount > 0 && counts.summaryReadyCount === 0) {
+    return "Match summaries preparing.";
+  }
+  if (counts.evaluationsPreparingCount > 0 && counts.evaluationReadyCount === 0) {
+    return "Match summaries are ready. Evaluations are preparing.";
+  }
+  return riotEvidence?.summary ?? "";
+}
+
 function riotReadinessLine(riotEvidence) {
-  if (!riotEvidence || !Number.isFinite(Number(riotEvidence.readyCount))) {
+  if (!riotEvidence) {
     return "";
   }
 
-  const readyCount = Number(riotEvidence.readyCount);
-  const preparingCount = Number(riotEvidence.preparingCount ?? 0);
+  const counts = riotReadinessCounts(riotEvidence);
   return `
     <div class="riot-readiness" aria-live="polite">
-      <span>${escapeHtml(`${readyCount} ${readyCount === 1 ? "game" : "games"} ready`)}</span>
-      <span>${escapeHtml(`${preparingCount} ${preparingCount === 1 ? "game" : "games"} still being prepared`)}</span>
+      <span>${escapeHtml(`${counts.discoveredCount} ${counts.discoveredCount === 1 ? "game" : "games"} discovered`)}</span>
+      <span>${escapeHtml(`${counts.summaryReadyCount} match ${counts.summaryReadyCount === 1 ? "summary" : "summaries"} ready`)}</span>
+      <span>${escapeHtml(`${counts.evaluationReadyCount} ${counts.evaluationReadyCount === 1 ? "evaluation" : "evaluations"} ready`)}</span>
+      <span>${escapeHtml(`${counts.evaluationsPreparingCount} ${counts.evaluationsPreparingCount === 1 ? "evaluation" : "evaluations"} preparing`)}</span>
     </div>
   `;
 }
@@ -952,10 +1012,6 @@ function evaluationSummaryBlock(game) {
   `;
 }
 
-function gameHasSummaryMetadata(game) {
-  return Boolean(game?.queueLabel && game?.result && game?.kda);
-}
-
 function riotEvidenceCard(riotEvidence, context = {}) {
   if (!riotEvidence) {
     return "";
@@ -967,12 +1023,12 @@ function riotEvidenceCard(riotEvidence, context = {}) {
       <div class="panel-header">
         <div>
           <p class="eyebrow">Recent Game Evidence</p>
-          <h2>${escapeHtml(riotEvidence.title ?? "Riot evidence")}</h2>
+          <h2>${escapeHtml(riotEvidenceTitle(riotEvidence))}</h2>
           ${sourceLabel}
         </div>
         ${riotEvidence.confidence ? statusBadge(riotEvidence.confidence, riotEvidence.status === "seeded-demo" ? "watch" : riotStatusTrend(riotEvidence.status)) : ""}
       </div>
-      <p class="muted">${escapeHtml(riotEvidence.summary ?? "")}</p>
+      <p class="muted">${escapeHtml(riotEvidenceSummary(riotEvidence))}</p>
       ${riotReadinessLine(riotEvidence)}
       <section class="compact-list">
         ${(riotEvidence.candidateGames ?? []).length > 0
@@ -984,6 +1040,11 @@ function riotEvidenceCard(riotEvidence, context = {}) {
             const value = hasSummaryMetadata
               ? `${game.kda} · ${game.csPerMinute ?? "?"} cs/min`
               : "Preparing match summary";
+            const action = gameIsEvaluationReady(game)
+              ? `<a class="button secondary compact-row-action" href="${escapeHtml(reviewHrefForGame(game, context))}">Review</a>`
+              : hasSummaryMetadata
+                ? `<a class="button secondary compact-row-action" href="${escapeHtml(reviewHrefForGame(game, context))}">Open summary</a>`
+                : '<span class="button secondary compact-row-action is-disabled" aria-disabled="true">Preparing</span>';
 
             return `
               <article class="compact-row game-evidence-row">
@@ -995,7 +1056,7 @@ function riotEvidenceCard(riotEvidence, context = {}) {
                 </div>
                 <div class="game-evidence-actions">
                   <span class="muted">${escapeHtml((game.confidenceLabel ?? "").toUpperCase())}</span>
-                  <a class="button secondary compact-row-action" href="${escapeHtml(reviewHrefForGame(game, context))}">Review</a>
+                  ${action}
                 </div>
               </article>
             `;
@@ -1013,6 +1074,10 @@ function reviewCandidateCard(riotEvidence, goal, context = {}) {
       game?.evaluationStatus === "current" && game?.evaluationSummary
     );
     if (!hasEvaluatedGame && (riotEvidence?.readyCount > 0 || (riotEvidence?.candidateGames ?? []).length > 0)) {
+      const counts = riotReadinessCounts(riotEvidence);
+      const message = counts.summaryReadyCount > 0
+        ? "Match summaries are ready. Evaluations are preparing."
+        : "Recent games found. Match summaries are preparing.";
       return `
         <section class="panel review-candidate-panel">
           <div class="panel-header">
@@ -1021,7 +1086,7 @@ function reviewCandidateCard(riotEvidence, goal, context = {}) {
               <h2>Review candidate preparing</h2>
             </div>
           </div>
-          <p class="muted">Recent games are ready, but deterministic evaluations are still being prepared.</p>
+          <p class="muted">${escapeHtml(message)}</p>
         </section>
       `;
     }
