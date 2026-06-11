@@ -992,6 +992,40 @@ function riotEvidenceCard(riotEvidence, context = {}) {
   `;
 }
 
+function reviewCandidateCard(riotEvidence, goal, context = {}) {
+  const candidate = riotEvidence?.reviewCandidate ?? riotEvidence?.candidateGames?.[0] ?? null;
+  if (!candidate?.matchId) {
+    return "";
+  }
+
+  const signals = candidate.topDeterministicSignals?.length > 0
+    ? candidate.topDeterministicSignals.map((signal) => signal.label ?? signal.tag).filter(Boolean)
+    : candidate.evaluationSummary?.reviewSignals ?? [];
+  const goalRelevance = candidate.goalRelevance ?? (
+    goal?.title ? `${goal.title}${goal.role ? ` · ${goal.role}` : ""}` : null
+  );
+
+  return `
+    <section class="panel review-candidate-panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Today's Review Candidate</p>
+          <h2>${escapeHtml(candidate.champion ?? candidate.championName ?? "Unknown champion")}</h2>
+        </div>
+        <a class="button" href="${escapeHtml(reviewHrefForGame(candidate, context))}">Review this game</a>
+      </div>
+      <div class="badge-row">
+        ${statusBadge(candidate.result ?? "Unknown result", candidate.result === "Win" ? "positive" : "watch")}
+        <span class="context-badge">${escapeHtml(candidate.queueLabel ?? "Unknown queue")}</span>
+        <span class="context-badge">${escapeHtml(candidate.kda ?? "0/0/0")} KDA</span>
+      </div>
+      ${signals.length > 0 ? renderSignalList(signals.slice(0, 3), "") : '<p class="muted">No deterministic signals are available yet.</p>'}
+      <p class="muted">${escapeHtml(candidate.selectionReason ?? candidate.relevanceReason ?? "Selected from recent reviewable games.")}</p>
+      ${goalRelevance ? `<p class="muted">Goal relevance: ${escapeHtml(goalRelevance)}</p>` : ""}
+    </section>
+  `;
+}
+
 function matchSummaryTitle(review) {
   const summary = review?.matchSummary ?? {};
   const champion = summary.championName ?? "Unknown champion";
@@ -1556,6 +1590,7 @@ async function renderHome(root, context = getRouteContext()) {
         </section>
       </section>
 
+      ${reviewCandidateCard(riotEvidence, goal, context)}
       ${riotEvidenceCard(riotEvidence, context)}
 
       <section class="panel next-steps-panel">

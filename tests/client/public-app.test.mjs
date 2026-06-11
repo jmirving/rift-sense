@@ -316,6 +316,9 @@ describe("public app routes", () => {
 
     expect(document.body.textContent).toContain("1 game ready");
     expect(document.body.textContent).toContain("2 games still being prepared");
+    expect(document.body.textContent).toContain("Today's Review Candidate");
+    expect(document.body.textContent).toContain("Review this game");
+    expect(document.body.textContent).toContain("Goal relevance: Die Less · ADC");
     expect(document.body.textContent).toContain("Jhin · Ranked Solo/Duo · Loss");
     expect(document.body.textContent).toContain("Review Signals · current");
     expect(document.body.textContent).toContain("5 deaths");
@@ -325,6 +328,7 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("0 deaths");
     expect(document.body.textContent).toContain("Evaluation: none");
     expect(document.body.textContent).not.toContain("SECRET_TIMELINE_EVENT");
+    expect(document.body.textContent).not.toContain("SECRET_MATCH_JSON");
     expect(document.querySelector('a[href="/review?matchId=NA1_1"]')?.textContent).toContain("Review");
   });
 
@@ -366,6 +370,7 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
+    expect(document.body.textContent).toContain("Today's Review Candidate");
     expect(document.querySelector('a[href="/demo/review?matchId=NA1_demo"]')?.textContent).toContain("Review");
   });
 

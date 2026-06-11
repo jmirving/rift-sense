@@ -19,6 +19,16 @@ const QUEUE_LABELS = new Map([
   [700, "Clash"]
 ]);
 
+const GOAL_RELEVANT_DETERMINISTIC_TAGS = new Set([
+  "death_count",
+  "multi_enemy_collapse_candidate",
+  "objective_window_candidate",
+  "objective_setup_death_candidate",
+  "objective_exit_death_candidate",
+  "level_up_all_in_candidate",
+  "isolated_forward_death_candidate"
+]);
+
 function normalizeString(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -741,19 +751,10 @@ function scoreOneGame(game, { activeSince, preferredRole, now, goalTitle }) {
   const evaluationDeathCount = Number(evaluationSummary?.deathCount ?? game.deaths ?? 0);
   const normalizedGoalTitle = normalizeString(goalTitle)?.toLowerCase() ?? "";
   const deathGoal = ["die less", "death", "positioning"].some((term) => normalizedGoalTitle.includes(term));
-  const goalRelevantTagCount = (evaluationSummary?.topTags ?? []).reduce((total, entry) => {
-    const tag = normalizeString(entry?.tag) ?? "";
-    const count = Number(entry?.count ?? 0);
-    if (!Number.isFinite(count) || count <= 0) {
-      return total;
-    }
-    if (!deathGoal) {
-      return total + count;
-    }
-    return tag.includes("death") || tag.includes("collapse") || tag.includes("objective") || tag.includes("level")
-      ? total + count
-      : total;
-  }, 0);
+  const goalRelevantTagCount = deterministicSignalEntries(game).reduce(
+    (total, entry) => total + Number(entry.count ?? 0),
+    0
+  );
 
   if (evaluationSummary) {
     score += 35;
@@ -836,6 +837,34 @@ function scoreOneGame(game, { activeSince, preferredRole, now, goalTitle }) {
   };
 }
 
+function deterministicSignalEntries(game) {
+  const evaluationSummary = game?.evaluationSummary ?? null;
+  const entries = [];
+  const deathCount = Number(evaluationSummary?.deathCount ?? game?.deaths ?? 0);
+
+  if (Number.isFinite(deathCount) && deathCount > 0) {
+    entries.push({ tag: "death_count", count: deathCount, label: `${deathCount} ${deathCount === 1 ? "death" : "deaths"}` });
+  }
+
+  for (const entry of evaluationSummary?.topTags ?? []) {
+    const tag = normalizeString(entry?.tag);
+    const count = Number(entry?.count ?? 0);
+    if (tag === "death_count") {
+      continue;
+    }
+    if (!tag || !GOAL_RELEVANT_DETERMINISTIC_TAGS.has(tag) || !Number.isFinite(count) || count <= 0) {
+      continue;
+    }
+    entries.push({
+      tag,
+      count,
+      label: `${count} ${tag.replaceAll("_", " ")}${count === 1 ? "" : "s"}`
+    });
+  }
+
+  return entries;
+}
+
 function confidenceLabel(score) {
   if (score >= 70) {
     return "high";
@@ -879,4 +908,44 @@ export function scoreRecentGames({
   return candidatePool
     .sort((left, right) => right.relevanceScore - left.relevanceScore)
     .map(({ queueBucket, sourceMetadata, ...game }) => game);
+}
+
+export function selectReviewCandidate({ candidateGames, goal, profile } = {}) {
+  const game = (candidateGames ?? [])[0] ?? null;
+  if (!game) {
+    return null;
+  }
+
+  const preferredRole = normalizeRole(profile?.primaryRole ?? goal?.role);
+  const topDeterministicSignals = deterministicSignalEntries(game).slice(0, 3);
+  const activeGoalTitle = normalizeString(goal?.title);
+  const goalRelevance = activeGoalTitle
+    ? `${activeGoalTitle}${preferredRole ? ` · ${preferredRole}` : ""}`
+    : preferredRole
+      ? `${preferredRole} profile`
+      : null;
+  const selectionReason = game.relevanceReason
+    ? `Selected for ${game.relevanceReason}.`
+    : "Selected from recent reviewable games.";
+
+  return {
+    matchId: game.matchId,
+    playedAt: game.playedAt ?? null,
+    champion: game.champion ?? game.championName ?? null,
+    championName: game.championName ?? game.champion ?? null,
+    result: game.result ?? null,
+    kda: game.kda ?? `${game.kills ?? "?"}/${game.deaths ?? "?"}/${game.assists ?? "?"}`,
+    kills: game.kills ?? null,
+    deaths: game.deaths ?? null,
+    assists: game.assists ?? null,
+    queueLabel: game.queueLabel ?? null,
+    role: game.role ?? null,
+    confidenceLabel: game.confidenceLabel ?? "low",
+    evaluationStatus: game.evaluationStatus ?? "not_evaluated",
+    evaluationSummary: game.evaluationSummary ?? null,
+    topDeterministicSignals,
+    selectionReason,
+    goalRelevance,
+    relevanceReason: game.relevanceReason ?? null
+  };
 }

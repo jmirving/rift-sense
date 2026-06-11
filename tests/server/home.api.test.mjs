@@ -448,6 +448,13 @@ describe("home API", () => {
       confidenceLabel: "high"
     });
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.candidateGames[0].relevanceReason).toContain("ADC role match");
+    expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.reviewCandidate).toMatchObject({
+      matchId: "NA1_1",
+      championName: "Jhin",
+      queueLabel: "Ranked Solo/Duo",
+      kda: "8/5/6"
+    });
+    expect(JSON.stringify(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.reviewCandidate)).not.toContain("timelineJson");
   });
 
   it("uses lightweight recent-game cards and existing evaluation summaries on /api/home", async () => {
@@ -564,6 +571,7 @@ describe("home API", () => {
 
     expect(response.status).toBe(200);
     const games = response.body.home.goalDashboard.activePersonalGoal.riotEvidence.candidateGames;
+    const reviewCandidate = response.body.home.goalDashboard.activePersonalGoal.riotEvidence.reviewCandidate;
     expect(games).toEqual(expect.arrayContaining([
       expect.objectContaining({
         matchId: "NA1_card_1",
@@ -580,6 +588,11 @@ describe("home API", () => {
         evaluationDeaths: []
       })
     ]));
+    expect(reviewCandidate).toMatchObject({
+      matchId: "NA1_card_1",
+      evaluationStatus: "current",
+      topDeterministicSignals: [expect.objectContaining({ tag: "death_count", count: 2 })]
+    });
     expect(riotMatchesRepository.getRawMatchData).not.toHaveBeenCalled();
     expect(matchEvaluationsRepository.listRecentPersistedPerspectivesForUser).not.toHaveBeenCalled();
     expect(matchEvaluationsRepository.getMatchEvaluation).not.toHaveBeenCalled();

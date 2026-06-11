@@ -6,7 +6,8 @@ import {
   normalizeRecentGame,
   RECENT_MATCH_LOOKUP_LIMIT,
   resolveRecentGames,
-  scoreRecentGames
+  scoreRecentGames,
+  selectReviewCandidate
 } from "../../server/riot/recent-games.js";
 import { createInMemoryRiotMatchesRepository } from "./test-repositories.mjs";
 
@@ -534,17 +535,17 @@ describe("riot recent-games service", () => {
       ]
     });
 
-    expect(candidates.map((game) => game.matchId)).toEqual(["best", "nodeaths", "offrole", "older"]);
+    expect(candidates.map((game) => game.matchId)).toEqual(["best", "offrole", "older", "nodeaths"]);
     expect(candidates[0].confidenceLabel).toBe("high");
     expect(candidates[0].relevanceReason).toContain("after goal start");
     expect(candidates[0].relevanceReason).toContain("contains deaths to review");
     expect(candidates.findIndex((game) => game.matchId === "best")).toBeLessThan(
       candidates.findIndex((game) => game.matchId === "offrole")
     );
-    expect(candidates.findIndex((game) => game.matchId === "best")).toBeLessThan(
+    expect(candidates.findIndex((game) => game.matchId === "offrole")).toBeLessThan(
       candidates.findIndex((game) => game.matchId === "nodeaths")
     );
-    expect(candidates.findIndex((game) => game.matchId === "nodeaths")).toBeLessThan(
+    expect(candidates.findIndex((game) => game.matchId === "nodeaths")).toBeGreaterThan(
       candidates.findIndex((game) => game.matchId === "older")
     );
     expect(candidates.find((game) => game.matchId === "aram")).toBeUndefined();
@@ -624,7 +625,7 @@ describe("riot recent-games service", () => {
 
     expect(candidates.map((game) => game.matchId)).toEqual(["strong-evidence", "light-evidence", "unevaluated"]);
     expect(candidates[0].relevanceReason).toContain("evaluation ready");
-    expect(candidates[0].relevanceReason).toContain("5 goal-relevant signals");
+    expect(candidates[0].relevanceReason).toContain("9 goal-relevant signals");
   });
 
   it("falls back gracefully when no saved goal is available", () => {
@@ -672,5 +673,130 @@ describe("riot recent-games service", () => {
 
     expect(candidates.map((game) => game.matchId)).toEqual(["evaluated", "missing-evaluation"]);
     expect(candidates[0].relevanceReason).toContain("evaluation ready");
+  });
+
+  it("selects an evaluated review candidate over an unevaluated game", () => {
+    const candidates = scoreRecentGames({
+      goal: { title: "Die Less", role: "ADC" },
+      profile: { primaryRole: "ADC" },
+      now: new Date("2026-06-01T12:00:00.000Z"),
+      games: [
+        {
+          matchId: "unevaluated-newer",
+          playedAt: "2026-06-01T04:00:00.000Z",
+          queueLabel: "Ranked Solo/Duo",
+          championName: "Caitlyn",
+          role: "ADC",
+          result: "Loss",
+          kills: 8,
+          deaths: 3,
+          assists: 4,
+          csPerMinute: 8.4,
+          gameDurationSeconds: 1800,
+          sourceMetadata: { queueBucket: "ranked" }
+        },
+        {
+          matchId: "evaluated",
+          playedAt: "2026-06-01T03:00:00.000Z",
+          queueLabel: "Ranked Solo/Duo",
+          championName: "Jhin",
+          role: "ADC",
+          result: "Loss",
+          kills: 5,
+          deaths: 2,
+          assists: 6,
+          csPerMinute: 7.8,
+          gameDurationSeconds: 1800,
+          sourceMetadata: { queueBucket: "ranked" },
+          evaluationStatus: "current",
+          evaluationSummary: {
+            deathCount: 2,
+            topTags: [{ tag: "death_count", count: 2 }],
+            reviewSignals: ["2 deaths"]
+          }
+        }
+      ]
+    });
+    const candidate = selectReviewCandidate({ candidateGames: candidates, goal: { title: "Die Less", role: "ADC" } });
+
+    expect(candidate.matchId).toBe("evaluated");
+    expect(candidate.selectionReason).toContain("evaluation ready");
+    expect(candidate.topDeterministicSignals[0]).toMatchObject({ tag: "death_count", count: 2 });
+  });
+
+  it("prefers ranked role-matched games over unrelated normals when otherwise similar", () => {
+    const candidates = scoreRecentGames({
+      goal: { title: "Die Less", role: "ADC" },
+      profile: { primaryRole: "ADC" },
+      now: new Date("2026-06-01T12:00:00.000Z"),
+      games: [
+        {
+          matchId: "normal-mid",
+          playedAt: "2026-06-01T03:00:00.000Z",
+          queueLabel: "Normal Draft",
+          championName: "Ahri",
+          role: "MID",
+          result: "Loss",
+          kills: 5,
+          deaths: 3,
+          assists: 4,
+          csPerMinute: 7.1,
+          gameDurationSeconds: 1800,
+          sourceMetadata: { queueBucket: "normal" },
+          evaluationStatus: "current",
+          evaluationSummary: { deathCount: 3, topTags: [], reviewSignals: ["3 deaths"] }
+        },
+        {
+          matchId: "ranked-adc",
+          playedAt: "2026-06-01T03:00:00.000Z",
+          queueLabel: "Ranked Solo/Duo",
+          championName: "Ashe",
+          role: "ADC",
+          result: "Loss",
+          kills: 5,
+          deaths: 3,
+          assists: 4,
+          csPerMinute: 7.1,
+          gameDurationSeconds: 1800,
+          sourceMetadata: { queueBucket: "ranked" },
+          evaluationStatus: "current",
+          evaluationSummary: { deathCount: 3, topTags: [], reviewSignals: ["3 deaths"] }
+        }
+      ]
+    });
+
+    expect(candidates[0].matchId).toBe("ranked-adc");
+    expect(selectReviewCandidate({ candidateGames: candidates }).matchId).toBe("ranked-adc");
+  });
+
+  it("keeps a review candidate when evaluated games have zero deaths", () => {
+    const candidates = scoreRecentGames({
+      goal: { title: "Die Less", role: "ADC" },
+      profile: { primaryRole: "ADC" },
+      now: new Date("2026-06-01T12:00:00.000Z"),
+      games: [
+        {
+          matchId: "zero-deaths",
+          playedAt: "2026-06-01T03:00:00.000Z",
+          queueLabel: "Ranked Solo/Duo",
+          championName: "Sivir",
+          role: "ADC",
+          result: "Win",
+          kills: 4,
+          deaths: 0,
+          assists: 9,
+          csPerMinute: 8.1,
+          gameDurationSeconds: 1800,
+          sourceMetadata: { queueBucket: "ranked" },
+          evaluationStatus: "current",
+          evaluationSummary: { deathCount: 0, topTags: [], reviewSignals: ["0 deaths"] }
+        }
+      ]
+    });
+
+    expect(selectReviewCandidate({ candidateGames: candidates, goal: { title: "Die Less" } })).toMatchObject({
+      matchId: "zero-deaths",
+      evaluationStatus: "current"
+    });
   });
 });

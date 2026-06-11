@@ -1,4 +1,8 @@
-import { resolveRecentGames as defaultResolveRecentGames, scoreRecentGames } from "../../riot/recent-games.js";
+import {
+  resolveRecentGames as defaultResolveRecentGames,
+  scoreRecentGames,
+  selectReviewCandidate
+} from "../../riot/recent-games.js";
 import {
   DETERMINISTIC_MATCH_EVALUATOR_VERSION
 } from "../../riot/match-evaluator.js";
@@ -43,68 +47,77 @@ function buildNoRiotLinkedEvidence() {
 }
 
 function buildSeededDemoEvidence() {
+  const candidateGames = [
+    {
+      matchId: "NA1_DEMO_001",
+      playedAt: "2026-05-08T02:00:00Z",
+      queueLabel: "Ranked Solo/Duo",
+      champion: "Caitlyn",
+      championName: "Caitlyn",
+      role: "ADC",
+      result: "Loss",
+      kda: "3/6/5",
+      kills: 3,
+      deaths: 6,
+      assists: 5,
+      csPerMinute: 7.1,
+      gameDurationSeconds: 1920,
+      confidenceLabel: "medium",
+      relevanceReason: "ADC ranked game after goal start",
+      sourceLabel: "Seeded demo",
+      evaluationStatus: "current",
+      evaluationSummary: {
+        deathCount: 6,
+        topTags: [{ tag: "multi_enemy_collapse_candidate", count: 2 }],
+        reviewSignals: ["6 deaths", "2 multi-enemy collapse candidates"]
+      }
+    },
+    {
+      matchId: "NA1_DEMO_002",
+      playedAt: "2026-05-07T23:15:00Z",
+      queueLabel: "Ranked Flex",
+      champion: "Jinx",
+      championName: "Jinx",
+      role: "ADC",
+      result: "Win",
+      kda: "7/2/8",
+      kills: 7,
+      deaths: 2,
+      assists: 8,
+      csPerMinute: 8.4,
+      gameDurationSeconds: 2040,
+      confidenceLabel: "medium",
+      relevanceReason: "Role-matched flex game inside the 7-day window",
+      sourceLabel: "Seeded demo"
+    },
+    {
+      matchId: "NA1_DEMO_003",
+      playedAt: "2026-05-06T21:40:00Z",
+      queueLabel: "Normal Draft",
+      champion: "Ashe",
+      championName: "Ashe",
+      role: "ADC",
+      result: "Loss",
+      kda: "4/5/9",
+      kills: 4,
+      deaths: 5,
+      assists: 9,
+      csPerMinute: 6.9,
+      gameDurationSeconds: 1875,
+      confidenceLabel: "low",
+      relevanceReason: "Low-confidence ADC baseline game",
+      sourceLabel: "Seeded demo"
+    }
+  ];
+
   return {
     status: "seeded-demo",
     title: "3 relevant ADC games found",
     summary: "Based on 3 ranked ADC games since this goal started.",
     confidence: "Medium confidence",
     sourceLabel: "Seeded demo",
-    candidateGames: [
-      {
-        matchId: "NA1_DEMO_001",
-        playedAt: "2026-05-08T02:00:00Z",
-        queueLabel: "Ranked Solo/Duo",
-        champion: "Caitlyn",
-        championName: "Caitlyn",
-        role: "ADC",
-        result: "Loss",
-        kda: "3/6/5",
-        kills: 3,
-        deaths: 6,
-        assists: 5,
-        csPerMinute: 7.1,
-        gameDurationSeconds: 1920,
-        confidenceLabel: "medium",
-        relevanceReason: "ADC ranked game after goal start",
-        sourceLabel: "Seeded demo"
-      },
-      {
-        matchId: "NA1_DEMO_002",
-        playedAt: "2026-05-07T23:15:00Z",
-        queueLabel: "Ranked Flex",
-        champion: "Jinx",
-        championName: "Jinx",
-        role: "ADC",
-        result: "Win",
-        kda: "7/2/8",
-        kills: 7,
-        deaths: 2,
-        assists: 8,
-        csPerMinute: 8.4,
-        gameDurationSeconds: 2040,
-        confidenceLabel: "medium",
-        relevanceReason: "Role-matched flex game inside the 7-day window",
-        sourceLabel: "Seeded demo"
-      },
-      {
-        matchId: "NA1_DEMO_003",
-        playedAt: "2026-05-06T21:40:00Z",
-        queueLabel: "Normal Draft",
-        champion: "Ashe",
-        championName: "Ashe",
-        role: "ADC",
-        result: "Loss",
-        kda: "4/5/9",
-        kills: 4,
-        deaths: 5,
-        assists: 9,
-        csPerMinute: 6.9,
-        gameDurationSeconds: 1875,
-        confidenceLabel: "low",
-        relevanceReason: "Low-confidence ADC baseline game",
-        sourceLabel: "Seeded demo"
-      }
-    ]
+    candidateGames,
+    reviewCandidate: selectReviewCandidate({ candidateGames, goal: { title: "Die Less", role: "ADC" }, profile: { primaryRole: "ADC" } })
   };
 }
 
@@ -154,7 +167,7 @@ function buildUnavailableEvidence(riotIdentity, recentGamesResult) {
   };
 }
 
-function buildAvailableEvidence(candidateGames, recentGamesResult) {
+function buildAvailableEvidence(candidateGames, recentGamesResult, { goal, profile } = {}) {
   const topConfidence = candidateGames[0]?.confidenceLabel ?? "low";
   const sourceLabel = candidateGames[0]?.sourceLabel ?? "Riot recent games";
   const readyCount = Number(recentGamesResult.readyCount ?? candidateGames.length);
@@ -173,6 +186,7 @@ function buildAvailableEvidence(candidateGames, recentGamesResult) {
     confidence: mapConfidenceLabel(topConfidence),
     sourceLabel,
     candidateGames,
+    reviewCandidate: selectReviewCandidate({ candidateGames, goal, profile }),
     readyCount,
     preparingCount,
     failedCount: Number(recentGamesResult.failedCount ?? 0)
@@ -305,7 +319,10 @@ export async function applyRiotEvidenceToDashboard({
       if (candidateGames.length === 0) {
         riotEvidence = buildUnavailableEvidence(riotIdentity, recentGamesResult);
       } else {
-        riotEvidence = buildAvailableEvidence(candidateGames, recentGamesResult);
+        riotEvidence = buildAvailableEvidence(candidateGames, recentGamesResult, {
+          goal: goalDashboard.activePersonalGoal,
+          profile
+        });
       }
     }
   }
