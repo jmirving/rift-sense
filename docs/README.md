@@ -37,9 +37,12 @@ It does not yet need a full ADR, contracts, or legal doc tree.
 
 Feature specs live in `docs/specs/`.
 
-Current starting spec:
+Current specs:
 
 - [specs/001-learning-content-library-and-ingestion.md](./specs/001-learning-content-library-and-ingestion.md)
 - [specs/001-implementation-plan.md](./specs/001-implementation-plan.md)
 - [specs/002-hosted-nexus-auth-callback.md](./specs/002-hosted-nexus-auth-callback.md)
 - [specs/003-public-demo-dashboard-route.md](./specs/003-public-demo-dashboard-route.md)
+- [specs/050-closed-match-evaluator-persistence.md](./specs/050-closed-match-evaluator-persistence.md)
+- [specs/051-closed-match-evaluator-backfill-api.md](./specs/051-closed-match-evaluator-backfill-api.md)
+- [specs/052-open-deterministic-review-roadmap.md](./specs/052-open-deterministic-review-roadmap.md)

@@ -1,81 +1,99 @@
 # RiftSense Roadmap
 
-This roadmap is intended to guide spec order and near-term delivery.
-
-It is deliberately shorter and more focused than the broader `Nexus`
-roadmap because this repo is still at the foundation stage.
+This roadmap guides near-term spec order. RiftSense is currently focused
+on the recent-game and deterministic match-review vertical slice.
 
 ## Roadmap Principles
 
-- Make existing materials usable before overdesigning new authoring
-  systems.
-- Optimize for async team learning, not just solo browsing.
-- Reuse shared identity, team, and profile concepts instead of cloning
-  them locally.
-- Keep the early product compatible with future `Nexus` integration.
+- Keep persisted Riot data and deterministic review evidence durable.
+- Make match review useful before adding subjective coaching or AI prose.
+- Prefer small, versioned evaluator changes with test fixtures.
+- Preserve the content library as a later product track.
+- Keep the product compatible with future `Nexus` identity, team, and
+  profile integration.
 
-## Milestone 0: Product and Spec Foundation
-
-Objective:
-
-Create enough product, architecture, and spec documentation to support
-implementation without inventing the app from scratch each time.
-
-Target outcomes:
-
-- core product direction is documented
-- shared user and domain concepts are defined
-- the repo can author feature specs from canonical docs
-
-## Milestone 1: Learning Content Library
+## Milestone 0: Foundation and Spec Cleanup
 
 Objective:
 
-Make existing PowerPoints, documents, and linked videos usable through a
-structured `RiftSense` content library.
+Bring docs and spec status in line with the implemented recent-game
+review foundation.
 
 Target outcomes:
 
-- content can be uploaded or linked
-- content is organized into reusable modules
-- learners and team leads can find material by topic, audience, and
-  purpose
+- completed match evaluator persistence/API specs are closed
+- remaining review work is captured in open specs
+- the content-library direction is preserved as later work
 
-## Milestone 2: Async Assignments and Progress
+## Milestone 1: Deterministic Review MVP
 
 Objective:
 
-Turn content from a static library into assigned learning work.
+Use persisted Riot matches, perspectives, and evaluator rows as the
+primary review evidence path.
 
 Target outcomes:
 
-- team leads can assign modules or bundles
-- learners can complete modules asynchronously
-- completion and quiz results are visible at the team and player level
+- recent games load from persisted records when available
+- deterministic evaluations are current, versioned, and persisted
+- recent-game APIs expose evaluator summaries without raw timeline JSON
 
-## Milestone 3: Structured Assessments
+## Milestone 2: Useful Match Review Page
 
 Objective:
 
-Support lightweight quizzes and knowledge checks tied to learning
-modules.
+Make `/review?matchId=...` a practical deterministic review surface.
 
 Target outcomes:
 
-- quizzes can be authored or attached to modules
-- completion state and scores are tracked
-- teams can identify weak areas without needing a live session
+- the page shows match summary, review signals, deterministic tags, and
+  death facts
+- missing or pending evaluation states are handled clearly
+- review links preserve the selected `matchId`
 
-## Milestone 4: Shared Context Adoption
+## Milestone 3: Expanded Deterministic Evaluator Tags
 
 Objective:
 
-Adopt shared `Nexus` services for identity, teams, profiles, and related
-context as those become available.
+Increase review coverage with more deterministic, fixture-backed tags.
 
 Target outcomes:
 
-- `RiftSense` no longer owns parallel versions of shared concepts
-- assignments, progress, and recommendations can attach to canonical
-  team and player records
-- users can move between `Nexus` and `RiftSense` with lower friction
+- new tags stay versioned and explainable
+- tests cover zero-data and malformed-data cases
+- summaries remain concise enough for recent-game cards and review pages
+
+## Milestone 4: Goal-Linked Review Candidate Selection
+
+Objective:
+
+Select one primary review candidate from recent evaluated games and link
+it to the active personal goal when possible.
+
+Target outcomes:
+
+- the dashboard exposes a primary review candidate
+- candidate ranking prefers goal-relevant deterministic evidence
+- fallback behavior still offers reviewable games when no saved goal
+  exists
+
+## Later Tracks
+
+### Coach Workflow
+
+Support coach review, saved notes, and follow-up recommendations after
+the deterministic review foundation is useful.
+
+### Team Workflow
+
+Support team-level review patterns, shared focus areas, and async team
+coordination.
+
+### Learning Content Library
+
+Preserve the original content-library direction as a later product
+track:
+
+- upload or link PowerPoints, documents, and videos
+- organize materials into reusable modules
+- support assignments, progress, and lightweight assessments
