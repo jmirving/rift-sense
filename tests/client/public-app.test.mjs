@@ -863,6 +863,143 @@ describe("public app routes", () => {
     expect(document.body.textContent).not.toContain("SECRET_MATCH_JSON");
   });
 
+  it("persists a confirmed reviewed signal from the review page", async () => {
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/matches/NA1_1/evaluation") {
+        return mockJsonResponse({
+          matchId: "NA1_1",
+          evaluationStatus: "current",
+          evaluationVersion: "deterministic-v2",
+          matchSummary: {
+            championName: "Jhin",
+            queueLabel: "Ranked Solo/Duo",
+            result: "Loss",
+            kills: 8,
+            deaths: 5,
+            assists: 6
+          },
+          evaluationSummary: {
+            deathCount: 1,
+            reviewSignals: ["1 death", "1 possible unsupported death"]
+          },
+          deathEvents: [
+            {
+              deathIndex: 1,
+              timestampSeconds: 494,
+              killerChampionName: "LeBlanc",
+              tags: ["solo_death_candidate"]
+            }
+          ],
+          deterministicTagCounts: {
+            death_count: 1,
+            solo_death_candidate: 1
+          },
+          reviewedMoments: []
+        });
+      }
+
+      if (url === "/api/matches/NA1_1/reviewed-moments" && options.method === "PUT") {
+        expect(JSON.parse(options.body)).toMatchObject({
+          deathIndex: 1,
+          deathTimestampSeconds: 494,
+          signalId: "solo_death_candidate",
+          status: "confirmed"
+        });
+        return mockJsonResponse({
+          reviewedMoment: {
+            deathIndex: 1,
+            signalId: "solo_death_candidate",
+            status: "confirmed"
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/review?matchId=NA1_1");
+
+    await renderApp(document.querySelector("#app"));
+    document.querySelector('[data-review-status="confirmed"]').click();
+    await flushAsyncWork();
+
+    expect(document.body.textContent).toContain("Review status: Confirmed");
+  });
+
+  it("reload preserves reviewed moment state on the review page", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/matches/NA1_1/evaluation") {
+        return mockJsonResponse({
+          matchId: "NA1_1",
+          evaluationStatus: "current",
+          evaluationVersion: "deterministic-v2",
+          matchSummary: {
+            championName: "Jhin",
+            queueLabel: "Ranked Solo/Duo",
+            result: "Loss",
+            kills: 8,
+            deaths: 5,
+            assists: 6
+          },
+          evaluationSummary: {
+            deathCount: 1,
+            reviewSignals: ["1 death", "1 possible unsupported death"]
+          },
+          deathEvents: [
+            {
+              deathIndex: 1,
+              timestampSeconds: 494,
+              killerChampionName: "LeBlanc",
+              tags: ["solo_death_candidate"]
+            }
+          ],
+          deterministicTagCounts: {
+            death_count: 1,
+            solo_death_candidate: 1
+          },
+          reviewedMoments: [
+            {
+              deathIndex: 1,
+              signalId: "solo_death_candidate",
+              status: "dismissed"
+            }
+          ]
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/review?matchId=NA1_1");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("Review status: Dismissed");
+    expect(document.body.textContent).toContain("Detected signals: Possible unsupported death");
+  });
+
   it("renders a useful zero-death review priority", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {

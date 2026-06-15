@@ -31,6 +31,7 @@ describeWithPostgres("Postgres migrations", () => {
       "content_items",
       "goal_types",
       "match_evaluations",
+      "reviewed_moments",
       "riot_match_perspectives",
       "riot_raw_matches",
       "schema_migrations",
@@ -41,7 +42,8 @@ describeWithPostgres("Postgres migrations", () => {
     expect(firstRun.rows).toEqual([
       { id: "001_riftsense_storage.sql" },
       { id: "002_match_evaluations.sql" },
-      { id: "003_recent_game_card_indexes.sql" }
+      { id: "003_recent_game_card_indexes.sql" },
+      { id: "004_reviewed_moments.sql" }
     ]);
 
     const indexes = await pool.query(

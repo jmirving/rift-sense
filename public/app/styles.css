@@ -926,6 +926,46 @@ p {
   padding-top: 0;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.review-moment-list,
+.review-signal-row,
+.review-moment-control {
+  display: grid;
+  gap: 8px;
+}
+
+.review-signal-row {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.review-control-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.review-cause-label {
+  min-width: 210px;
+}
+
+.review-cause-select {
+  width: 100%;
+}
+
 .review-run-panel {
   grid-row: span 2;
 }

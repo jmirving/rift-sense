@@ -21,6 +21,7 @@ function token(claims = {}) {
 
 function createEvaluationRepository() {
   const seenPuuids = [];
+  const reviewedMoments = [];
   const input = {
     matchId: "NA1_051",
     puuid: "puuid_owner",
@@ -81,6 +82,7 @@ function createEvaluationRepository() {
 
   return {
     seenPuuids,
+    reviewedMoments,
     async listRecentPersistedPerspectivesForUser({ puuid }) {
       seenPuuids.push(puuid);
       return puuid === "puuid_owner" ? [input] : [];
@@ -102,6 +104,34 @@ function createEvaluationRepository() {
         sourcePerspectiveUpdatedAt: input.sourcePerspectiveUpdatedAt,
         evaluation
       };
+    },
+    async listReviewedMomentsForMatch({ userId, matchId }) {
+      return reviewedMoments
+        .filter((moment) => moment.userId === userId && moment.matchId === matchId)
+        .sort((left, right) => left.deathIndex - right.deathIndex || left.signalId.localeCompare(right.signalId));
+    },
+    async saveReviewedMoment(record) {
+      const existingIndex = reviewedMoments.findIndex((moment) =>
+        moment.userId === record.userId &&
+        moment.matchId === record.matchId &&
+        moment.deathIndex === record.deathIndex &&
+        moment.signalId === record.signalId
+      );
+      const saved = {
+        ...record,
+        createdAt: "2026-06-03T00:00:00.000Z",
+        updatedAt: "2026-06-03T00:00:00.000Z"
+      };
+      if (existingIndex >= 0) {
+        reviewedMoments[existingIndex] = {
+          ...reviewedMoments[existingIndex],
+          ...saved,
+          createdAt: reviewedMoments[existingIndex].createdAt
+        };
+      } else {
+        reviewedMoments.push(saved);
+      }
+      return existingIndex >= 0 ? reviewedMoments[existingIndex] : saved;
     },
     async saveMatchEvaluation() {
       throw new Error("current evaluation should not be recomputed");
@@ -281,8 +311,21 @@ describe("match evaluations API", () => {
   });
 
   it("loads the authenticated user's own persisted match evaluation", async () => {
+    const repository = createEvaluationRepository();
+    repository.reviewedMoments.push({
+      userId: "usr_local_dev",
+      matchId: "NA1_051",
+      puuid: "puuid_owner",
+      deathIndex: 1,
+      deathTimestampSeconds: 494,
+      signalId: "solo_death_candidate",
+      status: "confirmed",
+      causeCategory: "walked_without_cover",
+      createdAt: "2026-06-03T00:00:00.000Z",
+      updatedAt: "2026-06-03T00:00:00.000Z"
+    });
     const app = await createTestApp({
-      matchEvaluationsRepository: createEvaluationRepository(),
+      matchEvaluationsRepository: repository,
       async fetchSharedProfile() {
         return {
           userId: "usr_local_dev",
@@ -331,10 +374,59 @@ describe("match evaluations API", () => {
         death_count: 2,
         solo_death_candidate: 1,
         objective_window_candidate: 1
-      }
+      },
+      reviewedMoments: [
+        {
+          deathIndex: 1,
+          signalId: "solo_death_candidate",
+          status: "confirmed",
+          causeCategory: "walked_without_cover"
+        }
+      ]
     });
     expect(JSON.stringify(response.body)).not.toContain("SECRET_TIMELINE_EVENT");
     expect(JSON.stringify(response.body)).not.toContain("timelineJson");
+  });
+
+  it.each([
+    ["confirmed", "walked_without_cover"],
+    ["dismissed", null],
+    ["unsure", null]
+  ])("persists %s reviewed moment state", async (status, causeCategory) => {
+    const repository = createEvaluationRepository();
+    const app = await createTestApp({
+      matchEvaluationsRepository: repository,
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_local_dev",
+          riotPuuid: "puuid_owner"
+        };
+      }
+    });
+
+    const response = await request(app)
+      .put("/api/matches/NA1_051/reviewed-moments")
+      .set("Authorization", `Bearer ${token({ riot: { puuid: "puuid_owner" } })}`)
+      .send({
+        deathIndex: 1,
+        deathTimestampSeconds: 494,
+        signalId: "solo_death_candidate",
+        status,
+        causeCategory
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.reviewedMoment).toMatchObject({
+      userId: "usr_local_dev",
+      matchId: "NA1_051",
+      puuid: "puuid_owner",
+      deathIndex: 1,
+      deathTimestampSeconds: 494,
+      signalId: "solo_death_candidate",
+      status,
+      causeCategory
+    });
+    expect(repository.reviewedMoments).toHaveLength(1);
   });
 
   it("does not return another user's match evaluation", async () => {

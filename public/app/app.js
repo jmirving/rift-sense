@@ -1297,17 +1297,83 @@ function renderSignalList(signals, emptyText) {
   `;
 }
 
-function renderDeathFacts(deaths) {
+const REVIEW_STATUS_LABELS = {
+  confirmed: "Confirmed",
+  dismissed: "Dismissed",
+  unsure: "Unsure"
+};
+
+const REVIEW_CAUSES = [
+  ["", "Cause"],
+  ["walked_without_cover", "Walked without cover"],
+  ["outnumbered_fight", "Outnumbered fight"],
+  ["stayed_too_long", "Stayed too long"],
+  ["objective_setup_mistake", "Objective setup mistake"],
+  ["mechanics_misplay", "Mechanics/misplay"],
+  ["team_fight_already_lost", "Team fight already lost"],
+  ["not_preventable", "Not preventable"],
+  ["other", "Other"]
+];
+
+function reviewMomentKey(deathIndex, signalId) {
+  return `${deathIndex}:${signalId}`;
+}
+
+function reviewedMomentIndex(reviewedMoments = []) {
+  return new Map(
+    reviewedMoments.map((moment) => [reviewMomentKey(moment.deathIndex, moment.signalId), moment])
+  );
+}
+
+function renderCauseSelect(moment, deathIndex, signalId) {
+  return `
+    <label class="review-cause-label">
+      <span class="sr-only">Cause category</span>
+      <select class="review-cause-select" data-death-index="${escapeHtml(String(deathIndex))}" data-signal-id="${escapeHtml(signalId)}">
+        ${REVIEW_CAUSES.map(([value, label]) => `
+          <option value="${escapeHtml(value)}"${moment?.causeCategory === value ? " selected" : ""}>${escapeHtml(label)}</option>
+        `).join("")}
+      </select>
+    </label>
+  `;
+}
+
+function renderReviewControls({ death, deathIndex, signalId, moment }) {
+  const timestamp = Number.isFinite(Number(death?.timestampSeconds))
+    ? Number(death.timestampSeconds)
+    : Number.isFinite(Number(death?.timestampMs))
+      ? Math.round(Number(death.timestampMs) / 1000)
+      : "";
+  const status = moment?.status ?? "unreviewed";
+
+  return `
+    <div class="review-moment-control" data-review-moment="${escapeHtml(reviewMomentKey(deathIndex, signalId))}">
+      <p class="muted">Review status: <strong data-review-status-label>${escapeHtml(REVIEW_STATUS_LABELS[status] ?? "Unreviewed")}</strong></p>
+      <div class="review-control-row">
+        <button class="button secondary review-status-button" type="button" data-review-status="confirmed" data-death-index="${escapeHtml(String(deathIndex))}" data-death-timestamp-seconds="${escapeHtml(String(timestamp))}" data-signal-id="${escapeHtml(signalId)}">Confirm</button>
+        <button class="button secondary review-status-button" type="button" data-review-status="dismissed" data-death-index="${escapeHtml(String(deathIndex))}" data-death-timestamp-seconds="${escapeHtml(String(timestamp))}" data-signal-id="${escapeHtml(signalId)}">Dismiss</button>
+        <button class="button secondary review-status-button" type="button" data-review-status="unsure" data-death-index="${escapeHtml(String(deathIndex))}" data-death-timestamp-seconds="${escapeHtml(String(timestamp))}" data-signal-id="${escapeHtml(signalId)}">Unsure</button>
+        ${renderCauseSelect(moment, deathIndex, signalId)}
+      </div>
+    </div>
+  `;
+}
+
+function renderDeathFacts(deaths, reviewedMoments = []) {
   if (!Array.isArray(deaths) || deaths.length === 0) {
     return '<p class="muted">No deterministic death facts are available for this match.</p>';
   }
 
+  const momentsByKey = reviewedMomentIndex(reviewedMoments);
+
   return `
     <section class="death-list">
-      ${deaths.map((death) => {
+      ${deaths.map((death, index) => {
+        const deathIndex = Number(death.deathIndex ?? index + 1);
         const assists = (death.assistingChampionNames ?? []).join(", ");
         const enemies = (death.nearbyEnemyChampionNames ?? []).join(", ");
-        const tags = (death.tags ?? []).map(tagLabel).join(", ");
+        const detectedSignalIds = (death.tags ?? []).length > 0 ? death.tags : ["death_count"];
+        const tags = detectedSignalIds.map(tagLabel).join(", ");
         const levels = [
           death.victimLevel ? `Victim level ${death.victimLevel}` : "",
           death.killerLevel ? `Killer level ${death.killerLevel}` : ""
@@ -1318,6 +1384,19 @@ function renderDeathFacts(deaths) {
             <p class="muted">Detected signals: ${escapeHtml(tags || "None")}</p>
             ${enemies ? `<p class="muted">Nearby enemies: ${escapeHtml(enemies)}</p>` : ""}
             ${levels ? `<p class="muted">${escapeHtml(levels)}</p>` : ""}
+            <div class="review-moment-list">
+              ${detectedSignalIds.map((signalId) => `
+                <div class="review-signal-row">
+                  <p><strong>${escapeHtml(tagLabel(signalId))}</strong></p>
+                  ${renderReviewControls({
+                    death,
+                    deathIndex,
+                    signalId,
+                    moment: momentsByKey.get(reviewMomentKey(deathIndex, signalId))
+                  })}
+                </div>
+              `).join("")}
+            </div>
           </article>
         `;
       }).join("")}
@@ -1539,7 +1618,8 @@ function renderMatchReview(root, review, context = getRouteContext()) {
       </article>
       <details class="panel">
         <summary>Raw deterministic facts</summary>
-        ${review.evaluationSummary ? renderDeathFacts(review.deathEvents) : '<p class="muted">Evaluation is not prepared for this match yet.</p>'}
+        <p class="muted">Confirmed signals update goal progress. Dismissed and unsure signals stay visible here and do not count.</p>
+        ${review.evaluationSummary ? renderDeathFacts(review.deathEvents, review.reviewedMoments) : '<p class="muted">Evaluation is not prepared for this match yet.</p>'}
       </details>
       <details class="panel">
         <summary>Raw signal counts</summary>
@@ -1557,15 +1637,50 @@ function renderMatchReview(root, review, context = getRouteContext()) {
           <p class="muted">No persisted evaluation exists yet for this match.</p>
         </article>
       ` : ""}
-      <!-- TODO: Add reviewed moment persistence. -->
-      <!-- TODO: Store confirmed signals, dismissed signals, and unsure signals. -->
-      <!-- TODO: Feed reviewed evidence into dashboard progress only after persistence exists. -->
     </section>
   `, {
     eyebrow: "Review",
     title: summary.championName ?? "Match Review",
     text: matchSummaryTitle(review),
     compact: true
+  });
+}
+
+function bindReviewMomentControls(root, review) {
+  if (!review?.matchId || getRouteContext().demoMode) {
+    return;
+  }
+
+  root.addEventListener("click", async (event) => {
+    const button = event.target.closest(".review-status-button");
+    if (!button) {
+      return;
+    }
+
+    const container = button.closest("[data-review-moment]");
+    const causeSelect = container?.querySelector(".review-cause-select");
+    const body = {
+      deathIndex: Number(button.dataset.deathIndex),
+      deathTimestampSeconds: button.dataset.deathTimestampSeconds ? Number(button.dataset.deathTimestampSeconds) : null,
+      signalId: button.dataset.signalId,
+      status: button.dataset.reviewStatus,
+      causeCategory: causeSelect?.value || null
+    };
+
+    button.disabled = true;
+    try {
+      const result = await requestJson(`/api/matches/${encodeURIComponent(review.matchId)}/reviewed-moments`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const label = container?.querySelector("[data-review-status-label]");
+      if (label) {
+        label.textContent = REVIEW_STATUS_LABELS[result.reviewedMoment?.status] ?? "Unreviewed";
+      }
+    } finally {
+      button.disabled = false;
+    }
   });
 }
 
@@ -1617,11 +1732,13 @@ async function renderReviewPage(root, context = getRouteContext()) {
         throw new Error("Match review not found.");
       }
       renderMatchReview(root, review, context);
+      bindReviewMomentControls(root, review);
       return;
     }
 
     const review = await requestJson(`/api/matches/${encodeURIComponent(matchId)}/evaluation`);
     renderMatchReview(root, review, context);
+    bindReviewMomentControls(root, review);
   } catch (error) {
     root.innerHTML = appShell(`
       <section class="goal-dashboard-stack">

@@ -184,4 +184,87 @@ describeWithPostgres("match evaluations repository", () => {
       evaluationVersion: "deterministic-v2"
     });
   });
+
+  it("persists reviewed moment states and lists confirmed evidence only", async () => {
+    const { evaluationRepository } = await createRepositories();
+
+    await evaluationRepository.saveReviewedMoment({
+      userId: "usr_1",
+      matchId: "NA1_050",
+      puuid: "puuid_1",
+      deathIndex: 1,
+      deathTimestampSeconds: 60,
+      signalId: "solo_death_candidate",
+      status: "confirmed",
+      causeCategory: "walked_without_cover"
+    }, { now: new Date("2026-06-03T00:00:00.000Z") });
+    await evaluationRepository.saveReviewedMoment({
+      userId: "usr_1",
+      matchId: "NA1_050",
+      puuid: "puuid_1",
+      deathIndex: 1,
+      deathTimestampSeconds: 60,
+      signalId: "objective_window_candidate",
+      status: "dismissed"
+    }, { now: new Date("2026-06-03T00:01:00.000Z") });
+    await evaluationRepository.saveReviewedMoment({
+      userId: "usr_1",
+      matchId: "NA1_050",
+      puuid: "puuid_1",
+      deathIndex: 2,
+      deathTimestampSeconds: 120,
+      signalId: "death_count",
+      status: "unsure"
+    }, { now: new Date("2026-06-03T00:02:00.000Z") });
+
+    await evaluationRepository.saveReviewedMoment({
+      userId: "usr_1",
+      matchId: "NA1_050",
+      puuid: "puuid_1",
+      deathIndex: 1,
+      deathTimestampSeconds: 60,
+      signalId: "solo_death_candidate",
+      status: "confirmed",
+      causeCategory: "stayed_too_long"
+    }, { now: new Date("2026-06-03T00:03:00.000Z") });
+
+    await expect(evaluationRepository.listReviewedMomentsForMatch({
+      userId: "usr_1",
+      matchId: "NA1_050"
+    })).resolves.toMatchObject([
+      {
+        userId: "usr_1",
+        matchId: "NA1_050",
+        deathIndex: 1,
+        signalId: "objective_window_candidate",
+        status: "dismissed"
+      },
+      {
+        userId: "usr_1",
+        matchId: "NA1_050",
+        deathIndex: 1,
+        signalId: "solo_death_candidate",
+        status: "confirmed",
+        causeCategory: "stayed_too_long",
+        updatedAt: "2026-06-03T00:03:00.000Z"
+      },
+      {
+        userId: "usr_1",
+        matchId: "NA1_050",
+        deathIndex: 2,
+        signalId: "death_count",
+        status: "unsure"
+      }
+    ]);
+
+    await expect(evaluationRepository.listConfirmedReviewedMomentsForUser({
+      userId: "usr_1"
+    })).resolves.toMatchObject([
+      {
+        signalId: "solo_death_candidate",
+        status: "confirmed",
+        causeCategory: "stayed_too_long"
+      }
+    ]);
+  });
 });

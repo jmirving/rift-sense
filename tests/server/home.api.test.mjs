@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../../server/app.js";
 import { loadConfig } from "../../server/config.js";
+import { buildDefaultGoalDashboardState } from "../../server/goal-dashboard.js";
 import { seedSystemGoalTypes } from "../../server/goal-types/system-goal-types.js";
 import {
   createInMemoryAssetStore,
@@ -670,6 +671,114 @@ describe("home API", () => {
     expect(response.status).toBe(200);
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.readyCount).toBe(1);
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.preparingCount).toBe(1);
+  });
+
+  it("uses only confirmed reviewed moments for dashboard progress", async () => {
+    const matchEvaluationsRepository = {
+      async listConfirmedReviewedMomentsForUser({ userId }) {
+        expect(userId).toBe("usr_local_dev");
+        return [
+          {
+            userId,
+            matchId: "NA1_confirmed",
+            puuid: "puuid_owner",
+            deathIndex: 1,
+            deathTimestampSeconds: 494,
+            signalId: "solo_death_candidate",
+            status: "confirmed",
+            causeCategory: "walked_without_cover",
+            updatedAt: "2026-06-08T04:00:00.000Z"
+          }
+        ];
+      }
+    };
+    const app = await createTestApp({
+      authEnabled: true,
+      matchEvaluationsRepository,
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_local_dev",
+          primaryRole: "ADC",
+          riotPuuid: null
+        };
+      }
+    });
+    const goalDashboard = buildDefaultGoalDashboardState(new Date("2026-06-08T00:00:00.000Z"));
+    goalDashboard.evidenceEvents = [];
+    await app.locals.testRepositories.userHomesRepository.saveUserHome({
+      id: "usr_local_dev",
+      profile: {
+        displayName: "Authenticated User",
+        primaryRole: "ADC"
+      },
+      goalDashboard
+    });
+    const token = jwt.sign(
+      { sub: "usr_local_dev", iss: "nexus", aud: "riftsense" },
+      "test-secret",
+      { algorithm: "HS256", expiresIn: "1h" }
+    );
+
+    const response = await request(app)
+      .get("/api/home")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    const goal = response.body.home.goalDashboard.activePersonalGoal;
+    expect(goal.evidenceSource).toMatchObject({
+      totalEvents: 1,
+      confidence: "Low sample"
+    });
+    expect(goal.evidenceSource.summary).toContain("Based on 1 signal event");
+    expect(goal.signals.find((signal) => signal.id === "signal-known-danger-death").value).toBe(1);
+    expect(goal.signals.find((signal) => signal.id === "signal-bad-trade-read").value).toBe(0);
+  });
+
+  it("leaves dashboard progress empty when reviewed moments are dismissed or unsure", async () => {
+    const app = await createTestApp({
+      authEnabled: true,
+      matchEvaluationsRepository: {
+        async listConfirmedReviewedMomentsForUser() {
+          return [];
+        }
+      },
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_local_dev",
+          primaryRole: "ADC",
+          riotPuuid: null
+        };
+      }
+    });
+    const goalDashboard = buildDefaultGoalDashboardState(new Date("2026-06-08T00:00:00.000Z"));
+    goalDashboard.evidenceEvents = [];
+    await app.locals.testRepositories.userHomesRepository.saveUserHome({
+      id: "usr_local_dev",
+      profile: {
+        displayName: "Authenticated User",
+        primaryRole: "ADC"
+      },
+      goalDashboard
+    });
+    const token = jwt.sign(
+      { sub: "usr_local_dev", iss: "nexus", aud: "riftsense" },
+      "test-secret",
+      { algorithm: "HS256", expiresIn: "1h" }
+    );
+
+    const response = await request(app)
+      .get("/api/home")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    const goal = response.body.home.goalDashboard.activePersonalGoal;
+    expect(goal.evidenceSource).toMatchObject({
+      totalEvents: 0,
+      confidence: "No reviewed games yet",
+      confidenceTrend: "unknown"
+    });
+    expect(goal.evidenceSource.summary).toBe("No reviewed games yet");
+    expect(goal.signals.every((signal) => signal.value === 0)).toBe(true);
   });
 
   it("ignores authenticated identity on the dedicated demo endpoint", async () => {

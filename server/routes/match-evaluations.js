@@ -19,6 +19,36 @@ function normalizeLimit(value) {
   return Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 10;
 }
 
+const REVIEW_STATUSES = new Set(["confirmed", "dismissed", "unsure"]);
+const CAUSE_CATEGORIES = new Set([
+  "walked_without_cover",
+  "outnumbered_fight",
+  "stayed_too_long",
+  "objective_setup_mistake",
+  "mechanics_misplay",
+  "team_fight_already_lost",
+  "not_preventable",
+  "other"
+]);
+
+function normalizeInteger(value) {
+  const number = Number(value);
+  return Number.isInteger(number) ? number : null;
+}
+
+function normalizeReviewStatus(value) {
+  const status = normalizeString(value);
+  return REVIEW_STATUSES.has(status) ? status : null;
+}
+
+function normalizeCauseCategory(value) {
+  const category = normalizeString(value);
+  if (!category) {
+    return null;
+  }
+  return CAUSE_CATEGORIES.has(category) ? category : null;
+}
+
 function gameFieldsFromEvaluation(evaluation) {
   const summary = evaluation?.summaryJson ?? {};
   return {
@@ -104,7 +134,7 @@ function reviewSummaryFields(record, evaluation) {
   };
 }
 
-function toApiMatchReview(review) {
+function toApiMatchReview(review, reviewedMoments = []) {
   const evaluation = review.evaluation;
   const tagsJson = evaluation?.tagsJson ?? null;
 
@@ -116,6 +146,7 @@ function toApiMatchReview(review) {
     evaluationSummary: evaluation ? summarizeMatchEvaluation(evaluation) : null,
     deathEvents: evaluation ? summarizeMatchEvaluationDeaths(evaluation) : [],
     deterministicTagCounts: tagsJson?.counts ?? tagsJson?.deathTagCounts ?? null,
+    reviewedMoments,
     sourceTimestamps: {
       sourceRawMatchUpdatedAt: evaluation?.sourceRawMatchUpdatedAt ?? null,
       sourcePerspectiveUpdatedAt: evaluation?.sourcePerspectiveUpdatedAt ?? review.sourcePerspectiveUpdatedAt ?? null,
@@ -159,7 +190,78 @@ export function createMatchEvaluationsRouter({
       throw notFound("Match review not found.");
     }
 
-    response.json(toApiMatchReview(review));
+    const reviewedMoments = matchEvaluationsRepository.listReviewedMomentsForMatch
+      ? await matchEvaluationsRepository.listReviewedMomentsForMatch({
+          userId: request.identity.id,
+          matchId
+        })
+      : [];
+
+    response.json(toApiMatchReview(review, reviewedMoments));
+  });
+
+  router.put("/:matchId/reviewed-moments", config.requireAuth, async (request, response) => {
+    const matchId = normalizeString(request.params.matchId);
+    if (!matchId) {
+      throw badRequest("Match ID required.");
+    }
+    if (!matchEvaluationsRepository.saveReviewedMoment) {
+      throw badRequest("Reviewed moment persistence is unavailable.");
+    }
+
+    const sharedProfile = await resolveSharedProfile({
+      request,
+      config,
+      fetchSharedProfileImpl: fetchSharedProfile
+    });
+    const riotIdentity = sharedProfile ? buildSharedProfileIdentity(sharedProfile) : request.identity?.riot ?? null;
+    const puuid = normalizeString(riotIdentity?.puuid);
+
+    if (!puuid) {
+      throw badRequest("Linked Riot account required.");
+    }
+
+    const review = await matchEvaluationsRepository.getPersistedMatchReview({
+      matchId,
+      puuid,
+      evaluationVersion: DETERMINISTIC_MATCH_EVALUATOR_VERSION
+    });
+
+    if (!review) {
+      throw notFound("Match review not found.");
+    }
+
+    const deathIndex = normalizeInteger(request.body?.deathIndex);
+    const signalId = normalizeString(request.body?.signalId);
+    const status = normalizeReviewStatus(request.body?.status);
+    const deathTimestampSeconds = normalizeInteger(request.body?.deathTimestampSeconds);
+    const causeCategory = normalizeCauseCategory(request.body?.causeCategory);
+
+    if (!deathIndex || deathIndex < 1) {
+      throw badRequest("Death index required.");
+    }
+    if (!signalId) {
+      throw badRequest("Detected signal ID required.");
+    }
+    if (!status) {
+      throw badRequest("Review status must be confirmed, dismissed, or unsure.");
+    }
+    if (request.body?.causeCategory && !causeCategory) {
+      throw badRequest("Unsupported cause category.");
+    }
+
+    const reviewedMoment = await matchEvaluationsRepository.saveReviewedMoment({
+      userId: request.identity.id,
+      matchId,
+      puuid,
+      deathIndex,
+      deathTimestampSeconds,
+      signalId,
+      status,
+      causeCategory
+    });
+
+    response.json({ reviewedMoment });
   });
 
   router.get("/recent/evaluations", config.requireAuth, async (request, response) => {

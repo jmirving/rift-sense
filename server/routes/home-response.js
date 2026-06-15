@@ -1,6 +1,32 @@
 import { normalizeGoalDashboard } from "../goal-dashboard.js";
 import { applyRiotEvidenceToDashboard } from "../goal-dashboard/evidence-sources/riot.js";
 
+const REVIEW_SIGNAL_TO_GOAL_SIGNAL = new Map([
+  ["signal-known-danger-death", "signal-known-danger-death"],
+  ["signal-bad-trade-read", "signal-bad-trade-read"],
+  ["signal-greed-wave-death", "signal-greed-wave-death"],
+  ["signal-bad-pre6-allin", "signal-bad-pre6-allin"],
+  ["multi_enemy_collapse_candidate", "signal-known-danger-death"],
+  ["solo_death_candidate", "signal-known-danger-death"],
+  ["isolated_forward_death_candidate", "signal-known-danger-death"],
+  ["objective_window_candidate", "signal-known-danger-death"],
+  ["objective_setup_death_candidate", "signal-known-danger-death"],
+  ["objective_exit_death_candidate", "signal-known-danger-death"],
+  ["level_up_all_in_candidate", "signal-bad-pre6-allin"],
+  ["enemy_level_up_recently_candidate", "signal-bad-pre6-allin"]
+]);
+
+const CAUSE_TO_GOAL_SIGNAL = new Map([
+  ["walked_without_cover", "signal-known-danger-death"],
+  ["outnumbered_fight", "signal-bad-trade-read"],
+  ["stayed_too_long", "signal-greed-wave-death"],
+  ["objective_setup_mistake", "signal-known-danger-death"],
+  ["mechanics_misplay", "signal-bad-trade-read"],
+  ["team_fight_already_lost", null],
+  ["not_preventable", null],
+  ["other", null]
+]);
+
 function buildProfile(homeProfile, sharedProfile, source) {
   const baseProfile = {
     ...homeProfile
@@ -31,6 +57,53 @@ function buildProfile(homeProfile, sharedProfile, source) {
   };
 }
 
+function goalSignalForReviewedMoment(moment) {
+  if (moment?.causeCategory && CAUSE_TO_GOAL_SIGNAL.has(moment.causeCategory)) {
+    return CAUSE_TO_GOAL_SIGNAL.get(moment.causeCategory);
+  }
+  return REVIEW_SIGNAL_TO_GOAL_SIGNAL.get(moment?.signalId) ?? null;
+}
+
+async function applyReviewedMomentEvidence({ goalDashboard, userId, matchEvaluationsRepository }) {
+  if (!goalDashboard?.activeGoalInstances?.length || !matchEvaluationsRepository?.listConfirmedReviewedMomentsForUser) {
+    return goalDashboard;
+  }
+
+  const goalInstance = goalDashboard.activeGoalInstances[0];
+  const reviewedMoments = await matchEvaluationsRepository.listConfirmedReviewedMomentsForUser({ userId });
+  const reviewedEvents = reviewedMoments
+    .map((moment) => {
+      const signalId = goalSignalForReviewedMoment(moment);
+      if (!signalId) {
+        return null;
+      }
+
+      return {
+        id: `reviewed-${moment.matchId}-${moment.deathIndex}-${moment.signalId}`,
+        ownerId: userId,
+        sourceType: "reviewed_moment",
+        signalId,
+        goalInstanceId: goalInstance.id,
+        value: 1,
+        matchId: moment.matchId,
+        detectedSignalId: moment.signalId,
+        deathIndex: moment.deathIndex,
+        deathTimestampSeconds: moment.deathTimestampSeconds,
+        causeCategory: moment.causeCategory,
+        createdAt: moment.updatedAt
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    ...goalDashboard,
+    evidenceEvents: [
+      ...(goalDashboard.evidenceEvents ?? []),
+      ...reviewedEvents
+    ]
+  };
+}
+
 export async function buildHomePayload({
   home,
   effectiveUserId,
@@ -45,6 +118,11 @@ export async function buildHomePayload({
   timing
 }) {
   const profile = buildProfile(home.profile, identity?.profile, source);
+  const dashboardWithReviewedEvidence = await applyReviewedMomentEvidence({
+    goalDashboard: home.goalDashboard,
+    userId: effectiveUserId,
+    matchEvaluationsRepository
+  });
 
   return {
     user: {
@@ -55,7 +133,7 @@ export async function buildHomePayload({
     },
     setupGuide: home.setupGuide ?? null,
     goalDashboard: await applyRiotEvidenceToDashboard({
-      goalDashboard: normalizeGoalDashboard(home.goalDashboard),
+      goalDashboard: normalizeGoalDashboard(dashboardWithReviewedEvidence),
       identity,
       source,
       demoVariant,

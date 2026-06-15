@@ -12,6 +12,10 @@ function perspectivesTableName(schema) {
   return `${quoteIdentifier(schema)}.riot_match_perspectives`;
 }
 
+function reviewedMomentsTableName(schema) {
+  return `${quoteIdentifier(schema)}.reviewed_moments`;
+}
+
 function toIso(value) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
@@ -136,13 +140,34 @@ function rowToMatchReview(row) {
   };
 }
 
+function rowToReviewedMoment(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    userId: row.user_id,
+    matchId: row.match_id,
+    puuid: row.puuid,
+    deathIndex: row.death_index,
+    deathTimestampSeconds: row.death_timestamp_seconds,
+    signalId: row.signal_id,
+    status: row.status,
+    causeCategory: row.cause_category,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at)
+  };
+}
+
 export function createMatchEvaluationsRepository({ pool, schema = "riftsense" }) {
   const evaluationsTable = evaluationsTableName(schema);
   const rawTable = rawTableName(schema);
   const perspectivesTable = perspectivesTableName(schema);
+  const reviewedMomentsTable = reviewedMomentsTableName(schema);
 
   async function initialize() {
     await pool.query(`select 1 from ${evaluationsTable} limit 1`);
+    await pool.query(`select 1 from ${reviewedMomentsTable} limit 1`);
   }
 
   async function getMatchEvaluation({ matchId, puuid, evaluationVersion }) {
@@ -320,6 +345,72 @@ export function createMatchEvaluationsRepository({ pool, schema = "riftsense" })
     return rowToMatchReview(result.rows[0]);
   }
 
+  async function listReviewedMomentsForMatch({ userId, matchId }) {
+    const result = await pool.query(
+      `
+        select *
+        from ${reviewedMomentsTable}
+        where user_id = $1 and match_id = $2
+        order by death_index asc, signal_id asc
+      `,
+      [userId, matchId]
+    );
+    return result.rows.map(rowToReviewedMoment).filter(Boolean);
+  }
+
+  async function saveReviewedMoment(record, { now = new Date() } = {}) {
+    const timestamp = now.toISOString();
+    const result = await pool.query(
+      `
+        insert into ${reviewedMomentsTable} (
+          user_id,
+          match_id,
+          puuid,
+          death_index,
+          death_timestamp_seconds,
+          signal_id,
+          status,
+          cause_category,
+          created_at,
+          updated_at
+        )
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $9::timestamptz)
+        on conflict (user_id, match_id, death_index, signal_id) do update
+        set puuid = excluded.puuid,
+            death_timestamp_seconds = excluded.death_timestamp_seconds,
+            status = excluded.status,
+            cause_category = excluded.cause_category,
+            updated_at = excluded.updated_at
+        returning *
+      `,
+      [
+        record.userId,
+        record.matchId,
+        record.puuid,
+        record.deathIndex,
+        record.deathTimestampSeconds ?? null,
+        record.signalId,
+        record.status,
+        record.causeCategory ?? null,
+        timestamp
+      ]
+    );
+    return rowToReviewedMoment(result.rows[0]);
+  }
+
+  async function listConfirmedReviewedMomentsForUser({ userId }) {
+    const result = await pool.query(
+      `
+        select *
+        from ${reviewedMomentsTable}
+        where user_id = $1 and status = 'confirmed'
+        order by updated_at desc
+      `,
+      [userId]
+    );
+    return result.rows.map(rowToReviewedMoment).filter(Boolean);
+  }
+
   return {
     initialize,
     getMatchEvaluation,
@@ -328,6 +419,9 @@ export function createMatchEvaluationsRepository({ pool, schema = "riftsense" })
     listRecentPersistedMatchInputsForUser,
     listRecentPersistedPerspectivesForUser,
     listRecentEvaluationSummariesForUser,
-    getPersistedMatchReview
+    getPersistedMatchReview,
+    listReviewedMomentsForMatch,
+    saveReviewedMoment,
+    listConfirmedReviewedMomentsForUser
   };
 }
