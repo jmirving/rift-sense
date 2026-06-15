@@ -520,7 +520,7 @@ describe("home API", () => {
             evaluationSummary: {
               deathCount: 2,
               topTags: [{ tag: "solo_death_candidate", count: 1 }],
-              reviewSignals: ["2 deaths", "1 solo death candidate"],
+              reviewSignals: ["2 deaths", "1 possible unsupported death"],
               evaluatedAt: "2026-06-08T04:00:00.000Z"
             },
             updatedAt: "2026-06-08T04:00:00.000Z"

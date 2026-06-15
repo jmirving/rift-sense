@@ -9,7 +9,8 @@ function escapeHtml(value) {
 
 const state = {
   session: null,
-  recentEvaluationPreparationKeys: new Set()
+  recentEvaluationPreparationKeys: new Set(),
+  recentGamesRefreshMessage: ""
 };
 
 const RECENT_EVALUATION_PREPARATION_LIMIT = 3;
@@ -671,6 +672,11 @@ function targetChipGrid(items, emptyText) {
   `;
 }
 
+function hasReviewedEvidence(goal = {}, dashboard = {}) {
+  const reviewedCount = Number(goal.reviewedGameCount ?? goal.reviewedGamesCount ?? dashboard.reviewedGameCount ?? 0);
+  return Number.isFinite(reviewedCount) && reviewedCount > 0;
+}
+
 function compactTargetRow(target) {
   const label = typeof target === "string" ? target : target.label;
   const statusLabel = typeof target === "string" ? "Needs review" : target.statusLabel;
@@ -827,7 +833,7 @@ function riotEvidenceTitle(riotEvidence) {
 function riotEvidenceSummary(riotEvidence) {
   const counts = riotReadinessCounts(riotEvidence);
   if (counts.matchSummariesPreparingCount > 0 && counts.summaryReadyCount === 0) {
-    return "Match summaries preparing.";
+    return "Match summaries are being prepared.";
   }
   if (counts.failedCount > 0 && counts.summaryReadyCount === 0) {
     return "Match preparation failed. Retry available.";
@@ -857,6 +863,19 @@ function riotReadinessLine(riotEvidence) {
 }
 
 function tagLabel(value) {
+  const labels = {
+    solo_death_candidate: "Possible unsupported death",
+    enemy_level_up_recently_candidate: "Enemy level-up timing candidate",
+    level_up_all_in_candidate: "Possible level-up all-in",
+    multi_enemy_collapse_candidate: "Multi-enemy collapse candidate",
+    objective_window_candidate: "Objective-window candidate",
+    objective_setup_death_candidate: "Objective setup death candidate",
+    objective_exit_death_candidate: "Objective exit death candidate",
+    isolated_forward_death_candidate: "Possible isolated forward death"
+  };
+  if (labels[value]) {
+    return labels[value];
+  }
   return String(value ?? "")
     .replaceAll("_", " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -1026,6 +1045,28 @@ function evaluationSummaryBlock(game) {
   `;
 }
 
+function recentGameState(game) {
+  if (game?.reviewedAt) {
+    return { label: "Reviewed", actionLabel: "Open review", canReview: true };
+  }
+  if (game?.reviewStartedAt) {
+    return { label: "Review started", actionLabel: "Continue review", canReview: true };
+  }
+  if (gameIsEvaluationReady(game)) {
+    return { label: "Evaluation ready", actionLabel: "Review", canReview: true };
+  }
+  if (game?.evaluationStatus === "failed") {
+    return { label: "Evaluation failed", actionLabel: null, canReview: false };
+  }
+  if (gameHasSummaryMetadata(game)) {
+    return { label: "Summary ready", actionLabel: "Open summary", canReview: true };
+  }
+  if (game?.parseStatus === "parse_failed" || game?.sourceMetadata?.parseStatus === "parse_failed") {
+    return { label: "Summary failed", actionLabel: null, canReview: false };
+  }
+  return { label: "Discovered", actionLabel: null, canReview: false };
+}
+
 function riotEvidenceCard(riotEvidence, context = {}) {
   if (!riotEvidence) {
     return "";
@@ -1040,25 +1081,28 @@ function riotEvidenceCard(riotEvidence, context = {}) {
           <h2>${escapeHtml(riotEvidenceTitle(riotEvidence))}</h2>
           ${sourceLabel}
         </div>
-        ${riotEvidence.confidence ? statusBadge(riotEvidence.confidence, riotEvidence.status === "seeded-demo" ? "watch" : riotStatusTrend(riotEvidence.status)) : ""}
+        <div class="action-row">
+          ${getSessionState().authenticated ? '<button class="button secondary" type="button" data-refresh-recent-games>Refresh recent games</button>' : ""}
+          ${riotEvidence.confidence ? statusBadge(riotEvidence.confidence, riotEvidence.status === "seeded-demo" ? "watch" : riotStatusTrend(riotEvidence.status)) : ""}
+        </div>
       </div>
+      <p class="muted recent-games-refresh-status" aria-live="polite">${escapeHtml(state.recentGamesRefreshMessage)}</p>
       <p class="muted">${escapeHtml(riotEvidenceSummary(riotEvidence))}</p>
       ${riotReadinessLine(riotEvidence)}
       <section class="compact-list">
         ${(riotEvidence.candidateGames ?? []).length > 0
           ? riotEvidence.candidateGames.slice(0, 3).map((game) => {
             const hasSummaryMetadata = gameHasSummaryMetadata(game);
+            const state = recentGameState(game);
             const title = hasSummaryMetadata
               ? `${game.champion ?? game.championName ?? "Unknown champion"} · ${game.queueLabel} · ${game.result}`
-              : `${game.champion ?? game.championName ?? "Unknown champion"} · Preparing match summary`;
+              : `${game.champion ?? game.championName ?? "Unknown champion"} · ${state.label}`;
             const value = hasSummaryMetadata
               ? `${game.kda} · ${game.csPerMinute ?? "?"} cs/min`
-              : "Preparing match summary";
-            const action = gameIsEvaluationReady(game)
-              ? `<a class="button secondary compact-row-action" href="${escapeHtml(reviewHrefForGame(game, context))}">Review</a>`
-              : hasSummaryMetadata
-                ? `<a class="button secondary compact-row-action" href="${escapeHtml(reviewHrefForGame(game, context))}">Open summary</a>`
-                : '<span class="button secondary compact-row-action is-disabled" aria-disabled="true">Preparing</span>';
+              : state.label;
+            const action = state.canReview
+              ? `<a class="button secondary compact-row-action" href="${escapeHtml(reviewHrefForGame(game, context))}">${escapeHtml(state.actionLabel)}</a>`
+              : "";
 
             return `
               <article class="compact-row game-evidence-row">
@@ -1069,6 +1113,7 @@ function riotEvidenceCard(riotEvidence, context = {}) {
                   ${evaluationSummaryBlock(game)}
                 </div>
                 <div class="game-evidence-actions">
+                  <span class="context-badge">${escapeHtml(state.label)}</span>
                   <span class="muted">${escapeHtml((game.confidenceLabel ?? "").toUpperCase())}</span>
                   ${action}
                 </div>
@@ -1091,13 +1136,13 @@ function reviewCandidateCard(riotEvidence, goal, context = {}) {
       const counts = riotReadinessCounts(riotEvidence);
       const message = counts.summaryReadyCount > 0
         ? "Match summaries are ready. Evaluations are pending."
-        : "Recent games found. Match summaries are preparing.";
+        : "Recent games found. Match summaries are being prepared.";
       return `
         <section class="panel review-candidate-panel">
           <div class="panel-header">
             <div>
               <p class="eyebrow">Today's Review Candidate</p>
-              <h2>${escapeHtml(counts.summaryReadyCount > 0 ? "Review candidate pending" : "Review candidate preparing")}</h2>
+              <h2>${escapeHtml(counts.summaryReadyCount > 0 ? "Review candidate pending" : "Review candidate unavailable")}</h2>
             </div>
           </div>
           <p class="muted">${escapeHtml(message)}</p>
@@ -1173,6 +1218,60 @@ function scheduleRecentEvaluationPreparation(root, riotEvidence, context = getRo
     });
 }
 
+function refreshRecentGamesMessage(result) {
+  const evidence = result?.riotEvidence ?? null;
+  if (!evidence) {
+    return "Recent games refresh failed.";
+  }
+  if (evidence.status === "riot_access_not_configured") {
+    return "Riot unavailable or not configured.";
+  }
+  if (evidence.status === "recent_games_unavailable") {
+    return "Riot unavailable.";
+  }
+  if (evidence.status === "parse_failed_retry_available") {
+    return "Evaluation failed.";
+  }
+  if (evidence.status === "cooldown_active") {
+    return "Cooldown active.";
+  }
+  const newCount = Number(result?.newCount ?? 0);
+  if (newCount === 1) {
+    return "1 new game found.";
+  }
+  if (newCount > 1) {
+    return `${newCount} new games found.`;
+  }
+  return "No new games found.";
+}
+
+function bindRecentGamesRefresh(root) {
+  root.querySelector("[data-refresh-recent-games]")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const status = root.querySelector(".recent-games-refresh-status");
+    button.disabled = true;
+    if (status) {
+      status.textContent = "Checking recent games...";
+    }
+
+    try {
+      const result = await requestJson("/api/home/recent-games/refresh", { method: "POST" });
+      state.recentGamesRefreshMessage = refreshRecentGamesMessage(result);
+      if (status) {
+        status.textContent = state.recentGamesRefreshMessage;
+      }
+      await renderApp(root);
+    } catch (error) {
+      state.recentGamesRefreshMessage = "";
+      if (status) {
+        const message = error instanceof Error ? error.message : "Refresh failed.";
+        status.textContent = message.toLowerCase().includes("cooldown") ? "Cooldown active." : message;
+      }
+      button.disabled = false;
+    }
+  });
+}
+
 function matchSummaryTitle(review) {
   const summary = review?.matchSummary ?? {};
   const champion = summary.championName ?? "Unknown champion";
@@ -1210,13 +1309,13 @@ function renderDeathFacts(deaths) {
         const enemies = (death.nearbyEnemyChampionNames ?? []).join(", ");
         const tags = (death.tags ?? []).map(tagLabel).join(", ");
         const levels = [
-          death.victimLevel ? `victim level ${death.victimLevel}` : "",
-          death.killerLevel ? `killer level ${death.killerLevel}` : ""
+          death.victimLevel ? `Victim level ${death.victimLevel}` : "",
+          death.killerLevel ? `Killer level ${death.killerLevel}` : ""
         ].filter(Boolean).join(" · ");
         return `
           <article class="death-row">
-            <p><strong>${escapeHtml(formatDeathTimestamp(death))}</strong> killed by ${escapeHtml(death.killerChampionName ?? "Unknown")}${assists ? `, assisted by ${escapeHtml(assists)}` : ""}</p>
-            <p class="muted">Tags: ${escapeHtml(tags || "None")}</p>
+            <p><strong>${escapeHtml(formatDeathTimestamp(death))}</strong> Killed by ${escapeHtml(death.killerChampionName ?? "Unknown")}${assists ? `, assisted by ${escapeHtml(assists)}` : ""}</p>
+            <p class="muted">Detected signals: ${escapeHtml(tags || "None")}</p>
             ${enemies ? `<p class="muted">Nearby enemies: ${escapeHtml(enemies)}</p>` : ""}
             ${levels ? `<p class="muted">${escapeHtml(levels)}</p>` : ""}
           </article>
@@ -1235,6 +1334,131 @@ function renderTagCounts(counts) {
     entries.map(([tag, count]) => `${count} ${tagLabel(tag)}`),
     "No deterministic tags are available yet."
   );
+}
+
+function reviewMomentSignals(death) {
+  return (death?.tags ?? []).map(tagLabel);
+}
+
+function reviewMomentReasons(death) {
+  const reasons = [];
+  const tags = new Set(death?.tags ?? []);
+  if (Number(death?.nearbyEnemyCount ?? 0) >= 2 || tags.has("multi_enemy_collapse_candidate")) {
+    reasons.push("Multiple enemies were involved or nearby.");
+  }
+  if (tags.has("objective_window_candidate") || tags.has("objective_setup_death_candidate") || tags.has("objective_exit_death_candidate")) {
+    reasons.push("Death occurred near an objective window.");
+  }
+  if (tags.has("enemy_level_up_recently_candidate") || tags.has("level_up_all_in_candidate")) {
+    reasons.push("Enemy level-up timing was detected.");
+  }
+  if (tags.has("solo_death_candidate") || tags.has("isolated_forward_death_candidate")) {
+    reasons.push("Possible unsupported position.");
+  }
+  if (Number(death?.killerLevel ?? 0) > Number(death?.victimLevel ?? 0)) {
+    reasons.push("Killer had a level advantage.");
+  }
+  return reasons.length > 0 ? reasons : ["Death event has deterministic facts to inspect."];
+}
+
+function scoreReviewDeath(death, tagCounts = {}) {
+  const tags = new Set(death?.tags ?? []);
+  let score = tags.size * 10;
+  if (Number(death?.nearbyEnemyCount ?? 0) >= 2 || tags.has("multi_enemy_collapse_candidate")) score += 35;
+  if (tags.has("objective_window_candidate") || tags.has("objective_setup_death_candidate") || tags.has("objective_exit_death_candidate")) score += 30;
+  if (tags.has("enemy_level_up_recently_candidate") || tags.has("level_up_all_in_candidate")) score += 25;
+  if (tags.has("solo_death_candidate") || tags.has("isolated_forward_death_candidate")) score += 20;
+  if (Number(death?.killerLevel ?? 0) > Number(death?.victimLevel ?? 0)) score += 15;
+  for (const tag of tags) {
+    if (Number(tagCounts[tag] ?? 0) > 1) score += 12;
+  }
+  return score;
+}
+
+export function buildMatchReviewPlan(review) {
+  const deaths = Array.isArray(review?.deathEvents) ? review.deathEvents : [];
+  const tagCounts = review?.deterministicTagCounts ?? {};
+  if (!review?.evaluationSummary || deaths.length === 0) {
+    return {
+      primaryPattern: null,
+      reviewMoments: [],
+      debugSignalCounts: Object.entries(tagCounts)
+        .filter(([, count]) => Number(count) > 0)
+        .map(([label, count]) => ({ label: tagLabel(label), count: Number(count), sampleTimes: [] }))
+    };
+  }
+
+  const rankedDeaths = deaths
+    .map((death) => ({ death, priority: scoreReviewDeath(death, tagCounts) }))
+    .sort((left, right) => right.priority - left.priority || Number(left.death.timestampSeconds ?? 0) - Number(right.death.timestampSeconds ?? 0));
+  const primaryTag = Object.entries(tagCounts)
+    .filter(([tag, count]) => tag !== "death_count" && Number(count) > 1)
+    .sort((left, right) => Number(right[1]) - Number(left[1]) || left[0].localeCompare(right[0]))[0] ?? null;
+  const primaryDeaths = primaryTag ? deaths.filter((death) => (death.tags ?? []).includes(primaryTag[0])) : rankedDeaths.map((entry) => entry.death);
+
+  return {
+    primaryPattern: primaryTag ? {
+      id: primaryTag[0],
+      title: tagLabel(primaryTag[0]),
+      confidence: Number(primaryTag[1]) >= 3 ? "high" : "medium",
+      summary: `${Number(primaryTag[1])} deaths share this detected signal. Use the timestamps below to compare the setup before each death.`,
+      deathTimes: primaryDeaths.slice(0, 3).map(formatDeathTimestamp),
+      supportingSignals: reviewMomentSignals(primaryDeaths[0] ?? {}).slice(0, 4)
+    } : null,
+    reviewMoments: rankedDeaths.slice(0, 3).map(({ death, priority }) => ({
+      time: formatDeathTimestamp(death),
+      priority,
+      headline: `${tagLabel((death.tags ?? [])[0] ?? "death_count")} at ${formatDeathTimestamp(death)}`,
+      detectedSignals: reviewMomentSignals(death),
+      whyReview: reviewMomentReasons(death),
+      reviewQuestion: "What information or teammate position should have changed this decision before the death?",
+      deterministicLesson: Number(death?.killerLevel ?? 0) > Number(death?.victimLevel ?? 0)
+        ? "Respect level disadvantage before contesting space."
+        : undefined
+    })),
+    debugSignalCounts: Object.entries(tagCounts)
+      .filter(([, count]) => Number(count) > 0)
+      .sort((left, right) => Number(right[1]) - Number(left[1]) || left[0].localeCompare(right[0]))
+      .map(([label, count]) => ({
+        label: tagLabel(label),
+        count: Number(count),
+        sampleTimes: deaths.filter((death) => (death.tags ?? []).includes(label)).slice(0, 3).map(formatDeathTimestamp)
+      }))
+  };
+}
+
+function renderReviewPlan(plan, review) {
+  if (!review?.evaluationSummary) {
+    return renderReviewPriority(deriveReviewPriority(review));
+  }
+  if ((review.evaluationSummary?.deathCount ?? 0) === 0) {
+    return renderReviewPriority(deriveReviewPriority(review));
+  }
+  const timestamps = plan.primaryPattern?.deathTimes?.length
+    ? plan.primaryPattern.deathTimes
+    : plan.reviewMoments.map((moment) => moment.time);
+
+  return `
+    <article class="panel review-priority-panel">
+      <p class="eyebrow">Guided Review Plan</p>
+      <h3>${escapeHtml(plan.primaryPattern?.title ?? "Death review")}</h3>
+      <p class="muted">${escapeHtml(plan.primaryPattern?.summary ?? "Review the highest-priority deterministic death moments first.")}</p>
+      ${timestamps.length > 0 ? `<p class="muted">Inspect first: ${escapeHtml(timestamps.slice(0, 3).join(", "))}</p>` : ""}
+      <p class="muted">Why review: overlapping detected signals and repeated candidates are ranked before single-signal deaths.</p>
+    </article>
+    <section class="compact-list">
+      ${plan.reviewMoments.map((moment) => `
+        <article class="panel">
+          <p class="eyebrow">${escapeHtml(moment.time)}</p>
+          <h3>${escapeHtml(moment.headline)}</h3>
+          ${renderSignalList(moment.detectedSignals, "No detected signals for this moment.")}
+          <p class="muted">Flagged because: ${escapeHtml(moment.whyReview.join(" "))}</p>
+          <p><strong>Review question:</strong> ${escapeHtml(moment.reviewQuestion)}</p>
+          ${moment.deterministicLesson ? `<p class="muted">${escapeHtml(moment.deterministicLesson)}</p>` : ""}
+        </article>
+      `).join("")}
+    </section>
+  `;
 }
 
 function renderReviewPriority(priority) {
@@ -1287,7 +1511,7 @@ function renderMatchReview(root, review, context = getRouteContext()) {
   const evaluationSummary = review.evaluationSummary ?? null;
   const reviewSignals = evaluationSummary?.reviewSignals ?? [];
   const goalRelevance = review.goalRelevance ?? review.relevanceReason ?? null;
-  const reviewPriority = deriveReviewPriority(review);
+  const reviewPlan = buildMatchReviewPlan(review);
 
   root.innerHTML = appShell(`
     <section class="section-heading">
@@ -1297,7 +1521,7 @@ function renderMatchReview(root, review, context = getRouteContext()) {
       </div>
       <p class="section-copy">${escapeHtml(kdaLabel(summary))} KDA${summary.role ? ` · ${escapeHtml(summary.role)}` : ""}</p>
     </section>
-    ${renderReviewPriority(reviewPriority)}
+    ${renderReviewPlan(reviewPlan, review)}
     <section class="review-workspace-layout">
       <article class="panel review-run-panel">
         <p class="eyebrow">Match Summary</p>
@@ -1310,17 +1534,17 @@ function renderMatchReview(root, review, context = getRouteContext()) {
         <p class="muted">Evaluation: ${escapeHtml(review.evaluationStatus ?? "unknown")}</p>
       </article>
       <article class="panel">
-        <p class="eyebrow">Review Signals</p>
+        <p class="eyebrow">Detected Signals</p>
         ${renderSignalList(reviewSignals, "No review signals are available yet.")}
       </article>
-      <article class="panel">
-        <p class="eyebrow">Deterministic Death Facts</p>
+      <details class="panel">
+        <summary>Raw deterministic facts</summary>
         ${review.evaluationSummary ? renderDeathFacts(review.deathEvents) : '<p class="muted">Evaluation is not prepared for this match yet.</p>'}
-      </article>
-      <article class="panel">
-        <p class="eyebrow">Deterministic Tags</p>
+      </details>
+      <details class="panel">
+        <summary>Raw signal counts</summary>
         ${renderTagCounts(review.deterministicTagCounts)}
-      </article>
+      </details>
       ${goalRelevance ? `
         <article class="panel">
           <p class="eyebrow">Goal Relevance</p>
@@ -1333,6 +1557,9 @@ function renderMatchReview(root, review, context = getRouteContext()) {
           <p class="muted">No persisted evaluation exists yet for this match.</p>
         </article>
       ` : ""}
+      <!-- TODO: Add reviewed moment persistence. -->
+      <!-- TODO: Store confirmed signals, dismissed signals, and unsure signals. -->
+      <!-- TODO: Feed reviewed evidence into dashboard progress only after persistence exists. -->
     </section>
   `, {
     eyebrow: "Review",
@@ -1616,6 +1843,14 @@ async function renderHome(root, context = getRouteContext()) {
     const riotEvidence = goal.riotEvidence ?? null;
     const goalEvidenceSource = goal.evidenceSource ?? {};
     const teamEvidenceSource = teamFocus.evidenceSource ?? {};
+    const reviewedEvidenceReady = hasReviewedEvidence(goal, dashboard);
+    const displayGoalStatus = reviewedEvidenceReady ? (goal.goalStatus ?? "No data yet") : "No reviewed games yet";
+    const displayGoalStatusTrend = reviewedEvidenceReady ? (goal.goalStatusTrend ?? "unknown") : "unknown";
+    const displayTrend = reviewedEvidenceReady ? (goal.trend ?? "Unknown") : "Unknown";
+    const displayConfidence = reviewedEvidenceReady ? (goal.confidence ?? "Low sample") : "No reviewed games yet";
+    const weeklyTargets = reviewedEvidenceReady ? (goal.weeklyTargets ?? []) : [];
+    const goalSignals = reviewedEvidenceReady ? (goal.signals ?? []) : [];
+    const insights = reviewedEvidenceReady ? recentInsights : [];
     const reviewHref = toAppHref("/review", context) ?? "#";
     const goalsHref = toAppHref("/goals", context) ?? "#";
     const actionHref = toAppHref(action.href ?? "/review", context) ?? reviewHref;
@@ -1653,9 +1888,9 @@ async function renderHome(root, context = getRouteContext()) {
             <h2>${escapeHtml(goal.title ?? "No active goal yet")}</h2>
             <div class="badge-row">
               <span class="context-badge">${escapeHtml(focusTagline)}</span>
-              ${statusBadge(goal.goalStatus ?? "No data yet", goal.goalStatusTrend ?? "unknown")}
-              ${statusBadge(`Trend: ${goal.trend ?? "Unknown"}`, goal.trendKey ?? "unknown")}
-              ${statusBadge(`Confidence: ${goal.confidence ?? "Low sample"}`, "unknown")}
+              ${statusBadge(displayGoalStatus, displayGoalStatusTrend)}
+              ${statusBadge(`Trend: ${displayTrend}`, reviewedEvidenceReady ? (goal.trendKey ?? "unknown") : "unknown")}
+              ${statusBadge(`Confidence: ${displayConfidence}`, "unknown")}
             </div>
             <div class="hero-next-action">
               <p class="eyebrow">Next action</p>
@@ -1670,11 +1905,11 @@ async function renderHome(root, context = getRouteContext()) {
           </div>
           <div class="active-goal-targets">
             <p class="eyebrow">Weekly Targets</p>
-            ${targetChipGrid(goal.weeklyTargets, "No weekly targets configured yet.")}
+            ${targetChipGrid(weeklyTargets, "Review a game to establish weekly targets.")}
           </div>
         </div>
         <div class="active-goal-footer">
-          <p class="muted">${escapeHtml(goal.progressSummary ?? "No trend summary yet.")}</p>
+          <p class="muted">${escapeHtml(reviewedEvidenceReady ? (goal.progressSummary ?? "No trend summary yet.") : "No reviewed games yet.")}</p>
           <div class="action-row">
             <a class="button secondary" href="${escapeHtml(goalsHref)}">View Goals</a>
           </div>
@@ -1694,7 +1929,7 @@ async function renderHome(root, context = getRouteContext()) {
             <p><strong>Your assignment:</strong> ${escapeHtml(teamFocus.assignment ?? "Not set")}</p>
             <p><strong>Practice topic:</strong> ${escapeHtml(teamFocus.practiceTopic ?? "Not set")}</p>
             <p><strong>Next team action:</strong> ${escapeHtml(teamFocus.nextTeamAction?.title ?? "Not set")}</p>
-            <p><strong>Recent team signal:</strong> ${escapeHtml(teamFocus.headlineSignal ? `${teamFocus.headlineSignal.value} ${teamFocus.headlineSignal.label.toLowerCase()}${Number(teamFocus.headlineSignal.value) === 1 ? "" : "s"}` : "Not set")}</p>
+            <p><strong>Recent team signal:</strong> ${escapeHtml(reviewedEvidenceReady && teamFocus.headlineSignal ? `${teamFocus.headlineSignal.value} ${teamFocus.headlineSignal.label.toLowerCase()}${Number(teamFocus.headlineSignal.value) === 1 ? "" : "s"}` : "Seeded from onboarding. Not updated from reviewed games yet.")}</p>
           </div>
           ${evidenceMeta(
             teamEvidenceSource.summary,
@@ -1716,9 +1951,9 @@ async function renderHome(root, context = getRouteContext()) {
             </div>
           </div>
           <section class="insight-grid">
-            ${recentInsights.length > 0
-              ? recentInsights.slice(0, 2).map(insightCard).join("")
-              : '<p class="muted">No insights yet.</p>'}
+            ${insights.length > 0
+              ? insights.slice(0, 2).map(insightCard).join("")
+              : '<p class="muted">Insights will appear after you review games.</p>'}
           </section>
         </section>
       </section>
@@ -1731,8 +1966,8 @@ async function renderHome(root, context = getRouteContext()) {
           </div>
         </div>
           <section class="signal-grid">
-          ${(goal.signals ?? []).length > 0
-            ? goal.signals.map(signalCard).join("")
+          ${goalSignals.length > 0
+            ? goalSignals.map(signalCard).join("")
             : '<p class="muted">No goal-linked signals yet. Review a game to record the first one.</p>'}
         </section>
       </section>
@@ -1763,6 +1998,7 @@ async function renderHome(root, context = getRouteContext()) {
   `, {
       hidden: true
     });
+    bindRecentGamesRefresh(root);
     scheduleRecentEvaluationPreparation(root, riotEvidence, context);
   } catch (error) {
     outcome = "failure";

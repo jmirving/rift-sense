@@ -347,6 +347,12 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("1 evaluation pending");
     expect(document.body.textContent).toContain("Today's Review Candidate");
     expect(document.body.textContent).toContain("Review this game");
+    expect(document.body.textContent).toContain("Refresh recent games");
+    expect(document.body.textContent).toContain("No reviewed games yet");
+    expect(document.body.textContent).toContain("Review a game to establish weekly targets.");
+    expect(document.body.textContent).toContain("Insights will appear after you review games.");
+    expect(document.body.textContent).toContain("Seeded from onboarding. Not updated from reviewed games yet.");
+    expect(document.body.textContent).not.toContain("On track");
     expect(document.body.textContent).toContain("Goal relevance: Die Less · ADC");
     expect(document.body.textContent).toContain("Jhin · Ranked Solo/Duo · Loss");
     expect(document.body.textContent).toContain("Review Signals · current");
@@ -359,6 +365,85 @@ describe("public app routes", () => {
     expect(document.body.textContent).not.toContain("SECRET_TIMELINE_EVENT");
     expect(document.body.textContent).not.toContain("SECRET_MATCH_JSON");
     expect(document.querySelector('a[href="/review?matchId=NA1_1"]')?.textContent).toContain("Review");
+  });
+
+  it("refreshes recent games and renders no-new-games feedback", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Die Less",
+                role: "ADC",
+                evidenceSource: {},
+                riotEvidence: {
+                  status: "all_recent_games_ready",
+                  discoveredCount: 1,
+                  summaryReadyCount: 1,
+                  evaluationReadyCount: 1,
+                  candidateGames: [
+                    {
+                      matchId: "NA1_1",
+                      championName: "Jhin",
+                      queueLabel: "Ranked Solo/Duo",
+                      result: "Loss",
+                      kda: "1/2/3",
+                      evaluationStatus: "current",
+                      evaluationSummary: { deathCount: 2, reviewSignals: ["2 deaths"] }
+                    }
+                  ]
+                }
+              },
+              todaysAction: {},
+              activeTeamFocus: {},
+              recentInsights: [],
+              suggestedNextSteps: []
+            }
+          }
+        });
+      }
+
+      if (url === "/api/home/recent-games/refresh") {
+        return mockJsonResponse({
+          status: "ok",
+          newCount: 0,
+          riotEvidence: {
+            status: "all_recent_games_ready",
+            discoveredCount: 1,
+            summaryReadyCount: 1,
+            evaluationReadyCount: 1
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/");
+
+    await renderApp(document.querySelector("#app"));
+    document.querySelector("[data-refresh-recent-games]").click();
+    expect(document.body.textContent).toContain("Checking recent games...");
+    await flushAsyncWork();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/home/recent-games/refresh",
+      expect.objectContaining({ method: "POST", credentials: "same-origin" })
+    );
+    expect(document.body.textContent).toContain("No new games found.");
   });
 
   it("renders a preparing review candidate state when no evaluated game exists", async () => {
@@ -491,7 +576,7 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("3 deaths");
   });
 
-  it("renders preparing match summary instead of fabricated candidate metadata", async () => {
+  it("renders discovered game state instead of fabricated candidate metadata", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
         return mockJsonResponse({
@@ -549,18 +634,18 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Preparing match summary");
+    expect(document.body.textContent).toContain("Jhin · Discovered");
     expect(document.body.textContent).toContain("10 games discovered");
     expect(document.body.textContent).toContain("0 match summaries ready");
     expect(document.body.textContent).toContain("10 match summaries preparing");
-    expect(document.body.textContent).toContain("Match summaries preparing.");
+    expect(document.body.textContent).toContain("Match summaries are being prepared.");
     expect(document.body.textContent).not.toContain("Unknown queue");
     expect(document.body.textContent).not.toContain("Unknown result");
     expect(document.body.textContent).not.toContain("0/0/0");
     expect(document.body.textContent).not.toContain("10 games ready");
     expect(document.body.textContent).not.toContain("Review this game");
     expect(document.querySelector('a[href="/review?matchId=NA1_incomplete"]')).toBeNull();
-    expect(document.body.textContent).toContain("Preparing");
+    expect(document.body.textContent).toContain("Discovered");
   });
 
   it("renders failed recent-game preparation counts", async () => {
@@ -763,17 +848,17 @@ describe("public app routes", () => {
 
     expect(document.body.textContent).toContain("Jhin · Loss · Ranked Solo/Duo");
     expect(document.body.textContent).toContain("8/5/6 KDA");
-    expect(document.body.textContent).toContain("Review First");
-    expect(document.body.textContent).toContain("Review first: Repeated multi-enemy deaths");
-    expect(document.body.textContent).toContain("Deterministic evidence only.");
+    expect(document.body.textContent).toContain("Guided Review Plan");
+    expect(document.body.textContent).toContain("Multi-enemy collapse candidate");
+    expect(document.body.textContent).toContain("Why review: overlapping detected signals");
     expect(document.body.textContent).toContain("Inspect first: 08:14, 10:00");
-    expect(document.body.textContent).toContain("Review Signals");
+    expect(document.body.textContent).toContain("Detected Signals");
     expect(document.body.textContent).toContain("2 multi-enemy collapse candidates");
-    expect(document.body.textContent).toContain("Deterministic Death Facts");
+    expect(document.body.textContent).toContain("Raw deterministic facts");
     expect(document.body.textContent).toContain("08:14");
-    expect(document.body.textContent).toContain("killed by LeBlanc, assisted by Briar");
-    expect(document.body.textContent).toContain("Tags: Multi Enemy Collapse Candidate");
-    expect(document.body.textContent).toContain("victim level 8");
+    expect(document.body.textContent).toContain("Killed by LeBlanc, assisted by Briar");
+    expect(document.body.textContent).toContain("Detected signals: Multi-enemy collapse candidate");
+    expect(document.body.textContent).toContain("Victim level 8");
     expect(document.body.textContent).not.toContain("SECRET_TIMELINE_EVENT");
     expect(document.body.textContent).not.toContain("SECRET_MATCH_JSON");
   });

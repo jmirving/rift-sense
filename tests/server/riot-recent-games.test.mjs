@@ -338,7 +338,24 @@ describe("riot recent-games service", () => {
       preparingCount: 2,
       failedCount: 0,
       discoveredCount: 2,
-      games: []
+      games: [
+        {
+          matchId: "NA1_cards_missing_1",
+          championName: null,
+          evaluationStatus: "not_evaluated",
+          sourceMetadata: {
+            parseStatus: "discovered"
+          }
+        },
+        {
+          matchId: "NA1_cards_missing_2",
+          championName: null,
+          evaluationStatus: "not_evaluated",
+          sourceMetadata: {
+            parseStatus: "discovered"
+          }
+        }
+      ]
     });
     expect(logs.find((entry) => entry.step === "recent_games_backfill_queue")).toMatchObject({
       status: "success",
@@ -916,7 +933,7 @@ describe("riot recent-games service", () => {
           evaluationSummary: {
             deathCount: 2,
             topTags: [{ tag: "solo_death_candidate", count: 1 }],
-            reviewSignals: ["2 deaths", "1 solo death candidate"]
+            reviewSignals: ["2 deaths", "1 possible unsupported death"]
           }
         },
         {

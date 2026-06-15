@@ -19,13 +19,13 @@ const TAG_IDS = [
   "missing_participant"
 ];
 const SUMMARY_TAGS = new Map([
-  ["solo_death_candidate", "solo death candidates"],
+  ["solo_death_candidate", "possible unsupported deaths"],
   ["multi_enemy_collapse_candidate", "multi-enemy collapse candidates"],
   ["objective_window_candidate", "objective-window candidates"],
   ["objective_setup_death_candidate", "objective setup death candidates"],
   ["objective_exit_death_candidate", "objective exit death candidates"],
   ["enemy_level_up_recently_candidate", "enemy level-up timing candidates"],
-  ["level_up_all_in_candidate", "level-up all-in candidates"],
+  ["level_up_all_in_candidate", "possible level-up all-ins"],
   ["isolated_forward_death_candidate", "isolated forward death candidates"],
   ["missing_timeline", "missing timeline"],
   ["missing_participant", "missing participant"]

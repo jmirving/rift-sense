@@ -91,6 +91,10 @@ function buildAuthenticatedEmptyHome(userId, identity) {
   };
 }
 
+function normalizeString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 function buildPublicHomePayload() {
   return {
     user: {
@@ -144,6 +148,26 @@ export function createHomeRouter({
 }) {
   const router = express.Router();
 
+  async function resolveHomeContext(request, timing) {
+    const { effectiveUserId, home } = await resolveAuthenticatedHomeRecord({
+      request,
+      userHomesRepository,
+      timing
+    });
+    const sharedProfile = await timing.time("resolve_shared_profile", () => resolveSharedProfile({
+      request,
+      config,
+      fetchSharedProfileImpl: fetchSharedProfile
+    }));
+    const identity = {
+      ...request.identity,
+      riot: sharedProfile ? buildSharedProfileIdentity(sharedProfile) : request.identity?.riot ?? null,
+      profile: sharedProfile
+    };
+
+    return { effectiveUserId, home, identity };
+  }
+
   router.get("/", async (request, response) => {
     const timing = createTimingContext({
       route: "home",
@@ -162,21 +186,7 @@ export function createHomeRouter({
         return;
       }
 
-      const { effectiveUserId, home } = await resolveAuthenticatedHomeRecord({
-        request,
-        userHomesRepository,
-        timing
-      });
-      const sharedProfile = await timing.time("resolve_shared_profile", () => resolveSharedProfile({
-        request,
-        config,
-        fetchSharedProfileImpl: fetchSharedProfile
-      }));
-      const identity = {
-        ...request.identity,
-        riot: sharedProfile ? buildSharedProfileIdentity(sharedProfile) : request.identity?.riot ?? null,
-        profile: sharedProfile
-      };
+      const { effectiveUserId, home, identity } = await resolveHomeContext(request, timing);
 
       const homePayload = await timing.time("build_home_payload", () => buildHomePayload({
         home,
@@ -196,6 +206,61 @@ export function createHomeRouter({
         home: homePayload
       });
       timing.log("route", "success", { durationMs: routeTimer.elapsedMs() });
+    } catch (error) {
+      timing.log("route", "failure", {
+        durationMs: routeTimer.elapsedMs(),
+        errorName: error?.name ?? "Error"
+      });
+      throw error;
+    }
+  });
+
+  router.post("/recent-games/refresh", config.requireAuth, async (request, response) => {
+    const timing = createTimingContext({
+      route: "recent_games_refresh",
+      request,
+      enabled: config.perfLoggingEnabled
+    });
+    const routeTimer = timing.startTimer();
+
+    try {
+      const { effectiveUserId, home, identity } = await resolveHomeContext(request, timing);
+      const puuid = normalizeString(identity?.profile?.riotPuuid ?? identity?.riot?.puuid);
+      const beforeStoredIds = new Set(
+        puuid && riotMatchesRepository?.listRecentGameCardsForUser
+          ? (await timing.time("recent_games_cached_ids_before_refresh", () => riotMatchesRepository.listRecentGameCardsForUser({
+              puuid,
+              limit: 100
+            }))).map((card) => card.matchId).filter(Boolean)
+          : []
+      );
+      const after = await timing.time("build_home_payload_after_refresh", () => buildHomePayload({
+        home,
+        effectiveUserId,
+        source: "authenticated",
+        contentItemsRepository,
+        identity,
+        config,
+        fetchImpl,
+        resolveRecentGames,
+        riotMatchesRepository,
+        matchEvaluationsRepository,
+        timing
+      }));
+      const afterGameIds = (after.goalDashboard?.activePersonalGoal?.riotEvidence?.candidateGames ?? [])
+        .map((game) => game.matchId)
+        .filter(Boolean);
+      const newCount = beforeStoredIds.size > 0
+        ? afterGameIds.filter((matchId) => !beforeStoredIds.has(matchId)).length
+        : 0;
+
+      response.json({
+        status: "ok",
+        newCount,
+        riotEvidence: after.goalDashboard?.activePersonalGoal?.riotEvidence ?? null,
+        home: after
+      });
+      timing.log("route", "success", { durationMs: routeTimer.elapsedMs(), newCount });
     } catch (error) {
       timing.log("route", "failure", {
         durationMs: routeTimer.elapsedMs(),

@@ -428,5 +428,5 @@ it("includes new tags in summaries and top tags when present", () => {
   const summaryResult = summarizeMatchEvaluation(result);
 
   expect(summaryResult.topTags.map((entry) => entry.tag)).toContain("level_up_all_in_candidate");
-  expect(summaryResult.reviewSignals).toContain("1 level-up all-in candidate");
+  expect(summaryResult.reviewSignals).toContain("1 possible level-up all-in");
 });

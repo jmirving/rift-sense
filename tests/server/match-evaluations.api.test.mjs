@@ -313,7 +313,7 @@ describe("match evaluations API", () => {
       },
       evaluationSummary: {
         deathCount: 2,
-        reviewSignals: ["2 deaths", "1 objective-window candidate", "1 solo death candidate"]
+        reviewSignals: ["2 deaths", "1 objective-window candidate", "1 possible unsupported death"]
       },
       deathEvents: [
         {

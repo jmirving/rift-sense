@@ -273,6 +273,39 @@ function recentGameFromPerspectiveCard(card) {
   };
 }
 
+function recentGameFromDiscoveredMatchId(matchId) {
+  const normalizedMatchId = normalizeString(matchId);
+  if (!normalizedMatchId) {
+    return null;
+  }
+
+  return {
+    matchId: normalizedMatchId,
+    playedAt: null,
+    queueId: 0,
+    queueLabel: null,
+    championId: null,
+    championName: null,
+    role: null,
+    roleConfidence: "low",
+    result: null,
+    kills: null,
+    deaths: null,
+    assists: null,
+    kda: null,
+    csPerMinute: null,
+    gameDurationSeconds: null,
+    sourceMetadata: {
+      queueBucket: "unknown",
+      parseStatus: "discovered"
+    },
+    evaluationStatus: "not_evaluated",
+    evaluationVersion: null,
+    evaluationSummary: null,
+    evaluationDeaths: []
+  };
+}
+
 function buildUnavailableResult(code, message) {
   return {
     status: code === "riot-config-missing" || code === "riot-auth-failed"
@@ -622,6 +655,9 @@ export async function resolveRecentGames({
           .map(recentGameFromPerspectiveCard)
           .filter(Boolean);
         const gamesByMatchId = new Map(games.map((game) => [game.matchId, game]));
+        const gamesWithDiscovered = matchIds
+          .map((matchId) => gamesByMatchId.get(matchId) ?? recentGameFromDiscoveredMatchId(matchId))
+          .filter(Boolean);
         const summaryReadyGames = games.filter(gameHasMatchSummary);
         const failedGames = games.filter(gameHasFailedPreparation);
         const preparationNeededMatchIds = matchIds.filter((matchId) => {
@@ -667,7 +703,7 @@ export async function resolveRecentGames({
           message: games.length > 0
             ? "Recent games loaded from cache while newer matches are prepared."
             : "Recent games found. Match details are being prepared.",
-          games,
+          games: gamesWithDiscovered,
           readyCount: summaryReadyGames.length,
           summaryReadyCount: summaryReadyGames.length,
           preparingCount: queuedMatchIds.length,

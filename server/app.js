@@ -82,7 +82,10 @@ export function createApp({
   app.use(
     "/api/home",
     createHomeRouter({
-      config,
+      config: {
+        ...config,
+        requireAuth
+      },
       userHomesRepository,
       contentItemsRepository,
       fetchSharedProfile,
