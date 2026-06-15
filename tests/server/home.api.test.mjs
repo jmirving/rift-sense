@@ -673,6 +673,113 @@ describe("home API", () => {
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.preparingCount).toBe(1);
   });
 
+  it("refresh reports newly discovered match IDs separately from relevance-scored candidates", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const app = await createTestApp({
+      authEnabled: true,
+      perfLoggingEnabled: true,
+      riotMatchesRepository: {
+        async listRecentGameCardsForUser({ puuid }) {
+          expect(puuid).toBe("puuid_owner");
+          return [{ matchId: "NA1_existing_candidate" }];
+        }
+      },
+      matchEvaluationsRepository: {
+        async listRecentEvaluationSummariesForUser() {
+          return [];
+        }
+      },
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_local_dev",
+          primaryRole: "ADC",
+          riotPuuid: "puuid_owner"
+        };
+      },
+      async resolveRecentGames() {
+        return {
+          status: "all_recent_games_ready",
+          sourceLabel: "Riot recent games",
+          message: "Recent games loaded.",
+          discoveredMatchIds: ["NA1_new_partial", "NA1_existing_candidate"],
+          queuedMatchIds: ["NA1_new_partial"],
+          games: [
+            {
+              matchId: "NA1_new_partial",
+              championName: "Kai'Sa",
+              evaluationStatus: "not_evaluated"
+            },
+            {
+              matchId: "NA1_existing_candidate",
+              playedAt: "2026-06-08T05:00:00.000Z",
+              queueId: 420,
+              queueLabel: "Ranked Solo/Duo",
+              championName: "Jhin",
+              role: "ADC",
+              result: "Loss",
+              kills: 3,
+              deaths: 5,
+              assists: 4,
+              kda: "3/5/4",
+              csPerMinute: 7.1,
+              gameDurationSeconds: 1800,
+              evaluationStatus: "current",
+              evaluationSummary: {
+                deathCount: 5,
+                reviewSignals: ["5 deaths"],
+                topTags: [{ tag: "death_count", count: 5 }]
+              }
+            }
+          ],
+          readyCount: 1,
+          summaryReadyCount: 1,
+          evaluationReadyCount: 1,
+          preparingCount: 1,
+          failedCount: 0,
+          discoveredCount: 2
+        };
+      }
+    });
+    const token = jwt.sign(
+      { sub: "usr_local_dev", iss: "nexus", aud: "riftsense" },
+      "test-secret",
+      { algorithm: "HS256", expiresIn: "1h" }
+    );
+
+    const response = await request(app)
+      .post("/api/home/recent-games/refresh")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      newCount: 1,
+      discoveredMatchIds: ["NA1_new_partial", "NA1_existing_candidate"],
+      storedBeforeMatchIds: ["NA1_existing_candidate"],
+      newDiscoveredMatchIds: ["NA1_new_partial"],
+      queuedMatchIds: ["NA1_new_partial"],
+      summaryReadyCount: 1,
+      evaluationReadyCount: 1
+    });
+    expect(response.body.riotEvidence.recentGames.map((game) => game.matchId)).toEqual([
+      "NA1_new_partial",
+      "NA1_existing_candidate"
+    ]);
+    expect(response.body.riotEvidence.reviewCandidate.matchId).toBe("NA1_existing_candidate");
+    expect(response.body.riotEvidence.candidateGames[0].matchId).toBe("NA1_existing_candidate");
+
+    const routeLog = info.mock.calls
+      .map((call) => JSON.parse(call[0]))
+      .find((entry) => entry.route === "recent_games_refresh" && entry.step === "route");
+    expect(routeLog).toMatchObject({
+      puuidPresent: true,
+      discoveredCount: 2,
+      newDiscoveredCount: 1,
+      queuedCount: 1,
+      summaryReadyCount: 1,
+      evaluationReadyCount: 1
+    });
+  });
+
   it("uses only confirmed reviewed moments for dashboard progress", async () => {
     const matchEvaluationsRepository = {
       async listConfirmedReviewedMomentsForUser({ userId }) {

@@ -42,7 +42,8 @@ function buildNoRiotLinkedEvidence() {
     summary: "Link a Riot account in Nexus to pull recent games for this goal.",
     confidence: "Setup needed",
     sourceLabel: "No Riot account linked",
-    candidateGames: []
+    candidateGames: [],
+    recentGames: []
   };
 }
 
@@ -117,6 +118,7 @@ function buildSeededDemoEvidence() {
     confidence: "Medium confidence",
     sourceLabel: "Seeded demo",
     candidateGames,
+    recentGames: candidateGames,
     reviewCandidate: selectReviewCandidate({ candidateGames, goal: { title: "Die Less", role: "ADC" }, profile: { primaryRole: "ADC" } })
   };
 }
@@ -200,6 +202,7 @@ function buildUnavailableEvidence(riotIdentity, recentGamesResult) {
     ? `${riotIdentity.gameName}#${riotIdentity.tagLine}`
     : "Linked Riot account";
   const counts = readinessCounts(recentGamesResult, []);
+  const recentGames = Array.isArray(recentGamesResult.games) ? recentGamesResult.games : [];
 
   return {
     status: recentGamesResult.status,
@@ -208,6 +211,7 @@ function buildUnavailableEvidence(riotIdentity, recentGamesResult) {
     confidence: "Pending",
     sourceLabel: recentGamesResult.sourceLabel ?? "Riot account linked",
     candidateGames: [],
+    recentGames,
     readyCount: counts.summaryReadyCount,
     discoveredCount: counts.discoveredCount,
     summaryReadyCount: counts.summaryReadyCount,
@@ -215,13 +219,18 @@ function buildUnavailableEvidence(riotIdentity, recentGamesResult) {
     evaluationPendingCount: counts.evaluationPendingCount,
     evaluationPreparingCount: counts.evaluationPreparingCount,
     preparingCount: Number(recentGamesResult.preparingCount ?? 0),
-    failedCount: Number(recentGamesResult.failedCount ?? 0)
+    failedCount: Number(recentGamesResult.failedCount ?? 0),
+    discoveredMatchIds: recentGamesResult.discoveredMatchIds ?? [],
+    queuedMatchIds: recentGamesResult.queuedMatchIds ?? [],
+    riotFetchFailureStatus: recentGamesResult.riotFetchFailureStatus ?? null,
+    code: recentGamesResult.code ?? null
   };
 }
 
 function buildAvailableEvidence(candidateGames, recentGamesResult, { goal, profile } = {}) {
   const topConfidence = candidateGames[0]?.confidenceLabel ?? "low";
   const sourceLabel = candidateGames[0]?.sourceLabel ?? "Riot recent games";
+  const recentGames = Array.isArray(recentGamesResult.games) ? recentGamesResult.games : [];
   const readyCount = Number(recentGamesResult.readyCount ?? candidateGames.length);
   const preparingCount = Number(recentGamesResult.preparingCount ?? 0);
   const status = recentGamesResult.status ?? (preparingCount > 0 ? "some_games_ready" : "all_recent_games_ready");
@@ -240,6 +249,7 @@ function buildAvailableEvidence(candidateGames, recentGamesResult, { goal, profi
     confidence: mapConfidenceLabel(topConfidence),
     sourceLabel,
     candidateGames,
+    recentGames,
     reviewCandidate: selectReviewCandidate({ candidateGames, goal, profile }),
     readyCount: counts.summaryReadyCount,
     discoveredCount: counts.discoveredCount,
@@ -248,7 +258,11 @@ function buildAvailableEvidence(candidateGames, recentGamesResult, { goal, profi
     evaluationPendingCount: counts.evaluationPendingCount,
     evaluationPreparingCount: counts.evaluationPreparingCount,
     preparingCount,
-    failedCount: Number(recentGamesResult.failedCount ?? 0)
+    failedCount: Number(recentGamesResult.failedCount ?? 0),
+    discoveredMatchIds: recentGamesResult.discoveredMatchIds ?? recentGames.map((game) => game.matchId).filter(Boolean),
+    queuedMatchIds: recentGamesResult.queuedMatchIds ?? [],
+    riotFetchFailureStatus: recentGamesResult.riotFetchFailureStatus ?? null,
+    code: recentGamesResult.code ?? null
   };
 }
 

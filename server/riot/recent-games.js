@@ -704,6 +704,8 @@ export async function resolveRecentGames({
             ? "Recent games loaded from cache while newer matches are prepared."
             : "Recent games found. Match details are being prepared.",
           games: gamesWithDiscovered,
+          discoveredMatchIds: matchIds,
+          queuedMatchIds,
           readyCount: summaryReadyGames.length,
           summaryReadyCount: summaryReadyGames.length,
           preparingCount: queuedMatchIds.length,
@@ -776,6 +778,8 @@ export async function resolveRecentGames({
           ? "Recent games loaded from cache while newer matches are prepared."
           : "Recent games found. Match details are being prepared.",
         games,
+        discoveredMatchIds: matchIds,
+        queuedMatchIds: actuallyQueuedMatchIds,
         readyCount: games.length,
         summaryReadyCount: games.length,
         preparingCount: actuallyQueuedMatchIds.length,
@@ -848,16 +852,21 @@ export async function resolveRecentGames({
       sourceLabel: "Riot recent games",
       message: "Recent games loaded from Riot.",
       games,
+      discoveredMatchIds: matchIds,
+      queuedMatchIds: [],
       readyCount: games.length,
       preparingCount: 0,
       failedCount: settledMatches.filter((result) => result.status === "rejected").length,
       discoveredCount: matchIds.length
     };
   } catch (error) {
-    return buildUnavailableResult(
-      error?.status === 403 ? "riot-auth-failed" : "riot-fetch-failed",
-      "Riot account linked. Recent games are temporarily unavailable."
-    );
+    return {
+      ...buildUnavailableResult(
+        error?.status === 403 ? "riot-auth-failed" : "riot-fetch-failed",
+        "Riot account linked. Recent games are temporarily unavailable."
+      ),
+      riotFetchFailureStatus: error?.status ?? null
+    };
   }
 }
 

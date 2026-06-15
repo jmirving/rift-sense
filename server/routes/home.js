@@ -247,24 +247,50 @@ export function createHomeRouter({
         matchEvaluationsRepository,
         timing
       }));
-      const afterGameIds = (after.goalDashboard?.activePersonalGoal?.riotEvidence?.candidateGames ?? [])
-        .map((game) => game.matchId)
-        .filter(Boolean);
-      const newCount = beforeStoredIds.size > 0
-        ? afterGameIds.filter((matchId) => !beforeStoredIds.has(matchId)).length
-        : 0;
+      const riotEvidence = after.goalDashboard?.activePersonalGoal?.riotEvidence ?? null;
+      const storedBeforeMatchIds = [...beforeStoredIds];
+      const discoveredMatchIds = Array.isArray(riotEvidence?.discoveredMatchIds)
+        ? riotEvidence.discoveredMatchIds.filter(Boolean)
+        : (riotEvidence?.recentGames ?? riotEvidence?.candidateGames ?? [])
+            .map((game) => game.matchId)
+            .filter(Boolean);
+      const queuedMatchIds = Array.isArray(riotEvidence?.queuedMatchIds)
+        ? riotEvidence.queuedMatchIds.filter(Boolean)
+        : [];
+      const newDiscoveredMatchIds = discoveredMatchIds.filter((matchId) => !beforeStoredIds.has(matchId));
+      const newCount = newDiscoveredMatchIds.length;
+      const summaryReadyCount = Number(riotEvidence?.summaryReadyCount ?? 0);
+      const evaluationReadyCount = Number(riotEvidence?.evaluationReadyCount ?? 0);
+      const logFields = {
+        durationMs: routeTimer.elapsedMs(),
+        puuidPresent: Boolean(puuid),
+        discoveredCount: discoveredMatchIds.length,
+        newDiscoveredCount: newDiscoveredMatchIds.length,
+        queuedCount: queuedMatchIds.length,
+        summaryReadyCount,
+        evaluationReadyCount,
+        riotFetchFailureStatus: riotEvidence?.riotFetchFailureStatus ?? null,
+        newCount
+      };
 
       response.json({
         status: "ok",
         newCount,
-        riotEvidence: after.goalDashboard?.activePersonalGoal?.riotEvidence ?? null,
+        discoveredMatchIds,
+        storedBeforeMatchIds,
+        newDiscoveredMatchIds,
+        queuedMatchIds,
+        summaryReadyCount,
+        evaluationReadyCount,
+        riotEvidence,
         home: after
       });
-      timing.log("route", "success", { durationMs: routeTimer.elapsedMs(), newCount });
+      timing.log("route", "success", logFields);
     } catch (error) {
       timing.log("route", "failure", {
         durationMs: routeTimer.elapsedMs(),
-        errorName: error?.name ?? "Error"
+        errorName: error?.name ?? "Error",
+        riotFetchFailureStatus: error?.status ?? null
       });
       throw error;
     }

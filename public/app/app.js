@@ -785,18 +785,19 @@ function gameIsEvaluationReady(game) {
 }
 
 function riotReadinessCounts(riotEvidence) {
+  const recentGames = riotEvidence?.recentGames ?? riotEvidence?.candidateGames ?? [];
   const candidateGames = riotEvidence?.candidateGames ?? [];
   const summaryReadyCount = Number.isFinite(Number(riotEvidence?.summaryReadyCount))
     ? Number(riotEvidence.summaryReadyCount)
-    : candidateGames.length > 0
-      ? candidateGames.filter(gameHasSummaryMetadata).length
+    : recentGames.length > 0
+      ? recentGames.filter(gameHasSummaryMetadata).length
       : Number(riotEvidence?.readyCount ?? 0);
   const evaluationReadyCount = Number.isFinite(Number(riotEvidence?.evaluationReadyCount))
     ? Number(riotEvidence.evaluationReadyCount)
-    : candidateGames.filter(gameIsEvaluationReady).length;
+    : recentGames.filter(gameIsEvaluationReady).length;
   const discoveredCount = Number.isFinite(Number(riotEvidence?.discoveredCount))
     ? Number(riotEvidence.discoveredCount)
-    : Math.max(candidateGames.length + Number(riotEvidence?.preparingCount ?? 0), summaryReadyCount, Number(riotEvidence?.readyCount ?? 0));
+    : Math.max(recentGames.length + Number(riotEvidence?.preparingCount ?? 0), candidateGames.length, summaryReadyCount, Number(riotEvidence?.readyCount ?? 0));
   const evaluationsPendingCount = Number.isFinite(Number(riotEvidence?.evaluationPendingCount))
     ? Number(riotEvidence.evaluationPendingCount)
     : Number.isFinite(Number(riotEvidence?.evaluationPreparingCount))
@@ -1072,6 +1073,7 @@ function riotEvidenceCard(riotEvidence, context = {}) {
     return "";
   }
 
+  const recentGames = riotEvidence.recentGames ?? riotEvidence.candidateGames ?? [];
   const sourceLabel = riotEvidence.sourceLabel ? `<p class="eyebrow">${escapeHtml(riotEvidence.sourceLabel)}</p>` : "";
   return `
     <section class="panel riot-evidence-panel">
@@ -1089,9 +1091,10 @@ function riotEvidenceCard(riotEvidence, context = {}) {
       <p class="muted recent-games-refresh-status" aria-live="polite">${escapeHtml(state.recentGamesRefreshMessage)}</p>
       <p class="muted">${escapeHtml(riotEvidenceSummary(riotEvidence))}</p>
       ${riotReadinessLine(riotEvidence)}
+      <p class="eyebrow">Recent Games</p>
       <section class="compact-list">
-        ${(riotEvidence.candidateGames ?? []).length > 0
-          ? riotEvidence.candidateGames.slice(0, 3).map((game) => {
+        ${recentGames.length > 0
+          ? recentGames.map((game) => {
             const hasSummaryMetadata = gameHasSummaryMetadata(game);
             const state = recentGameState(game);
             const title = hasSummaryMetadata
@@ -1120,7 +1123,7 @@ function riotEvidenceCard(riotEvidence, context = {}) {
               </article>
             `;
           }).join("")
-          : '<p class="muted">No Riot candidate games are available yet.</p>'}
+          : '<p class="muted">No recent games are available yet.</p>'}
       </section>
     </section>
   `;
@@ -1132,7 +1135,7 @@ function reviewCandidateCard(riotEvidence, goal, context = {}) {
     const hasEvaluatedGame = (riotEvidence?.candidateGames ?? []).some((game) =>
       game?.evaluationStatus === "current" && game?.evaluationSummary
     );
-    if (!hasEvaluatedGame && (riotEvidence?.readyCount > 0 || (riotEvidence?.candidateGames ?? []).length > 0)) {
+    if (!hasEvaluatedGame && (riotEvidence?.readyCount > 0 || (riotEvidence?.recentGames ?? riotEvidence?.candidateGames ?? []).length > 0)) {
       const counts = riotReadinessCounts(riotEvidence);
       const message = counts.summaryReadyCount > 0
         ? "Match summaries are ready. Evaluations are pending."

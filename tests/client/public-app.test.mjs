@@ -648,6 +648,115 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Discovered");
   });
 
+  it("renders newly discovered recent games without changing the relevance-scored review candidate", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Die Less",
+                role: "ADC",
+                evidenceSource: {},
+                riotEvidence: {
+                  status: "all_recent_games_ready",
+                  discoveredCount: 4,
+                  summaryReadyCount: 3,
+                  evaluationReadyCount: 1,
+                  recentGames: [
+                    {
+                      matchId: "NA1_new_partial",
+                      championName: "Kai'Sa",
+                      evaluationStatus: "not_evaluated"
+                    },
+                    {
+                      matchId: "NA1_review_candidate",
+                      championName: "Jhin",
+                      queueLabel: "Ranked Solo/Duo",
+                      result: "Loss",
+                      kda: "3/5/4",
+                      evaluationStatus: "current",
+                      evaluationSummary: { deathCount: 5, reviewSignals: ["5 deaths"] }
+                    },
+                    {
+                      matchId: "NA1_visible_3",
+                      championName: "Ashe",
+                      queueLabel: "Ranked Solo/Duo",
+                      result: "Win",
+                      kda: "4/1/8",
+                      evaluationStatus: "not_evaluated"
+                    },
+                    {
+                      matchId: "NA1_visible_4",
+                      championName: "Caitlyn",
+                      queueLabel: "Ranked Solo/Duo",
+                      result: "Loss",
+                      kda: "2/3/6",
+                      evaluationStatus: "not_evaluated"
+                    }
+                  ],
+                  candidateGames: [
+                    {
+                      matchId: "NA1_review_candidate",
+                      championName: "Jhin",
+                      queueLabel: "Ranked Solo/Duo",
+                      result: "Loss",
+                      kda: "3/5/4",
+                      relevanceReason: "evaluation ready · ADC role match",
+                      evaluationStatus: "current",
+                      evaluationSummary: { deathCount: 5, reviewSignals: ["5 deaths"] }
+                    }
+                  ],
+                  reviewCandidate: {
+                    matchId: "NA1_review_candidate",
+                    championName: "Jhin",
+                    queueLabel: "Ranked Solo/Duo",
+                    result: "Loss",
+                    kda: "3/5/4",
+                    evaluationStatus: "current",
+                    evaluationSummary: { deathCount: 5, reviewSignals: ["5 deaths"] },
+                    topDeterministicSignals: [{ tag: "death_count", count: 5, label: "5 deaths" }],
+                    selectionReason: "Selected for evaluation ready · ADC role match."
+                  }
+                }
+              },
+              todaysAction: {},
+              activeTeamFocus: {},
+              recentInsights: [],
+              suggestedNextSteps: []
+            }
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("Today's Review Candidate");
+    expect(document.body.textContent).toContain("Selected for evaluation ready · ADC role match.");
+    expect(document.querySelector('a[href="/review?matchId=NA1_review_candidate"]')?.textContent).toContain("Review this game");
+    expect(document.body.textContent).toContain("Recent Games");
+    expect(document.body.textContent).toContain("Kai'Sa · Discovered");
+    expect(document.body.textContent).toContain("Caitlyn · Ranked Solo/Duo · Loss");
+    expect(document.querySelector('a[href="/review?matchId=NA1_new_partial"]')).toBeNull();
+  });
+
   it("renders failed recent-game preparation counts", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
