@@ -866,9 +866,9 @@ function riotReadinessLine(riotEvidence) {
 function tagLabel(value) {
   const labels = {
     solo_death_candidate: "Possible unsupported death",
-    enemy_level_up_recently_candidate: "Enemy level-up timing candidate",
-    level_up_all_in_candidate: "Possible level-up all-in",
-    multi_enemy_collapse_candidate: "Multi-enemy collapse candidate",
+    enemy_level_up_recently_candidate: "Level breakpoint candidate",
+    level_up_all_in_candidate: "Level breakpoint candidate",
+    multi_enemy_collapse_candidate: "Possible multi-enemy collapse candidate",
     objective_window_candidate: "Objective-window candidate",
     objective_setup_death_candidate: "Objective setup death candidate",
     objective_exit_death_candidate: "Objective exit death candidate",
@@ -880,6 +880,14 @@ function tagLabel(value) {
   return String(value ?? "")
     .replaceAll("_", " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function tagLabelForDeath(value, death) {
+  if ((value === "enemy_level_up_recently_candidate" || value === "level_up_all_in_candidate") &&
+    (death?.enemyLevelUpsBeforeDeath ?? []).some((event) => Number(event?.level) === 6)) {
+    return "Ultimate breakpoint candidate";
+  }
+  return tagLabel(value);
 }
 
 function formatDeathTimestamp(death) {
@@ -895,10 +903,10 @@ function formatDeathTimestamp(death) {
 const REVIEW_PRIORITY_TAGS = [
   {
     tag: "multi_enemy_collapse_candidate",
-    label: "multi-enemy deaths",
-    singularLabel: "multi-enemy death",
+    label: "possible multi-enemy deaths",
+    singularLabel: "possible multi-enemy death",
     priorityLabel(count) {
-      return count > 1 ? "Repeated multi-enemy deaths" : "Multi-enemy death";
+      return count > 1 ? "Repeated possible multi-enemy deaths" : "Possible multi-enemy death";
     }
   },
   {
@@ -927,18 +935,18 @@ const REVIEW_PRIORITY_TAGS = [
   },
   {
     tag: "level_up_all_in_candidate",
-    label: "level-up all-in deaths",
-    singularLabel: "level-up all-in death",
+    label: "level breakpoint deaths",
+    singularLabel: "level breakpoint death",
     priorityLabel() {
-      return "Level-up all-in deaths";
+      return "Level breakpoint deaths";
     }
   },
   {
     tag: "enemy_level_up_recently_candidate",
-    label: "level-up timing deaths",
-    singularLabel: "level-up timing death",
+    label: "level breakpoint deaths",
+    singularLabel: "level breakpoint death",
     priorityLabel() {
-      return "Level-up timing deaths";
+      return "Level breakpoint deaths";
     }
   },
   {
@@ -1418,29 +1426,120 @@ function renderTagCounts(counts) {
   );
 }
 
-function reviewMomentSignals(death) {
-  return (death?.tags ?? []).map(tagLabel);
+function reviewMomentStatusLabel(moment) {
+  return REVIEW_STATUS_LABELS[moment?.status] ?? "Not reviewed";
 }
 
-function reviewMomentReasons(death) {
+function renderMomentSignalControls(moment, reviewedMoments = []) {
+  const momentsByKey = reviewedMomentIndex(reviewedMoments);
+  const death = moment.death ?? {};
+  const deathIndex = Number(moment.deathIndex ?? death.deathIndex ?? 0);
+  if (!deathIndex || moment.detectedSignals.length === 0) {
+    return renderSignalList(moment.detectedSignals.map((signal) => signal.label), "No detected signals for this moment.");
+  }
+
+  return `
+    <div class="review-moment-list">
+      ${moment.detectedSignals.map((signal) => {
+        const reviewedMoment = momentsByKey.get(reviewMomentKey(deathIndex, signal.id));
+        return `
+          <div class="review-signal-row">
+            <p><strong>${escapeHtml(signal.label)}</strong> — ${escapeHtml(reviewMomentStatusLabel(reviewedMoment))}</p>
+            ${renderReviewControls({
+              death,
+              deathIndex,
+              signalId: signal.id,
+              moment: reviewedMoment
+            })}
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function aggregateMomentStatus(moment, reviewedMoments = []) {
+  const momentsByKey = reviewedMomentIndex(reviewedMoments);
+  const deathIndex = Number(moment.deathIndex ?? moment.death?.deathIndex ?? 0);
+  const statuses = moment.detectedSignals
+    .map((signal) => momentsByKey.get(reviewMomentKey(deathIndex, signal.id))?.status)
+    .filter(Boolean);
+  if (statuses.includes("confirmed")) {
+    return "Confirmed";
+  }
+  if (statuses.includes("dismissed")) {
+    return "Dismissed";
+  }
+  if (statuses.includes("unsure")) {
+    return "Unsure";
+  }
+  return "Not reviewed";
+}
+
+function reviewMomentSignals(death) {
+  return (death?.tags ?? []).map((tag) => ({
+    id: tag,
+    label: tagLabelForDeath(tag, death)
+  }));
+}
+
+function levelBreakpointLabel(death) {
+  const levels = (death?.enemyLevelUpsBeforeDeath ?? [])
+    .map((event) => Number(event?.level))
+    .filter((level) => [2, 3, 6].includes(level));
+  if (levels.includes(6)) {
+    return "the enemy hit an ultimate breakpoint before you died";
+  }
+  if (levels.length > 0) {
+    return `the enemy hit level ${levels[0]} before you died`;
+  }
+  return "an enemy level breakpoint was detected before the death";
+}
+
+function reviewMomentReasons(death, tagCounts = {}) {
   const reasons = [];
   const tags = new Set(death?.tags ?? []);
-  if (Number(death?.nearbyEnemyCount ?? 0) >= 2 || tags.has("multi_enemy_collapse_candidate")) {
-    reasons.push("Multiple enemies were involved or nearby.");
-  }
-  if (tags.has("objective_window_candidate") || tags.has("objective_setup_death_candidate") || tags.has("objective_exit_death_candidate")) {
-    reasons.push("Death occurred near an objective window.");
-  }
-  if (tags.has("enemy_level_up_recently_candidate") || tags.has("level_up_all_in_candidate")) {
-    reasons.push("Enemy level-up timing was detected.");
+  if (tags.has("objective_setup_death_candidate")) {
+    reasons.push("this death occurred during objective setup");
+  } else if (tags.has("objective_exit_death_candidate")) {
+    reasons.push("this death happened soon after an objective or structure event");
+  } else if (tags.has("objective_window_candidate")) {
+    reasons.push("this death occurred near an objective window");
   }
   if (tags.has("solo_death_candidate") || tags.has("isolated_forward_death_candidate")) {
-    reasons.push("Possible unsupported position.");
+    reasons.push("you were flagged as possibly unsupported or isolated from allied cover");
   }
-  if (Number(death?.killerLevel ?? 0) > Number(death?.victimLevel ?? 0)) {
-    reasons.push("Killer had a level advantage.");
+  if (tags.has("multi_enemy_collapse_candidate")) {
+    reasons.push("multiple enemies could reach the position");
   }
-  return reasons.length > 0 ? reasons : ["Death event has deterministic facts to inspect."];
+  if (tags.has("enemy_level_up_recently_candidate") || tags.has("level_up_all_in_candidate")) {
+    reasons.push(levelBreakpointLabel(death));
+  }
+  const repeatedTag = [...tags].find((tag) => Number(tagCounts[tag] ?? 0) > 1);
+  if (repeatedTag) {
+    reasons.push(`this is one of ${Number(tagCounts[repeatedTag])} deaths with ${tagLabelForDeath(repeatedTag, death).toLowerCase()}`);
+  }
+  return reasons.length > 0 ? `Flagged because ${reasons.join(" and ")}.` : "";
+}
+
+function reviewQuestionForDeath(death) {
+  const tags = new Set(death?.tags ?? []);
+  if (tags.has("objective_setup_death_candidate") || tags.has("objective_window_candidate")) {
+    return "Were you early, grouped, or late to the objective setup?";
+  }
+  if (tags.has("objective_exit_death_candidate")) {
+    return "Was the objective already over when you stayed or walked forward?";
+  }
+  if (tags.has("solo_death_candidate") || tags.has("isolated_forward_death_candidate")) {
+    return "Who was close enough to cover you when you walked forward?";
+  }
+  if (tags.has("multi_enemy_collapse_candidate")) {
+    return "Did you know multiple enemies could reach this position?";
+  }
+  if (tags.has("enemy_level_up_recently_candidate") || tags.has("level_up_all_in_candidate")) {
+    return "Did the enemy hit the level breakpoint before you committed?";
+  }
+  return "What were you trying to accomplish before this death?";
 }
 
 function scoreReviewDeath(death, tagCounts = {}) {
@@ -1483,19 +1582,21 @@ export function buildMatchReviewPlan(review) {
       id: primaryTag[0],
       title: tagLabel(primaryTag[0]),
       confidence: Number(primaryTag[1]) >= 3 ? "high" : "medium",
-      summary: `${Number(primaryTag[1])} deaths share this detected signal. Use the timestamps below to compare the setup before each death.`,
+      summary: `${Number(primaryTag[1])} deaths share this detected signal. Compare what was happening before each timestamp.`,
       deathTimes: primaryDeaths.slice(0, 3).map(formatDeathTimestamp),
-      supportingSignals: reviewMomentSignals(primaryDeaths[0] ?? {}).slice(0, 4)
+      supportingSignals: reviewMomentSignals(primaryDeaths[0] ?? {}).map((signal) => signal.label).slice(0, 4)
     } : null,
     reviewMoments: rankedDeaths.slice(0, 3).map(({ death, priority }) => ({
+      death,
+      deathIndex: death.deathIndex ?? null,
       time: formatDeathTimestamp(death),
       priority,
-      headline: `${tagLabel((death.tags ?? [])[0] ?? "death_count")} at ${formatDeathTimestamp(death)}`,
+      headline: `${tagLabelForDeath((death.tags ?? [])[0] ?? "death_count", death)} at ${formatDeathTimestamp(death)}`,
       detectedSignals: reviewMomentSignals(death),
-      whyReview: reviewMomentReasons(death),
-      reviewQuestion: "What information or teammate position should have changed this decision before the death?",
+      whyReview: reviewMomentReasons(death, tagCounts),
+      reviewQuestion: reviewQuestionForDeath(death),
       deterministicLesson: Number(death?.killerLevel ?? 0) > Number(death?.victimLevel ?? 0)
-        ? "Respect level disadvantage before contesting space."
+        ? "Possible level disadvantage before contesting space."
         : undefined
     })),
     debugSignalCounts: Object.entries(tagCounts)
@@ -1522,19 +1623,19 @@ function renderReviewPlan(plan, review) {
 
   return `
     <article class="panel review-priority-panel">
-      <p class="eyebrow">Guided Review Plan</p>
+      <p class="eyebrow">Review plan</p>
       <h3>${escapeHtml(plan.primaryPattern?.title ?? "Death review")}</h3>
-      <p class="muted">${escapeHtml(plan.primaryPattern?.summary ?? "Review the highest-priority deterministic death moments first.")}</p>
+      <p class="muted">${escapeHtml(plan.primaryPattern?.summary ?? "Review the highest-priority flagged death moments first.")}</p>
       ${timestamps.length > 0 ? `<p class="muted">Inspect first: ${escapeHtml(timestamps.slice(0, 3).join(", "))}</p>` : ""}
-      <p class="muted">Why review: overlapping detected signals and repeated candidates are ranked before single-signal deaths.</p>
     </article>
+    <p class="eyebrow">Priority review order</p>
     <section class="compact-list">
       ${plan.reviewMoments.map((moment) => `
         <article class="panel">
-          <p class="eyebrow">${escapeHtml(moment.time)}</p>
+          <p class="eyebrow">${escapeHtml(moment.time)} · ${escapeHtml(aggregateMomentStatus(moment, review.reviewedMoments))}${moment.deathIndex ? ` · Death #${escapeHtml(moment.deathIndex)}` : ""}</p>
           <h3>${escapeHtml(moment.headline)}</h3>
-          ${renderSignalList(moment.detectedSignals, "No detected signals for this moment.")}
-          <p class="muted">Flagged because: ${escapeHtml(moment.whyReview.join(" "))}</p>
+          ${renderMomentSignalControls(moment, review.reviewedMoments)}
+          ${moment.whyReview ? `<p class="muted">${escapeHtml(moment.whyReview)}</p>` : ""}
           <p><strong>Review question:</strong> ${escapeHtml(moment.reviewQuestion)}</p>
           ${moment.deterministicLesson ? `<p class="muted">${escapeHtml(moment.deterministicLesson)}</p>` : ""}
         </article>
@@ -1620,12 +1721,12 @@ function renderMatchReview(root, review, context = getRouteContext()) {
         ${renderSignalList(reviewSignals, "No review signals are available yet.")}
       </article>
       <details class="panel">
-        <summary>Raw deterministic facts</summary>
+        <summary>Death facts</summary>
         <p class="muted">Confirmed signals update goal progress. Dismissed and unsure signals stay visible here and do not count.</p>
         ${review.evaluationSummary ? renderDeathFacts(review.deathEvents, review.reviewedMoments) : '<p class="muted">Evaluation is not prepared for this match yet.</p>'}
       </details>
       <details class="panel">
-        <summary>Raw signal counts</summary>
+        <summary>System-generated signal counts</summary>
         ${renderTagCounts(review.deterministicTagCounts)}
       </details>
       ${goalRelevance ? `

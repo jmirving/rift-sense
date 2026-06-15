@@ -94,11 +94,11 @@ it("extracts death events and conservative deterministic tags", () => {
     timelineJson: {
       info: {
         frames: [
-          frame(100_000, { 1: 8, 6: 9, 7: 8 }),
+          frame(100_000, { 1: 5, 6: 5, 7: 5 }),
           {
-            ...frame(120_000, { 1: 8, 6: 10, 7: 8 }),
+            ...frame(120_000, { 1: 5, 6: 6, 7: 5 }),
             events: [
-              { type: "LEVEL_UP", timestamp: 105_000, participantId: 6, level: 10 },
+              { type: "LEVEL_UP", timestamp: 105_000, participantId: 6, level: 6 },
               { type: "ELITE_MONSTER_KILL", timestamp: 112_000, monsterType: "DRAGON", killerId: 7 },
               {
                 type: "CHAMPION_KILL",
@@ -127,14 +127,14 @@ it("extracts death events and conservative deterministic tags", () => {
       assistingParticipantIds: [7],
       assistingChampionNames: ["LeeSin"],
       position: { x: 5000, y: 6000 },
-      victimLevel: 8,
-      killerLevel: 10,
+      victimLevel: 5,
+      killerLevel: 6,
       enemyParticipantsInvolved: [6, 7],
       enemyLevelUpsBeforeDeath: [
         {
           participantId: 6,
           timestampMs: 105_000,
-          level: 10,
+          level: 6,
           championName: "Zed",
           secondsBeforeDeath: 15
         }
@@ -232,15 +232,15 @@ it("tags solo deaths when exactly one enemy participant is involved", () => {
   expect(result.tagsJson.counts.solo_death_candidate).toBe(1);
 });
 
-it("emits level_up_all_in_candidate only for enemy level-ups before death", () => {
+it("emits level breakpoint candidates for enemy level 2 before death", () => {
   const result = evaluate({
     timelineJson: {
       info: {
         frames: [
           {
-            ...frame(120_000, { 1: 8, 6: 10 }),
+            ...frame(120_000, { 1: 1, 6: 2 }),
             events: [
-              { type: "LEVEL_UP", timestamp: 105_000, participantId: 6, level: 10 },
+              { type: "LEVEL_UP", timestamp: 105_000, participantId: 6, level: 2 },
               {
                 type: "CHAMPION_KILL",
                 timestamp: 120_000,
@@ -260,12 +260,94 @@ it("emits level_up_all_in_candidate only for enemy level-ups before death", () =
     {
       participantId: 6,
       timestampMs: 105_000,
-      level: 10,
+      level: 2,
       championName: "Zed",
       secondsBeforeDeath: 15
     }
   ]);
   expect(result.tagsJson.counts.level_up_all_in_candidate).toBe(1);
+});
+
+it("emits level breakpoint candidates for enemy level 3 before death", () => {
+  const result = evaluate({
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(120_000, { 1: 2, 6: 3 }),
+            events: [
+              { type: "LEVEL_UP", timestamp: 105_000, participantId: 6, level: 3 },
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 120_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: []
+              }
+            ]
+          }
+        ]
+      }
+    }
+  });
+
+  expect(result.deathsJson[0].tags).toContain("level_up_all_in_candidate");
+  expect(result.deathsJson[0].enemyLevelUpsBeforeDeath[0].level).toBe(3);
+});
+
+it("emits level breakpoint candidates for enemy level 6 before death", () => {
+  const result = evaluate({
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(120_000, { 1: 5, 6: 6 }),
+            events: [
+              { type: "LEVEL_UP", timestamp: 105_000, participantId: 6, level: 6 },
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 120_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: []
+              }
+            ]
+          }
+        ]
+      }
+    }
+  });
+
+  expect(result.deathsJson[0].tags).toContain("level_up_all_in_candidate");
+  expect(summarizeMatchEvaluation(result).reviewSignals).toContain("1 level breakpoint candidate");
+});
+
+it("does not emit generic level-up timing after level 6", () => {
+  const result = evaluate({
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(120_000, { 1: 7, 6: 8 }),
+            events: [
+              { type: "LEVEL_UP", timestamp: 105_000, participantId: 6, level: 8 },
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 120_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: []
+              }
+            ]
+          }
+        ]
+      }
+    }
+  });
+
+  expect(result.deathsJson[0].tags).not.toContain("enemy_level_up_recently_candidate");
+  expect(result.deathsJson[0].tags).not.toContain("level_up_all_in_candidate");
+  expect(result.deathsJson[0].enemyLevelUpsBeforeDeath).toEqual([]);
 });
 
 it("does not emit level_up_all_in_candidate for enemy level-ups after death", () => {
@@ -376,6 +458,144 @@ it("adds nearby death counts when participant frame positions support them", () 
   });
 });
 
+it("does not tag normal bot/support versus bot/support deaths as multi-enemy collapse", () => {
+  const result = evaluate({
+    summaryJson: summary([
+      participant({ puuid: "target_puuid", participantId: 1, championName: "Ashe", teamId: 100, teamPosition: "BOTTOM", individualPosition: "BOTTOM", lane: "BOTTOM" }),
+      participant({ participantId: 2, championName: "Leona", teamId: 100, teamPosition: "UTILITY", individualPosition: "UTILITY", lane: "BOTTOM" }),
+      participant({ participantId: 6, championName: "Jinx", teamId: 200, teamPosition: "BOTTOM", individualPosition: "BOTTOM", lane: "BOTTOM" }),
+      participant({ participantId: 7, championName: "Nautilus", teamId: 200, teamPosition: "UTILITY", individualPosition: "UTILITY", lane: "BOTTOM" })
+    ]),
+    perspectiveRecord: {
+      matchId: "NA1_050",
+      puuid: "target_puuid",
+      participantId: 1,
+      championName: "Ashe",
+      teamId: 100,
+      teamPosition: "BOTTOM"
+    },
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(120_000, { 1: 4, 6: 4, 7: 4 }),
+            events: [
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 120_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: [7]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  });
+
+  expect(result.deathsJson[0].tags).not.toContain("multi_enemy_collapse_candidate");
+});
+
+it("tags bot 3v2 deaths when a jungler joins", () => {
+  const result = evaluate({
+    summaryJson: summary([
+      participant({ puuid: "target_puuid", participantId: 1, championName: "Ashe", teamId: 100, teamPosition: "BOTTOM", individualPosition: "BOTTOM", lane: "BOTTOM" }),
+      participant({ participantId: 6, championName: "Jinx", teamId: 200, teamPosition: "BOTTOM", individualPosition: "BOTTOM", lane: "BOTTOM" }),
+      participant({ participantId: 7, championName: "Nautilus", teamId: 200, teamPosition: "UTILITY", individualPosition: "UTILITY", lane: "BOTTOM" }),
+      participant({ participantId: 8, championName: "LeeSin", teamId: 200, teamPosition: "JUNGLE", individualPosition: "JUNGLE", lane: "JUNGLE" })
+    ]),
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(120_000, { 1: 4, 6: 4, 7: 4, 8: 4 }),
+            events: [
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 120_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: [7, 8]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  });
+
+  expect(result.deathsJson[0].tags).toContain("multi_enemy_collapse_candidate");
+});
+
+it("tags bot deaths when a mid roam joins", () => {
+  const result = evaluate({
+    summaryJson: summary([
+      participant({ puuid: "target_puuid", participantId: 1, championName: "Ashe", teamId: 100, teamPosition: "BOTTOM", individualPosition: "BOTTOM", lane: "BOTTOM" }),
+      participant({ participantId: 6, championName: "Jinx", teamId: 200, teamPosition: "BOTTOM", individualPosition: "BOTTOM", lane: "BOTTOM" }),
+      participant({ participantId: 8, championName: "Ahri", teamId: 200, teamPosition: "MIDDLE", individualPosition: "MIDDLE", lane: "MIDDLE" })
+    ]),
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(120_000, { 1: 5, 6: 5, 8: 6 }),
+            events: [
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 120_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: [8]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  });
+
+  expect(result.deathsJson[0].tags).toContain("multi_enemy_collapse_candidate");
+});
+
+it("tags late-game deaths with three nearby enemies as possible collapse", () => {
+  const result = evaluate({
+    summaryJson: summary([
+      participant({ puuid: "target_puuid", participantId: 1, championName: "Ahri", teamId: 100 }),
+      participant({ participantId: 6, championName: "Zed", teamId: 200 }),
+      participant({ participantId: 7, championName: "LeeSin", teamId: 200 }),
+      participant({ participantId: 8, championName: "Jinx", teamId: 200 })
+    ]),
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(1_800_000, {
+              1: { level: 14, position: { x: 5000, y: 5000 } },
+              6: { level: 14, position: { x: 5200, y: 5000 } },
+              7: { level: 13, position: { x: 5300, y: 5100 } },
+              8: { level: 13, position: { x: 5400, y: 5200 } }
+            }),
+            events: [
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 1_800_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: [],
+                position: { x: 5000, y: 5000 }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  });
+
+  expect(result.deathsJson[0].nearbyEnemyCount).toBe(3);
+  expect(result.deathsJson[0].tags).toContain("multi_enemy_collapse_candidate");
+});
+
 it("omits nearby death counts when participant frame positions are unavailable", () => {
   const result = evaluate({
     timelineJson: {
@@ -408,9 +628,9 @@ it("includes new tags in summaries and top tags when present", () => {
       info: {
         frames: [
           {
-            ...frame(120_000, { 1: 8, 6: 10 }),
+            ...frame(120_000, { 1: 5, 6: 6 }),
             events: [
-              { type: "LEVEL_UP", timestamp: 105_000, participantId: 6, level: 10 },
+              { type: "LEVEL_UP", timestamp: 105_000, participantId: 6, level: 6 },
               {
                 type: "CHAMPION_KILL",
                 timestamp: 120_000,
@@ -428,5 +648,5 @@ it("includes new tags in summaries and top tags when present", () => {
   const summaryResult = summarizeMatchEvaluation(result);
 
   expect(summaryResult.topTags.map((entry) => entry.tag)).toContain("level_up_all_in_candidate");
-  expect(summaryResult.reviewSignals).toContain("1 possible level-up all-in");
+  expect(summaryResult.reviewSignals).toContain("1 level breakpoint candidate");
 });

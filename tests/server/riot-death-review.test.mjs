@@ -56,7 +56,7 @@ describe("death review parser", () => {
       info: {
         frames: [
           frame(90_000, [
-            { eventId: "level-before", type: "LEVEL_UP", timestamp: 91_000, participantId: 6, level: 9 },
+            { eventId: "level-before", type: "LEVEL_UP", timestamp: 91_000, participantId: 6, level: 6 },
             { eventId: "ally-death-1", type: "CHAMPION_KILL", timestamp: 95_000, killerId: 7, victimId: 2 },
             { eventId: "dragon-before", type: "ELITE_MONSTER_KILL", timestamp: 96_000, killerId: 7, monsterType: "DRAGON" }
           ]),

@@ -185,7 +185,10 @@ function buildTags({ damageReceived, damageDealt, priorFrame, nearbyEventsBefore
   const userTeamId = participantTeam(participantIndex, participantId);
   const alliedDeathsBefore = nearbyEventsBefore.filter((event) => isAllyDeath(event, participantIndex, userTeamId, participantId));
   const enemyLevelUpsBefore = nearbyEventsBefore.filter(
-    (event) => (event.type === "LEVEL_UP" || event.type === "CHAMPION_LEVEL_UP") && isEnemyParticipantEvent(event, participantIndex, userTeamId)
+    (event) =>
+      (event.type === "LEVEL_UP" || event.type === "CHAMPION_LEVEL_UP") &&
+      isEnemyParticipantEvent(event, participantIndex, userTeamId) &&
+      [2, 3, 6].includes(normalizeNumber(event.level))
   );
   const mapStateEventsBefore = nearbyEventsBefore.filter((event) =>
     event.type === "ELITE_MONSTER_KILL" || event.type === "BUILDING_KILL"

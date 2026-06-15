@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { renderApp } from "../../public/app/app.js";
+import { buildMatchReviewPlan, renderApp } from "../../public/app/app.js";
 
 function mockJsonResponse(body) {
   return {
@@ -957,19 +957,66 @@ describe("public app routes", () => {
 
     expect(document.body.textContent).toContain("Jhin · Loss · Ranked Solo/Duo");
     expect(document.body.textContent).toContain("8/5/6 KDA");
-    expect(document.body.textContent).toContain("Guided Review Plan");
-    expect(document.body.textContent).toContain("Multi-enemy collapse candidate");
-    expect(document.body.textContent).toContain("Why review: overlapping detected signals");
+    expect(document.body.textContent).toContain("Review plan");
+    expect(document.body.textContent).toContain("Priority review order");
+    expect(document.body.textContent).toContain("Possible multi-enemy collapse candidate");
+    expect(document.body.textContent).toContain("multiple enemies could reach the position");
     expect(document.body.textContent).toContain("Inspect first: 08:14, 10:00");
     expect(document.body.textContent).toContain("Detected Signals");
     expect(document.body.textContent).toContain("2 multi-enemy collapse candidates");
-    expect(document.body.textContent).toContain("Raw deterministic facts");
+    expect(document.body.textContent).toContain("Death facts");
+    expect(document.body.textContent).toContain("System-generated signal counts");
     expect(document.body.textContent).toContain("08:14");
     expect(document.body.textContent).toContain("Killed by LeBlanc, assisted by Briar");
-    expect(document.body.textContent).toContain("Detected signals: Multi-enemy collapse candidate");
+    expect(document.body.textContent).toContain("Detected signals: Possible multi-enemy collapse candidate");
     expect(document.body.textContent).toContain("Victim level 8");
+    expect(document.body.textContent).not.toContain("Raw deterministic facts");
+    expect(document.body.textContent).not.toContain("Raw signal counts");
     expect(document.body.textContent).not.toContain("SECRET_TIMELINE_EVENT");
     expect(document.body.textContent).not.toContain("SECRET_MATCH_JSON");
+  });
+
+  it("builds review moments with death-specific signals and contextual questions", () => {
+    const plan = buildMatchReviewPlan({
+      evaluationSummary: { deathCount: 3 },
+      deterministicTagCounts: {
+        death_count: 3,
+        objective_setup_death_candidate: 1,
+        solo_death_candidate: 1,
+        multi_enemy_collapse_candidate: 1,
+        level_up_all_in_candidate: 1
+      },
+      deathEvents: [
+        {
+          deathIndex: 1,
+          timestampSeconds: 100,
+          tags: ["objective_setup_death_candidate", "multi_enemy_collapse_candidate"],
+          nearbyEnemyCount: 3
+        },
+        {
+          deathIndex: 2,
+          timestampSeconds: 200,
+          tags: ["solo_death_candidate"]
+        },
+        {
+          deathIndex: 3,
+          timestampSeconds: 300,
+          tags: ["level_up_all_in_candidate"],
+          enemyLevelUpsBeforeDeath: [{ level: 6 }]
+        }
+      ]
+    });
+
+    const byDeath = new Map(plan.reviewMoments.map((moment) => [moment.deathIndex, moment]));
+    expect(byDeath.get(1).detectedSignals.map((signal) => signal.id)).toEqual([
+      "objective_setup_death_candidate",
+      "multi_enemy_collapse_candidate"
+    ]);
+    expect(byDeath.get(2).detectedSignals.map((signal) => signal.id)).toEqual(["solo_death_candidate"]);
+    expect(byDeath.get(3).detectedSignals.map((signal) => signal.label)).toEqual(["Ultimate breakpoint candidate"]);
+    expect(byDeath.get(1).reviewQuestion).toBe("Were you early, grouped, or late to the objective setup?");
+    expect(byDeath.get(2).reviewQuestion).toBe("Who was close enough to cover you when you walked forward?");
+    expect(byDeath.get(3).reviewQuestion).toBe("Did the enemy hit the level breakpoint before you committed?");
   });
 
   it("persists a confirmed reviewed signal from the review page", async () => {

@@ -20,12 +20,12 @@ const TAG_IDS = [
 ];
 const SUMMARY_TAGS = new Map([
   ["solo_death_candidate", "possible unsupported deaths"],
-  ["multi_enemy_collapse_candidate", "multi-enemy collapse candidates"],
+  ["multi_enemy_collapse_candidate", "possible multi-enemy collapse candidates"],
   ["objective_window_candidate", "objective-window candidates"],
   ["objective_setup_death_candidate", "objective setup death candidates"],
   ["objective_exit_death_candidate", "objective exit death candidates"],
-  ["enemy_level_up_recently_candidate", "enemy level-up timing candidates"],
-  ["level_up_all_in_candidate", "possible level-up all-ins"],
+  ["enemy_level_up_recently_candidate", "level breakpoint candidates"],
+  ["level_up_all_in_candidate", "level breakpoint candidates"],
   ["isolated_forward_death_candidate", "isolated forward death candidates"],
   ["missing_timeline", "missing timeline"],
   ["missing_participant", "missing participant"]
@@ -105,6 +105,15 @@ function championName(participantIndex, participantId) {
   return normalizeString(participantIndex.byId.get(participantId)?.championName);
 }
 
+function participantRole(participantIndex, participantId) {
+  const participant = participantIndex.byId.get(participantId);
+  return normalizeString(participant?.teamPosition ?? participant?.individualPosition ?? participant?.lane)?.toUpperCase() ?? null;
+}
+
+function isBotLaneRole(role) {
+  return role === "BOTTOM" || role === "UTILITY" || role === "SUPPORT";
+}
+
 function enemyParticipantIdsForDeath(event, participantIndex, victimTeamId) {
   const ids = [
     normalizeNumber(event?.killerId),
@@ -166,17 +175,37 @@ function enemyLevelUpsNearDeath(events, timestampMs, enemyParticipantIds, partic
       timestampMs: normalizeNumber(event?.timestamp) ?? 0,
       level: normalizeNumber(event?.level)
     }))
-    .filter(({ participantId, timestampMs: eventTimestampMs }) => (
+    .filter(({ participantId, timestampMs: eventTimestampMs, level }) => (
       participantId !== null &&
       enemyIds.has(participantId) &&
       eventTimestampMs <= timestampMs &&
-      timestampMs - eventTimestampMs <= LEVEL_UP_WINDOW_MS
+      timestampMs - eventTimestampMs <= LEVEL_UP_WINDOW_MS &&
+      [2, 3, 6].includes(level)
     ))
     .map((event) => ({
       ...event,
       championName: championName(participantIndex, event.participantId),
       secondsBeforeDeath: Math.round((timestampMs - event.timestampMs) / 1000)
     }));
+}
+
+function isMeaningfulMultiEnemyDeath({ enemyParticipantsInvolved, nearbyParticipants, participantIndex, victimParticipantId }) {
+  const nearbyEnemyCount = nearbyParticipants?.enemies?.length ?? 0;
+  if (enemyParticipantsInvolved.length >= 3 || nearbyEnemyCount >= 3) {
+    return true;
+  }
+
+  if (enemyParticipantsInvolved.length < 2) {
+    return false;
+  }
+
+  const victimRole = participantRole(participantIndex, victimParticipantId);
+  const involvedRoles = enemyParticipantsInvolved.map((id) => participantRole(participantIndex, id));
+  if (isBotLaneRole(victimRole) && involvedRoles.every(isBotLaneRole)) {
+    return false;
+  }
+
+  return true;
 }
 
 function findPriorLevel(frames, participantId, timestampMs) {
@@ -308,6 +337,13 @@ export function summarizeMatchEvaluationDeaths(evaluation) {
     nearbyAllyChampionNames: normalizeArray(death?.nearbyAllyChampionNames).map(normalizeString).filter(Boolean),
     nearbyEnemyCount: normalizeNumber(death?.nearbyEnemyCount),
     nearbyAllyCount: normalizeNumber(death?.nearbyAllyCount),
+    enemyLevelUpsBeforeDeath: normalizeArray(death?.enemyLevelUpsBeforeDeath).map((event) => ({
+      participantId: normalizeNumber(event?.participantId),
+      timestampMs: normalizeNumber(event?.timestampMs),
+      level: normalizeNumber(event?.level),
+      championName: normalizeString(event?.championName),
+      secondsBeforeDeath: normalizeNumber(event?.secondsBeforeDeath)
+    })),
     victimLevel: normalizeNumber(death?.victimLevel),
     killerLevel: normalizeNumber(death?.killerLevel),
     position: normalizePosition(death?.position)
@@ -365,7 +401,7 @@ export function evaluateMatchFacts({
     if (enemyParticipantsInvolved.length === 1) {
       tags.push("solo_death_candidate");
     }
-    if (enemyParticipantsInvolved.length >= 2) {
+    if (isMeaningfulMultiEnemyDeath({ enemyParticipantsInvolved, nearbyParticipants, participantIndex, victimParticipantId: participantId })) {
       tags.push("multi_enemy_collapse_candidate");
     }
     if (objectiveNearDeath(events, timestampMs)) {
