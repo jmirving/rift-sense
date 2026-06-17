@@ -345,7 +345,7 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("3 match summaries ready");
     expect(document.body.textContent).toContain("2 evaluations ready");
     expect(document.body.textContent).toContain("1 evaluation pending");
-    expect(document.body.textContent).toContain("Today's Review Candidate");
+    expect(document.body.textContent).toContain("Next Review");
     expect(document.body.textContent).toContain("Review this game");
     expect(document.body.textContent).toContain("Refresh recent games");
     expect(document.body.textContent).toContain("No reviewed games yet");
@@ -353,15 +353,15 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Insights will appear after you review games.");
     expect(document.body.textContent).toContain("Seeded from onboarding. Not updated from reviewed games yet.");
     expect(document.body.textContent).not.toContain("On track");
-    expect(document.body.textContent).toContain("Goal relevance: Die Less · ADC");
+    expect(document.body.textContent).toContain("Active goal: Die Less · ADC");
     expect(document.body.textContent).toContain("Jhin · Ranked Solo/Duo · Loss");
-    expect(document.body.textContent).toContain("Review Signals · current");
-    expect(document.body.textContent).toContain("5 deaths");
-    expect(document.body.textContent).toContain("2 multi-enemy collapse candidates");
+    expect(document.body.textContent).toContain("5 review moments ready");
+    expect(document.body.textContent).not.toContain("candidate");
+    expect(document.body.textContent).not.toContain("raw signal counts");
     expect(document.body.textContent).not.toContain("08:14");
     expect(document.body.textContent).not.toContain("killed by LeBlanc, assisted by Briar");
-    expect(document.body.textContent).toContain("0 deaths");
-    expect(document.body.textContent).toContain("Evaluation: none");
+    expect(document.body.textContent).toContain("Summary ready");
+    expect(document.body.textContent).toContain("Review preparation: none");
     expect(document.body.textContent).not.toContain("SECRET_TIMELINE_EVENT");
     expect(document.body.textContent).not.toContain("SECRET_MATCH_JSON");
     expect(document.querySelector('a[href="/review?matchId=NA1_1"]')?.textContent).toContain("Review");
@@ -446,7 +446,7 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("No new games found.");
   });
 
-  it("renders a preparing review candidate state when no evaluated game exists", async () => {
+  it("renders a preparing next review state when no evaluated game exists", async () => {
     let homeRequests = 0;
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
@@ -554,7 +554,7 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Review candidate pending");
+    expect(document.body.textContent).toContain("Preparing review");
     expect(document.body.textContent).toContain("1 match summary ready");
     expect(document.body.textContent).toContain("0 evaluations ready");
     expect(document.body.textContent).toContain("1 evaluation pending");
@@ -573,10 +573,10 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("1 evaluation ready");
     expect(document.body.textContent).toContain("0 evaluations pending");
     expect(document.body.textContent).toContain("Review this game");
-    expect(document.body.textContent).toContain("3 deaths");
+    expect(document.body.textContent).toContain("3 review moments ready");
   });
 
-  it("renders discovered game state instead of fabricated candidate metadata", async () => {
+  it("renders preparing game state instead of fabricated review metadata", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
         return mockJsonResponse({
@@ -634,7 +634,7 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Jhin · Discovered");
+    expect(document.body.textContent).toContain("Jhin · Preparing");
     expect(document.body.textContent).toContain("10 games discovered");
     expect(document.body.textContent).toContain("0 match summaries ready");
     expect(document.body.textContent).toContain("10 match summaries preparing");
@@ -645,10 +645,10 @@ describe("public app routes", () => {
     expect(document.body.textContent).not.toContain("10 games ready");
     expect(document.body.textContent).not.toContain("Review this game");
     expect(document.querySelector('a[href="/review?matchId=NA1_incomplete"]')).toBeNull();
-    expect(document.body.textContent).toContain("Discovered");
+    expect(document.body.textContent).toContain("Preparing");
   });
 
-  it("renders newly discovered recent games without changing the relevance-scored review candidate", async () => {
+  it("renders newly discovered recent games without changing the next review", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
         return mockJsonResponse({
@@ -748,11 +748,11 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Today's Review Candidate");
-    expect(document.body.textContent).toContain("Selected for evaluation ready · ADC role match.");
+    expect(document.body.textContent).toContain("Next Review");
+    expect(document.body.textContent).not.toContain("Selected for evaluation ready");
     expect(document.querySelector('a[href="/review?matchId=NA1_review_candidate"]')?.textContent).toContain("Review this game");
     expect(document.body.textContent).toContain("Recent Games");
-    expect(document.body.textContent).toContain("Kai'Sa · Discovered");
+    expect(document.body.textContent).toContain("Kai'Sa · Preparing");
     expect(document.body.textContent).toContain("Caitlyn · Ranked Solo/Duo · Loss");
     expect(document.querySelector('a[href="/review?matchId=NA1_new_partial"]')).toBeNull();
   });
@@ -807,7 +807,7 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Recent game parsing failed");
+    expect(document.body.textContent).toContain("Match preparation failed. Retry available.");
     expect(document.body.textContent).toContain("1 game discovered");
     expect(document.body.textContent).toContain("0 match summaries ready");
     expect(document.body.textContent).toContain("1 preparation failed");
@@ -861,7 +861,7 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Today's Review Candidate");
+    expect(document.body.textContent).toContain("Next Review");
     expect(document.querySelector('a[href="/demo/review?matchId=NA1_demo"]')?.textContent).toContain("Review");
   });
 
@@ -905,6 +905,7 @@ describe("public app routes", () => {
       if (url === "/api/matches/NA1_1/evaluation") {
         return mockJsonResponse({
           matchId: "NA1_1",
+          activeGoalName: "Die Less",
           evaluationStatus: "current",
           evaluationVersion: "deterministic-v2",
           matchSummary: {
@@ -957,18 +958,20 @@ describe("public app routes", () => {
 
     expect(document.body.textContent).toContain("Jhin · Loss · Ranked Solo/Duo");
     expect(document.body.textContent).toContain("8/5/6 KDA");
-    expect(document.body.textContent).toContain("Review plan");
-    expect(document.body.textContent).toContain("Priority review order");
-    expect(document.body.textContent).toContain("Possible multi-enemy collapse candidate");
-    expect(document.body.textContent).toContain("multiple enemies could reach the position");
-    expect(document.body.textContent).toContain("Inspect first: 08:14, 10:00");
-    expect(document.body.textContent).toContain("Detected Signals");
-    expect(document.body.textContent).toContain("2 multi-enemy collapse candidates");
-    expect(document.body.textContent).toContain("Death facts");
-    expect(document.body.textContent).toContain("System-generated signal counts");
+    expect(document.body.textContent).toContain("Die Less · 0 of 2 reviewed");
+    expect(document.body.textContent).toContain("Death 1 of 2");
+    expect(document.body.textContent).toContain("Death at 08:14");
+    expect(document.body.textContent).toContain("Likely contributing factors");
+    expect(document.body.textContent).toContain("Walked forward with missing enemies");
+    expect(document.querySelectorAll("[data-review-moment-card]")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-review-moment-card] .review-factor-option")).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("Detected Signals");
+    expect(document.body.textContent).not.toContain("candidate");
+    expect(document.body.textContent).not.toContain("raw signal counts");
+    expect(document.body.textContent).toContain("Debug evidence");
     expect(document.body.textContent).toContain("08:14");
     expect(document.body.textContent).toContain("Killed by LeBlanc, assisted by Briar");
-    expect(document.body.textContent).toContain("Detected signals: Possible multi-enemy collapse candidate");
+    expect(document.body.textContent).toContain("Detected signals: Walked forward with missing enemies");
     expect(document.body.textContent).toContain("Victim level 8");
     expect(document.body.textContent).not.toContain("Raw deterministic facts");
     expect(document.body.textContent).not.toContain("Raw signal counts");
@@ -978,6 +981,7 @@ describe("public app routes", () => {
 
   it("builds review moments with death-specific signals and contextual questions", () => {
     const plan = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
       evaluationSummary: { deathCount: 3 },
       deterministicTagCounts: {
         death_count: 3,
@@ -1013,10 +1017,43 @@ describe("public app routes", () => {
       "multi_enemy_collapse_candidate"
     ]);
     expect(byDeath.get(2).detectedSignals.map((signal) => signal.id)).toEqual(["solo_death_candidate"]);
-    expect(byDeath.get(3).detectedSignals.map((signal) => signal.label)).toEqual(["Ultimate breakpoint candidate"]);
+    expect(byDeath.get(3).detectedSignals.map((signal) => signal.label)).toEqual(["Enemy ultimate timing"]);
+    expect(byDeath.get(1).progressLabel).toBe("Death 1 of 3");
     expect(byDeath.get(1).reviewQuestion).toBe("Were you early, grouped, or late to the objective setup?");
     expect(byDeath.get(2).reviewQuestion).toBe("Who was close enough to cover you when you walked forward?");
     expect(byDeath.get(3).reviewQuestion).toBe("Did the enemy hit the level breakpoint before you committed?");
+  });
+
+  it("uses neutral review moment language for unknown or non-death goal types", () => {
+    const unknownPlan = buildMatchReviewPlan({
+      activeGoalName: "Improve map awareness",
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1, solo_death_candidate: 1 },
+      deathEvents: [
+        {
+          deathIndex: 1,
+          timestampSeconds: 120,
+          tags: ["solo_death_candidate"]
+        }
+      ]
+    });
+    const farmPlan = buildMatchReviewPlan({
+      activeGoalName: "Farm Better",
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1, solo_death_candidate: 1 },
+      deathEvents: [
+        {
+          deathIndex: 1,
+          timestampSeconds: 120,
+          tags: ["solo_death_candidate"]
+        }
+      ]
+    });
+
+    expect(unknownPlan.reviewMoments[0].progressLabel).toBe("Moment 1 of 1");
+    expect(unknownPlan.reviewMoments[0].headline).toBe("Review moment 1");
+    expect(farmPlan.reviewMoments[0].progressLabel).toBe("Moment 1 of 1");
+    expect(farmPlan.reviewMoments[0].headline).not.toContain("Death");
   });
 
   it("persists a confirmed reviewed signal from the review page", async () => {
@@ -1035,6 +1072,7 @@ describe("public app routes", () => {
       if (url === "/api/matches/NA1_1/evaluation") {
         return mockJsonResponse({
           matchId: "NA1_1",
+          activeGoalName: "Die Less",
           evaluationStatus: "current",
           evaluationVersion: "deterministic-v2",
           matchSummary: {
@@ -1087,10 +1125,11 @@ describe("public app routes", () => {
     window.history.pushState({}, "", "/review?matchId=NA1_1");
 
     await renderApp(document.querySelector("#app"));
-    document.querySelector('[data-review-status="confirmed"]').click();
+    document.querySelector('[data-review-moment-action="reviewed"]').click();
     await flushAsyncWork();
 
-    expect(document.body.textContent).toContain("Review status: Confirmed");
+    expect(document.body.textContent).toContain("Review complete");
+    expect(document.body.textContent).toContain("Next-game focus");
   });
 
   it("reload preserves reviewed moment state on the review page", async () => {
@@ -1109,6 +1148,7 @@ describe("public app routes", () => {
       if (url === "/api/matches/NA1_1/evaluation") {
         return mockJsonResponse({
           matchId: "NA1_1",
+          activeGoalName: "Die Less",
           evaluationStatus: "current",
           evaluationVersion: "deterministic-v2",
           matchSummary: {
@@ -1152,8 +1192,9 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Review status: Dismissed");
-    expect(document.body.textContent).toContain("Detected signals: Possible unsupported death");
+    expect(document.body.textContent).toContain("Review complete");
+    expect(document.body.textContent).toContain("Detected signals: Walked forward with missing cover");
+    expect(document.body.textContent).not.toContain("Review status:");
   });
 
   it("renders a useful zero-death review priority", async () => {
@@ -1200,7 +1241,7 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Review First");
+    expect(document.body.textContent).toContain("Review");
     expect(document.body.textContent).toContain("No deaths detected");
     expect(document.body.textContent).toContain("This evaluated match has zero deterministic death events.");
     expect(document.body.textContent).toContain("No deterministic death facts are available for this match.");
@@ -1245,7 +1286,7 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Review First");
+    expect(document.body.textContent).toContain("Review");
     expect(document.body.textContent).toContain("Evaluation pending");
     expect(document.body.textContent).toContain("No persisted deterministic evaluation exists yet for this match.");
     expect(document.body.textContent).toContain("Evaluation is not prepared for this match yet.");

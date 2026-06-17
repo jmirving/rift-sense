@@ -10,7 +10,8 @@ function escapeHtml(value) {
 const state = {
   session: null,
   recentEvaluationPreparationKeys: new Set(),
-  recentGamesRefreshMessage: ""
+  recentGamesRefreshMessage: "",
+  reviewMomentCursorByMatch: new Map()
 };
 
 const RECENT_EVALUATION_PREPARATION_LIMIT = 3;
@@ -865,14 +866,19 @@ function riotReadinessLine(riotEvidence) {
 
 function tagLabel(value) {
   const labels = {
-    solo_death_candidate: "Possible unsupported death",
-    enemy_level_up_recently_candidate: "Level breakpoint candidate",
-    level_up_all_in_candidate: "Level breakpoint candidate",
-    multi_enemy_collapse_candidate: "Possible multi-enemy collapse candidate",
-    objective_window_candidate: "Objective-window candidate",
-    objective_setup_death_candidate: "Objective setup death candidate",
-    objective_exit_death_candidate: "Objective exit death candidate",
-    isolated_forward_death_candidate: "Possible isolated forward death"
+    death_count: "Observed pattern",
+    solo_death_candidate: "Walked forward with missing cover",
+    enemy_level_up_recently_candidate: "Enemy level-up timing",
+    level_up_all_in_candidate: "Enemy level-up timing",
+    multi_enemy_collapse_candidate: "Walked forward with missing enemies",
+    objective_window_candidate: "Objective setup window",
+    objective_setup_death_candidate: "Collapsed on before objective",
+    objective_exit_death_candidate: "Stayed after objective ended",
+    isolated_forward_death_candidate: "Walked forward with missing cover",
+    low_cs_interval: "Farm dropped after lane phase",
+    missed_wave_after_recall: "Lost wave after recall timing",
+    missed_side_wave_collection: "Missed side-wave collection",
+    bad_recall_timing: "Stayed after safe reset window"
   };
   if (labels[value]) {
     return labels[value];
@@ -885,7 +891,7 @@ function tagLabel(value) {
 function tagLabelForDeath(value, death) {
   if ((value === "enemy_level_up_recently_candidate" || value === "level_up_all_in_candidate") &&
     (death?.enemyLevelUpsBeforeDeath ?? []).some((event) => Number(event?.level) === 6)) {
-    return "Ultimate breakpoint candidate";
+    return "Enemy ultimate timing";
   }
   return tagLabel(value);
 }
@@ -1037,35 +1043,33 @@ function evaluationSummaryBlock(game) {
   const summary = game?.evaluationSummary ?? null;
   const status = game?.evaluationStatus ?? "none";
   if (!summary) {
-    return `<p class="muted">Evaluation: ${escapeHtml(status)}</p>`;
+    return `<p class="muted">Review preparation: ${escapeHtml(status)}</p>`;
   }
 
-  const signals = Array.isArray(summary.reviewSignals) && summary.reviewSignals.length > 0
-    ? summary.reviewSignals
-    : [`${summary.deathCount ?? 0} ${(summary.deathCount ?? 0) === 1 ? "death" : "deaths"}`];
+  const deathCount = Number(summary.deathCount ?? 0);
+  const plainSummary = deathCount > 0
+    ? `${deathCount} ${deathCount === 1 ? "moment" : "moments"} ready`
+    : "Summary ready";
 
   return `
     <div class="evaluation-summary">
-      <p class="eyebrow">Review Signals · ${escapeHtml(status)}</p>
-      <ul>
-        ${signals.slice(0, 4).map((signal) => `<li>${escapeHtml(signal)}</li>`).join("")}
-      </ul>
+      <p class="muted">${escapeHtml(plainSummary)}${status ? ` · ${escapeHtml(status)}` : ""}</p>
     </div>
   `;
 }
 
 function recentGameState(game) {
   if (game?.reviewedAt) {
-    return { label: "Reviewed", actionLabel: "Open review", canReview: true };
+    return { label: "Reviewed", actionLabel: "Open summary", canReview: true };
   }
   if (game?.reviewStartedAt) {
-    return { label: "Review started", actionLabel: "Continue review", canReview: true };
+    return { label: "In review", actionLabel: "Review", canReview: true };
   }
   if (gameIsEvaluationReady(game)) {
-    return { label: "Evaluation ready", actionLabel: "Review", canReview: true };
+    return { label: "Ready", actionLabel: "Review", canReview: true };
   }
   if (game?.evaluationStatus === "failed") {
-    return { label: "Evaluation failed", actionLabel: null, canReview: false };
+    return { label: "Preparation failed", actionLabel: null, canReview: false };
   }
   if (gameHasSummaryMetadata(game)) {
     return { label: "Summary ready", actionLabel: "Open summary", canReview: true };
@@ -1073,7 +1077,7 @@ function recentGameState(game) {
   if (game?.parseStatus === "parse_failed" || game?.sourceMetadata?.parseStatus === "parse_failed") {
     return { label: "Summary failed", actionLabel: null, canReview: false };
   }
-  return { label: "Discovered", actionLabel: null, canReview: false };
+  return { label: "Preparing", actionLabel: null, canReview: false };
 }
 
 function riotEvidenceCard(riotEvidence, context = {}) {
@@ -1087,8 +1091,8 @@ function riotEvidenceCard(riotEvidence, context = {}) {
     <section class="panel riot-evidence-panel">
       <div class="panel-header">
         <div>
-          <p class="eyebrow">Recent Game Evidence</p>
-          <h2>${escapeHtml(riotEvidenceTitle(riotEvidence))}</h2>
+          <p class="eyebrow">Recent Games</p>
+          <h2>Review-ready games</h2>
           ${sourceLabel}
         </div>
         <div class="action-row">
@@ -1098,8 +1102,10 @@ function riotEvidenceCard(riotEvidence, context = {}) {
       </div>
       <p class="muted recent-games-refresh-status" aria-live="polite">${escapeHtml(state.recentGamesRefreshMessage)}</p>
       <p class="muted">${escapeHtml(riotEvidenceSummary(riotEvidence))}</p>
-      ${riotReadinessLine(riotEvidence)}
-      <p class="eyebrow">Recent Games</p>
+      <details class="debug-evidence">
+        <summary>Preparation details</summary>
+        ${riotReadinessLine(riotEvidence)}
+      </details>
       <section class="compact-list">
         ${recentGames.length > 0
           ? recentGames.map((game) => {
@@ -1109,7 +1115,7 @@ function riotEvidenceCard(riotEvidence, context = {}) {
               ? `${game.champion ?? game.championName ?? "Unknown champion"} · ${game.queueLabel} · ${game.result}`
               : `${game.champion ?? game.championName ?? "Unknown champion"} · ${state.label}`;
             const value = hasSummaryMetadata
-              ? `${game.kda} · ${game.csPerMinute ?? "?"} cs/min`
+              ? `${game.kda} KDA${game.csPerMinute ? ` · ${game.csPerMinute} cs/min` : ""}`
               : state.label;
             const action = state.canReview
               ? `<a class="button secondary compact-row-action" href="${escapeHtml(reviewHrefForGame(game, context))}">${escapeHtml(state.actionLabel)}</a>`
@@ -1120,7 +1126,6 @@ function riotEvidenceCard(riotEvidence, context = {}) {
                 <div class="game-evidence-main">
                   <span class="compact-row-main">${escapeHtml(title)}</span>
                   <span class="compact-row-value">${escapeHtml(value)}</span>
-                  <span class="muted">${escapeHtml(game.relevanceReason ?? "")}</span>
                   ${evaluationSummaryBlock(game)}
                 </div>
                 <div class="game-evidence-actions">
@@ -1152,8 +1157,8 @@ function reviewCandidateCard(riotEvidence, goal, context = {}) {
         <section class="panel review-candidate-panel">
           <div class="panel-header">
             <div>
-              <p class="eyebrow">Today's Review Candidate</p>
-              <h2>${escapeHtml(counts.summaryReadyCount > 0 ? "Review candidate pending" : "Review candidate unavailable")}</h2>
+              <p class="eyebrow">Next Review</p>
+              <h2>${escapeHtml(counts.summaryReadyCount > 0 ? "Preparing review" : "No review ready")}</h2>
             </div>
           </div>
           <p class="muted">${escapeHtml(message)}</p>
@@ -1164,18 +1169,18 @@ function reviewCandidateCard(riotEvidence, goal, context = {}) {
     return "";
   }
 
-  const signals = candidate.topDeterministicSignals?.length > 0
-    ? candidate.topDeterministicSignals.map((signal) => signal.label ?? signal.tag).filter(Boolean)
-    : candidate.evaluationSummary?.reviewSignals ?? [];
   const goalRelevance = candidate.goalRelevance ?? (
     goal?.title ? `${goal.title}${goal.role ? ` · ${goal.role}` : ""}` : null
   );
+  const summary = candidate.evaluationSummary?.deathCount > 0
+    ? `${candidate.evaluationSummary.deathCount} review ${candidate.evaluationSummary.deathCount === 1 ? "moment" : "moments"} ready`
+    : "Summary ready";
 
   return `
     <section class="panel review-candidate-panel">
       <div class="panel-header">
         <div>
-          <p class="eyebrow">Today's Review Candidate</p>
+          <p class="eyebrow">Next Review</p>
           <h2>${escapeHtml(candidate.champion ?? candidate.championName ?? "Unknown champion")}</h2>
         </div>
         <a class="button" href="${escapeHtml(reviewHrefForGame(candidate, context))}">Review this game</a>
@@ -1185,9 +1190,8 @@ function reviewCandidateCard(riotEvidence, goal, context = {}) {
         <span class="context-badge">${escapeHtml(candidate.queueLabel)}</span>
         <span class="context-badge">${escapeHtml(candidate.kda)} KDA</span>
       </div>
-      ${signals.length > 0 ? renderSignalList(signals.slice(0, 3), "") : '<p class="muted">No deterministic signals are available yet.</p>'}
-      <p class="muted">${escapeHtml(candidate.selectionReason ?? candidate.relevanceReason ?? "Selected from recent reviewable games.")}</p>
-      ${goalRelevance ? `<p class="muted">Goal relevance: ${escapeHtml(goalRelevance)}</p>` : ""}
+      <p class="muted">${escapeHtml(summary)}</p>
+      ${goalRelevance ? `<p class="muted">Active goal: ${escapeHtml(goalRelevance)}</p>` : ""}
     </section>
   `;
 }
@@ -1308,24 +1312,6 @@ function renderSignalList(signals, emptyText) {
   `;
 }
 
-const REVIEW_STATUS_LABELS = {
-  confirmed: "Confirmed",
-  dismissed: "Dismissed",
-  unsure: "Unsure"
-};
-
-const REVIEW_CAUSES = [
-  ["", "Cause"],
-  ["walked_without_cover", "Walked without cover"],
-  ["outnumbered_fight", "Outnumbered fight"],
-  ["stayed_too_long", "Stayed too long"],
-  ["objective_setup_mistake", "Objective setup mistake"],
-  ["mechanics_misplay", "Mechanics/misplay"],
-  ["team_fight_already_lost", "Team fight already lost"],
-  ["not_preventable", "Not preventable"],
-  ["other", "Other"]
-];
-
 function reviewMomentKey(deathIndex, signalId) {
   return `${deathIndex}:${signalId}`;
 }
@@ -1336,46 +1322,129 @@ function reviewedMomentIndex(reviewedMoments = []) {
   );
 }
 
-function renderCauseSelect(moment, deathIndex, signalId) {
-  return `
-    <label class="review-cause-label">
-      <span class="sr-only">Cause category</span>
-      <select class="review-cause-select" data-death-index="${escapeHtml(String(deathIndex))}" data-signal-id="${escapeHtml(signalId)}">
-        ${REVIEW_CAUSES.map(([value, label]) => `
-          <option value="${escapeHtml(value)}"${moment?.causeCategory === value ? " selected" : ""}>${escapeHtml(label)}</option>
-        `).join("")}
-      </select>
-    </label>
-  `;
+function activeGoalName(review = {}) {
+  const fromGoal = review.activeGoal?.title ?? review.activeGoalName ?? review.goalTitle ?? null;
+  if (fromGoal) {
+    return fromGoal;
+  }
+  const relevance = review.goalRelevance ?? review.relevanceReason ?? "";
+  return relevance ? String(relevance).split("·")[0].trim() : "Active goal";
 }
 
-function renderReviewControls({ death, deathIndex, signalId, moment }) {
-  const timestamp = Number.isFinite(Number(death?.timestampSeconds))
-    ? Number(death.timestampSeconds)
-    : Number.isFinite(Number(death?.timestampMs))
-      ? Math.round(Number(death.timestampMs) / 1000)
-      : "";
-  const status = moment?.status ?? "unreviewed";
+function activeGoalKind(goalName) {
+  const normalized = String(goalName ?? "").toLowerCase();
+  if (normalized.includes("die") || normalized.includes("death")) {
+    return "die_less";
+  }
+  if (normalized.includes("farm") || normalized.includes("cs") || normalized.includes("income")) {
+    return "farm";
+  }
+  if (normalized.includes("objective") || normalized.includes("dragon") || normalized.includes("baron") || normalized.includes("herald")) {
+    return "objective";
+  }
+  if (normalized.includes("trade") || normalized.includes("lane") || normalized.includes("laning")) {
+    return "laning";
+  }
+  return "unknown";
+}
 
-  return `
-    <div class="review-moment-control" data-review-moment="${escapeHtml(reviewMomentKey(deathIndex, signalId))}">
-      <p class="muted">Review status: <strong data-review-status-label>${escapeHtml(REVIEW_STATUS_LABELS[status] ?? "Unreviewed")}</strong></p>
-      <div class="review-control-row">
-        <button class="button secondary review-status-button" type="button" data-review-status="confirmed" data-death-index="${escapeHtml(String(deathIndex))}" data-death-timestamp-seconds="${escapeHtml(String(timestamp))}" data-signal-id="${escapeHtml(signalId)}">Confirm</button>
-        <button class="button secondary review-status-button" type="button" data-review-status="dismissed" data-death-index="${escapeHtml(String(deathIndex))}" data-death-timestamp-seconds="${escapeHtml(String(timestamp))}" data-signal-id="${escapeHtml(signalId)}">Dismiss</button>
-        <button class="button secondary review-status-button" type="button" data-review-status="unsure" data-death-index="${escapeHtml(String(deathIndex))}" data-death-timestamp-seconds="${escapeHtml(String(timestamp))}" data-signal-id="${escapeHtml(signalId)}">Unsure</button>
-        ${renderCauseSelect(moment, deathIndex, signalId)}
-      </div>
-    </div>
-  `;
+function isDeathReviewGoal(goalKind) {
+  return goalKind === "die_less";
+}
+
+function reviewMomentTitle({ goalKind, death, primarySignal, index }) {
+  const time = formatDeathTimestamp(death);
+  if (isDeathReviewGoal(goalKind)) {
+    return `Death at ${time}`;
+  }
+  if (goalKind === "objective" && primarySignal?.includes("objective")) {
+    return tagLabel(primarySignal);
+  }
+  if (goalKind === "farm") {
+    return primarySignal ? tagLabel(primarySignal) : "Review moment";
+  }
+  if (goalKind === "laning") {
+    return primarySignal ? tagLabel(primarySignal) : "Review moment";
+  }
+  return index ? `Review moment ${index}` : "Review moment";
+}
+
+function reviewMomentProgressLabel({ goalKind, index, total }) {
+  if (isDeathReviewGoal(goalKind)) {
+    return `Death ${index} of ${total}`;
+  }
+  return `Moment ${index} of ${total}`;
+}
+
+function reviewMomentFactorOptions(death, goalKind) {
+  const tags = death?.tags?.length ? death.tags : ["death_count"];
+  const factors = tags.map((tag) => ({
+    id: tag,
+    label: tagLabelForDeath(tag, death)
+  }));
+
+  if (Number(death?.summonerSpellFlashCooldownSeconds ?? death?.flashCooldownSeconds ?? 0) > 0) {
+    factors.push({ id: "died_with_no_flash", label: "Died with no flash" });
+  }
+  if (goalKind === "unknown" && factors.length === 0) {
+    factors.push({ id: "observed_pattern", label: "Contributing factor" });
+  }
+
+  return factors.length > 0 ? factors : [{ id: "observed_pattern", label: "Observed pattern" }];
+}
+
+function reviewMomentEvidenceSummary(death, goalKind) {
+  const pieces = [];
+  const tags = new Set(death?.tags ?? []);
+  const killer = death?.killerChampionName ? `Killed by ${death.killerChampionName}` : "";
+  const assists = (death?.assistingChampionNames ?? []).length
+    ? `assisted by ${(death.assistingChampionNames ?? []).join(", ")}`
+    : "";
+  const levels = Number(death?.killerLevel ?? 0) > Number(death?.victimLevel ?? 0)
+    ? `Enemy had a level lead (${death.victimLevel}-${death.killerLevel}).`
+    : "";
+
+  if (killer || assists) {
+    pieces.push([killer, assists].filter(Boolean).join(", ") + ".");
+  }
+  if (tags.has("objective_setup_death_candidate") || tags.has("objective_window_candidate")) {
+    pieces.push("This happened near an objective setup window.");
+  }
+  if (tags.has("objective_exit_death_candidate")) {
+    pieces.push("This happened after the objective or structure play ended.");
+  }
+  if (tags.has("solo_death_candidate") || tags.has("isolated_forward_death_candidate")) {
+    pieces.push("You were away from reliable allied cover.");
+  }
+  if (tags.has("multi_enemy_collapse_candidate") && Number(death?.nearbyEnemyCount ?? 0) >= 3) {
+    pieces.push("Several enemies could reach the area.");
+  }
+  if (tags.has("enemy_level_up_recently_candidate") || tags.has("level_up_all_in_candidate")) {
+    const levelsHit = (death?.enemyLevelUpsBeforeDeath ?? [])
+      .map((event) => Number(event?.level))
+      .filter((level) => [2, 3, 6].includes(level));
+    if (levelsHit.length > 0) {
+      pieces.push(levelsHit.includes(6) ? "Enemy ultimate timing mattered." : `Enemy level ${levelsHit[0]} timing mattered.`);
+    }
+  }
+  if (levels) {
+    pieces.push(levels);
+  }
+
+  if (pieces.length === 0 && goalKind === "unknown") {
+    return "A goal-relevant pattern was observed in this moment.";
+  }
+  return pieces.join(" ");
+}
+
+function primarySignalForDeath(death) {
+  return (death?.tags ?? [])[0] ?? "death_count";
 }
 
 function renderDeathFacts(deaths, reviewedMoments = []) {
   if (!Array.isArray(deaths) || deaths.length === 0) {
     return '<p class="muted">No deterministic death facts are available for this match.</p>';
   }
-
-  const momentsByKey = reviewedMomentIndex(reviewedMoments);
 
   return `
     <section class="death-list">
@@ -1395,19 +1464,6 @@ function renderDeathFacts(deaths, reviewedMoments = []) {
             <p class="muted">Detected signals: ${escapeHtml(tags || "None")}</p>
             ${enemies ? `<p class="muted">Nearby enemies: ${escapeHtml(enemies)}</p>` : ""}
             ${levels ? `<p class="muted">${escapeHtml(levels)}</p>` : ""}
-            <div class="review-moment-list">
-              ${detectedSignalIds.map((signalId) => `
-                <div class="review-signal-row">
-                  <p><strong>${escapeHtml(tagLabel(signalId))}</strong></p>
-                  ${renderReviewControls({
-                    death,
-                    deathIndex,
-                    signalId,
-                    moment: momentsByKey.get(reviewMomentKey(deathIndex, signalId))
-                  })}
-                </div>
-              `).join("")}
-            </div>
           </article>
         `;
       }).join("")}
@@ -1424,56 +1480,6 @@ function renderTagCounts(counts) {
     entries.map(([tag, count]) => `${count} ${tagLabel(tag)}`),
     "No deterministic tags are available yet."
   );
-}
-
-function reviewMomentStatusLabel(moment) {
-  return REVIEW_STATUS_LABELS[moment?.status] ?? "Not reviewed";
-}
-
-function renderMomentSignalControls(moment, reviewedMoments = []) {
-  const momentsByKey = reviewedMomentIndex(reviewedMoments);
-  const death = moment.death ?? {};
-  const deathIndex = Number(moment.deathIndex ?? death.deathIndex ?? 0);
-  if (!deathIndex || moment.detectedSignals.length === 0) {
-    return renderSignalList(moment.detectedSignals.map((signal) => signal.label), "No detected signals for this moment.");
-  }
-
-  return `
-    <div class="review-moment-list">
-      ${moment.detectedSignals.map((signal) => {
-        const reviewedMoment = momentsByKey.get(reviewMomentKey(deathIndex, signal.id));
-        return `
-          <div class="review-signal-row">
-            <p><strong>${escapeHtml(signal.label)}</strong> — ${escapeHtml(reviewMomentStatusLabel(reviewedMoment))}</p>
-            ${renderReviewControls({
-              death,
-              deathIndex,
-              signalId: signal.id,
-              moment: reviewedMoment
-            })}
-          </div>
-        `;
-      }).join("")}
-    </div>
-  `;
-}
-
-function aggregateMomentStatus(moment, reviewedMoments = []) {
-  const momentsByKey = reviewedMomentIndex(reviewedMoments);
-  const deathIndex = Number(moment.deathIndex ?? moment.death?.deathIndex ?? 0);
-  const statuses = moment.detectedSignals
-    .map((signal) => momentsByKey.get(reviewMomentKey(deathIndex, signal.id))?.status)
-    .filter(Boolean);
-  if (statuses.includes("confirmed")) {
-    return "Confirmed";
-  }
-  if (statuses.includes("dismissed")) {
-    return "Dismissed";
-  }
-  if (statuses.includes("unsure")) {
-    return "Unsure";
-  }
-  return "Not reviewed";
 }
 
 function reviewMomentSignals(death) {
@@ -1559,8 +1565,12 @@ function scoreReviewDeath(death, tagCounts = {}) {
 export function buildMatchReviewPlan(review) {
   const deaths = Array.isArray(review?.deathEvents) ? review.deathEvents : [];
   const tagCounts = review?.deterministicTagCounts ?? {};
+  const goalName = activeGoalName(review);
+  const goalKind = activeGoalKind(goalName);
   if (!review?.evaluationSummary || deaths.length === 0) {
     return {
+      activeGoalName: goalName,
+      goalKind,
       primaryPattern: null,
       reviewMoments: [],
       debugSignalCounts: Object.entries(tagCounts)
@@ -1578,27 +1588,43 @@ export function buildMatchReviewPlan(review) {
   const primaryDeaths = primaryTag ? deaths.filter((death) => (death.tags ?? []).includes(primaryTag[0])) : rankedDeaths.map((entry) => entry.death);
 
   return {
+    activeGoalName: goalName,
+    goalKind,
     primaryPattern: primaryTag ? {
       id: primaryTag[0],
       title: tagLabel(primaryTag[0]),
       confidence: Number(primaryTag[1]) >= 3 ? "high" : "medium",
-      summary: `${Number(primaryTag[1])} deaths share this detected signal. Compare what was happening before each timestamp.`,
+      summary: `${Number(primaryTag[1])} moments share this pattern.`,
       deathTimes: primaryDeaths.slice(0, 3).map(formatDeathTimestamp),
       supportingSignals: reviewMomentSignals(primaryDeaths[0] ?? {}).map((signal) => signal.label).slice(0, 4)
     } : null,
-    reviewMoments: rankedDeaths.slice(0, 3).map(({ death, priority }) => ({
-      death,
-      deathIndex: death.deathIndex ?? null,
-      time: formatDeathTimestamp(death),
-      priority,
-      headline: `${tagLabelForDeath((death.tags ?? [])[0] ?? "death_count", death)} at ${formatDeathTimestamp(death)}`,
-      detectedSignals: reviewMomentSignals(death),
-      whyReview: reviewMomentReasons(death, tagCounts),
-      reviewQuestion: reviewQuestionForDeath(death),
-      deterministicLesson: Number(death?.killerLevel ?? 0) > Number(death?.victimLevel ?? 0)
-        ? "Possible level disadvantage before contesting space."
-        : undefined
-    })),
+    reviewMoments: rankedDeaths
+      .sort((left, right) => Number(left.death.timestampSeconds ?? 0) - Number(right.death.timestampSeconds ?? 0))
+      .map(({ death, priority }, index) => {
+        const deathIndex = Number(death.deathIndex ?? index + 1);
+        const primarySignal = primarySignalForDeath(death);
+        const factorOptions = reviewMomentFactorOptions(death, goalKind);
+        return {
+          id: reviewMomentKey(deathIndex, primarySignal),
+          death,
+          deathIndex,
+          time: formatDeathTimestamp(death),
+          timeWindow: formatDeathTimestamp(death),
+          priority,
+          primarySignal,
+          headline: reviewMomentTitle({ goalKind, death, primarySignal, index: index + 1 }),
+          progressLabel: reviewMomentProgressLabel({ goalKind, index: index + 1, total: deaths.length }),
+          detectedSignals: reviewMomentSignals(death),
+          evidenceSummary: reviewMomentEvidenceSummary(death, goalKind),
+          factorOptions,
+          defaultFactorId: factorOptions[0]?.id ?? primarySignal,
+          whyReview: reviewMomentReasons(death, tagCounts),
+          reviewQuestion: reviewQuestionForDeath(death),
+          deterministicLesson: Number(death?.killerLevel ?? 0) > Number(death?.victimLevel ?? 0)
+            ? "Enemy level lead before contesting space."
+            : undefined
+        };
+      }),
     debugSignalCounts: Object.entries(tagCounts)
       .filter(([, count]) => Number(count) > 0)
       .sort((left, right) => Number(right[1]) - Number(left[1]) || left[0].localeCompare(right[0]))
@@ -1610,6 +1636,76 @@ export function buildMatchReviewPlan(review) {
   };
 }
 
+function reviewedMomentForUiMoment(moment, reviewedMoments = []) {
+  const momentsByKey = reviewedMomentIndex(reviewedMoments);
+  return momentsByKey.get(reviewMomentKey(moment.deathIndex, moment.primarySignal));
+}
+
+function uiMomentIsComplete(moment, reviewedMoments = []) {
+  return Boolean(reviewedMomentForUiMoment(moment, reviewedMoments));
+}
+
+function reviewCompletionSummary(plan, reviewedMoments = []) {
+  const counts = new Map();
+  const momentsByKey = reviewedMomentIndex(reviewedMoments);
+  for (const moment of plan.reviewMoments) {
+    const reviewedMoment = momentsByKey.get(reviewMomentKey(moment.deathIndex, moment.primarySignal));
+    const factorId = reviewedMoment?.causeCategory ?? moment.primarySignal;
+    const factor = moment.factorOptions.find((option) => option.id === factorId) ?? moment.factorOptions[0];
+    const label = factor?.label ?? "Observed pattern";
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  const patterns = [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([label, count]) => ({ label, count }));
+  const primary = patterns[0]?.label ?? "Observed pattern";
+  return {
+    patterns,
+    focus: `${plan.activeGoalName}: ${primary}`
+  };
+}
+
+function renderReviewCompletion(plan, review, context = getRouteContext()) {
+  const summary = reviewCompletionSummary(plan, review.reviewedMoments);
+  return `
+    <article class="panel review-moment-card" data-review-complete>
+      <p class="eyebrow">Review complete</p>
+      <h3>${escapeHtml(plan.activeGoalName)}</h3>
+      <section class="compact-list">
+        ${summary.patterns.length > 0
+          ? summary.patterns.map((pattern) => `
+            <article class="compact-row">
+              <span>${escapeHtml(pattern.label)}</span>
+              <span class="compact-row-value">${escapeHtml(String(pattern.count))} ${pattern.count === 1 ? "moment" : "moments"}</span>
+            </article>
+          `).join("")
+          : '<p class="muted">No repeated pattern was recorded.</p>'}
+      </section>
+      <div class="next-focus-box">
+        <p class="eyebrow">Next-game focus</p>
+        <h4>${escapeHtml(summary.focus)}</h4>
+      </div>
+      <div class="action-row">
+        <button class="button" type="button" data-save-review-focus>Save focus</button>
+        <a class="button secondary" href="${escapeHtml(toAppHref("/", context) ?? "/")}">Review another game</a>
+      </div>
+    </article>
+  `;
+}
+
+function currentReviewMomentIndex(plan, reviewedMoments = [], matchId = "") {
+  const total = plan.reviewMoments.length;
+  if (total === 0) {
+    return 0;
+  }
+  const stored = Number(state.reviewMomentCursorByMatch.get(matchId));
+  if (Number.isFinite(stored)) {
+    return Math.max(0, Math.min(total - 1, stored));
+  }
+  const firstOpen = plan.reviewMoments.findIndex((moment) => !uiMomentIsComplete(moment, reviewedMoments));
+  return firstOpen >= 0 ? firstOpen : total - 1;
+}
+
 function renderReviewPlan(plan, review) {
   if (!review?.evaluationSummary) {
     return renderReviewPriority(deriveReviewPriority(review));
@@ -1617,30 +1713,42 @@ function renderReviewPlan(plan, review) {
   if ((review.evaluationSummary?.deathCount ?? 0) === 0) {
     return renderReviewPriority(deriveReviewPriority(review));
   }
-  const timestamps = plan.primaryPattern?.deathTimes?.length
-    ? plan.primaryPattern.deathTimes
-    : plan.reviewMoments.map((moment) => moment.time);
+  const reviewedMoments = review.reviewedMoments ?? [];
+  const complete = plan.reviewMoments.length > 0 && plan.reviewMoments.every((moment) => uiMomentIsComplete(moment, reviewedMoments));
+  if (complete) {
+    return renderReviewCompletion(plan, review);
+  }
+
+  const index = currentReviewMomentIndex(plan, reviewedMoments, review.matchId);
+  const moment = plan.reviewMoments[index];
+  const selectedFactor = moment.defaultFactorId;
 
   return `
-    <article class="panel review-priority-panel">
-      <p class="eyebrow">Review plan</p>
-      <h3>${escapeHtml(plan.primaryPattern?.title ?? "Death review")}</h3>
-      <p class="muted">${escapeHtml(plan.primaryPattern?.summary ?? "Review the highest-priority flagged death moments first.")}</p>
-      ${timestamps.length > 0 ? `<p class="muted">Inspect first: ${escapeHtml(timestamps.slice(0, 3).join(", "))}</p>` : ""}
-    </article>
-    <p class="eyebrow">Priority review order</p>
-    <section class="compact-list">
-      ${plan.reviewMoments.map((moment) => `
-        <article class="panel">
-          <p class="eyebrow">${escapeHtml(moment.time)} · ${escapeHtml(aggregateMomentStatus(moment, review.reviewedMoments))}${moment.deathIndex ? ` · Death #${escapeHtml(moment.deathIndex)}` : ""}</p>
+    <article class="panel review-moment-card" data-review-moment-card>
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">${escapeHtml(moment.progressLabel)}</p>
           <h3>${escapeHtml(moment.headline)}</h3>
-          ${renderMomentSignalControls(moment, review.reviewedMoments)}
-          ${moment.whyReview ? `<p class="muted">${escapeHtml(moment.whyReview)}</p>` : ""}
-          <p><strong>Review question:</strong> ${escapeHtml(moment.reviewQuestion)}</p>
-          ${moment.deterministicLesson ? `<p class="muted">${escapeHtml(moment.deterministicLesson)}</p>` : ""}
-        </article>
-      `).join("")}
-    </section>
+        </div>
+        <span class="context-badge">${escapeHtml(moment.timeWindow)}</span>
+      </div>
+      <p class="muted">${escapeHtml(moment.evidenceSummary || "Observed pattern.")}</p>
+      <div class="review-factor-group" role="group" aria-label="Likely contributing factors">
+        <p class="eyebrow">Likely contributing factors</p>
+        ${moment.factorOptions.map((factor, factorIndex) => `
+          <label class="review-factor-option">
+            <input type="radio" name="review-factor" value="${escapeHtml(factor.id)}"${factor.id === selectedFactor || factorIndex === 0 ? " checked" : ""} />
+            <span>${escapeHtml(factor.label)}</span>
+          </label>
+        `).join("")}
+      </div>
+      <div class="action-row">
+        <button class="button" type="button" data-review-moment-action="reviewed" data-death-index="${escapeHtml(String(moment.deathIndex))}" data-death-timestamp-seconds="${escapeHtml(String(Number(moment.death?.timestampSeconds ?? 0)))}" data-signal-id="${escapeHtml(moment.primarySignal)}">Mark reviewed</button>
+        <button class="button secondary" type="button" data-review-nav="previous"${index === 0 ? " disabled" : ""}>Back</button>
+        <button class="button secondary" type="button" data-review-moment-action="skipped" data-death-index="${escapeHtml(String(moment.deathIndex))}" data-death-timestamp-seconds="${escapeHtml(String(Number(moment.death?.timestampSeconds ?? 0)))}" data-signal-id="${escapeHtml(moment.primarySignal)}">Skip</button>
+        <button class="button secondary" type="button" data-review-nav="next"${index >= plan.reviewMoments.length - 1 ? " disabled" : ""}>Next</button>
+      </div>
+    </article>
   `;
 }
 
@@ -1661,7 +1769,7 @@ function renderReviewPriority(priority) {
 
   return `
     <article class="panel review-priority-panel">
-      <p class="eyebrow">Review First</p>
+      <p class="eyebrow">Review</p>
       <h3>${escapeHtml(priority.title)}</h3>
       <p class="muted">${escapeHtml(priority.detail)}</p>
       ${timestampLine}
@@ -1691,18 +1799,21 @@ function renderReviewLanding(root, context = getRouteContext()) {
 
 function renderMatchReview(root, review, context = getRouteContext()) {
   const summary = review.matchSummary ?? {};
-  const evaluationSummary = review.evaluationSummary ?? null;
-  const reviewSignals = evaluationSummary?.reviewSignals ?? [];
   const goalRelevance = review.goalRelevance ?? review.relevanceReason ?? null;
   const reviewPlan = buildMatchReviewPlan(review);
+  const momentCount = reviewPlan.reviewMoments.length;
+  const reviewedCount = reviewPlan.reviewMoments.filter((moment) => uiMomentIsComplete(moment, review.reviewedMoments)).length;
+  const progressLabel = momentCount > 0
+    ? `${reviewedCount} of ${momentCount} reviewed`
+    : "No review moments ready";
 
   root.innerHTML = appShell(`
     <section class="section-heading">
       <div>
-        <p class="eyebrow">Deterministic Review</p>
-        <h2>${escapeHtml(matchSummaryTitle(review))}</h2>
+        <p class="eyebrow">Match Review</p>
+        <h2>${escapeHtml(summary.championName ?? "Unknown champion")} · ${escapeHtml(summary.result ?? "Unknown result")} · ${escapeHtml(summary.queueLabel ?? "Unknown queue")}</h2>
       </div>
-      <p class="section-copy">${escapeHtml(kdaLabel(summary))} KDA${summary.role ? ` · ${escapeHtml(summary.role)}` : ""}</p>
+      <p class="section-copy">${escapeHtml(reviewPlan.activeGoalName)} · ${escapeHtml(progressLabel)}</p>
     </section>
     ${renderReviewPlan(reviewPlan, review)}
     <section class="review-workspace-layout">
@@ -1714,24 +1825,16 @@ function renderMatchReview(root, review, context = getRouteContext()) {
           <span class="context-badge">${escapeHtml(summary.queueLabel ?? "Unknown queue")}</span>
           <span class="context-badge">${escapeHtml(kdaLabel(summary))} KDA</span>
         </div>
-        <p class="muted">Evaluation: ${escapeHtml(review.evaluationStatus ?? "unknown")}</p>
+        <p class="muted">Active goal: ${escapeHtml(reviewPlan.activeGoalName)}</p>
       </article>
-      <article class="panel">
-        <p class="eyebrow">Detected Signals</p>
-        ${renderSignalList(reviewSignals, "No review signals are available yet.")}
-      </article>
-      <details class="panel">
-        <summary>Death facts</summary>
-        <p class="muted">Confirmed signals update goal progress. Dismissed and unsure signals stay visible here and do not count.</p>
+      <details class="panel debug-evidence">
+        <summary>Debug evidence</summary>
         ${review.evaluationSummary ? renderDeathFacts(review.deathEvents, review.reviewedMoments) : '<p class="muted">Evaluation is not prepared for this match yet.</p>'}
-      </details>
-      <details class="panel">
-        <summary>System-generated signal counts</summary>
         ${renderTagCounts(review.deterministicTagCounts)}
       </details>
       ${goalRelevance ? `
         <article class="panel">
-          <p class="eyebrow">Goal Relevance</p>
+          <p class="eyebrow">Goal</p>
           <p class="muted">${escapeHtml(goalRelevance)}</p>
         </article>
       ` : ""}
@@ -1754,37 +1857,59 @@ function bindReviewMomentControls(root, review) {
   if (!review?.matchId || getRouteContext().demoMode) {
     return;
   }
+  if (root.dataset.reviewControlsBound === review.matchId) {
+    return;
+  }
+  root.dataset.reviewControlsBound = review.matchId;
 
   root.addEventListener("click", async (event) => {
-    const button = event.target.closest(".review-status-button");
-    if (!button) {
+    const navButton = event.target.closest("[data-review-nav]");
+    if (navButton) {
+      const plan = buildMatchReviewPlan(review);
+      const current = currentReviewMomentIndex(plan, review.reviewedMoments, review.matchId);
+      const delta = navButton.dataset.reviewNav === "previous" ? -1 : 1;
+      state.reviewMomentCursorByMatch.set(review.matchId, Math.max(0, Math.min(plan.reviewMoments.length - 1, current + delta)));
+      renderMatchReview(root, review, getRouteContext());
+      bindReviewMomentControls(root, review);
       return;
     }
 
-    const container = button.closest("[data-review-moment]");
-    const causeSelect = container?.querySelector(".review-cause-select");
-    const body = {
-      deathIndex: Number(button.dataset.deathIndex),
-      deathTimestampSeconds: button.dataset.deathTimestampSeconds ? Number(button.dataset.deathTimestampSeconds) : null,
-      signalId: button.dataset.signalId,
-      status: button.dataset.reviewStatus,
-      causeCategory: causeSelect?.value || null
-    };
+    const momentActionButton = event.target.closest("[data-review-moment-action]");
+    if (momentActionButton) {
+      const selectedFactor = root.querySelector('input[name="review-factor"]:checked')?.value || momentActionButton.dataset.signalId;
+      const body = {
+        deathIndex: Number(momentActionButton.dataset.deathIndex),
+        deathTimestampSeconds: momentActionButton.dataset.deathTimestampSeconds ? Number(momentActionButton.dataset.deathTimestampSeconds) : null,
+        signalId: momentActionButton.dataset.signalId,
+        status: momentActionButton.dataset.reviewMomentAction === "skipped" ? "unsure" : "confirmed",
+        causeCategory: selectedFactor || null
+      };
 
-    button.disabled = true;
-    try {
-      const result = await requestJson(`/api/matches/${encodeURIComponent(review.matchId)}/reviewed-moments`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      const label = container?.querySelector("[data-review-status-label]");
-      if (label) {
-        label.textContent = REVIEW_STATUS_LABELS[result.reviewedMoment?.status] ?? "Unreviewed";
+      momentActionButton.disabled = true;
+      try {
+        const result = await requestJson(`/api/matches/${encodeURIComponent(review.matchId)}/reviewed-moments`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        review.reviewedMoments = [
+          ...(review.reviewedMoments ?? []).filter((moment) =>
+            !(Number(moment.deathIndex) === body.deathIndex && moment.signalId === body.signalId)
+          ),
+          result.reviewedMoment ?? body
+        ];
+        const nextPlan = buildMatchReviewPlan(review);
+        const current = currentReviewMomentIndex(nextPlan, review.reviewedMoments, review.matchId);
+        state.reviewMomentCursorByMatch.set(review.matchId, Math.min(nextPlan.reviewMoments.length - 1, current + 1));
+        renderMatchReview(root, review, getRouteContext());
+        bindReviewMomentControls(root, review);
+      } finally {
+        momentActionButton.disabled = false;
       }
-    } finally {
-      button.disabled = false;
+      return;
     }
+
+    return;
   });
 }
 
@@ -1809,7 +1934,9 @@ function candidateToReview(game) {
     evaluationSummary: game.evaluationSummary ?? null,
     deathEvents: game.evaluationDeaths ?? [],
     deterministicTagCounts: Object.fromEntries((game.evaluationSummary?.topTags ?? []).map((entry) => [entry.tag, entry.count])),
-    relevanceReason: game.relevanceReason ?? null
+    relevanceReason: game.relevanceReason ?? null,
+    goalRelevance: game.goalRelevance ?? null,
+    reviewedMoments: []
   };
 }
 
@@ -1835,12 +1962,17 @@ async function renderReviewPage(root, context = getRouteContext()) {
       if (!review) {
         throw new Error("Match review not found.");
       }
+      review.activeGoal = home?.goalDashboard?.activePersonalGoal ?? null;
       renderMatchReview(root, review, context);
       bindReviewMomentControls(root, review);
       return;
     }
 
-    const review = await requestJson(`/api/matches/${encodeURIComponent(matchId)}/evaluation`);
+    const [review, homeResult] = await Promise.all([
+      requestJson(`/api/matches/${encodeURIComponent(matchId)}/evaluation`),
+      requestJson(context.homeApiUrl, context.requestOptions).catch(() => null)
+    ]);
+    review.activeGoal = homeResult?.home?.goalDashboard?.activePersonalGoal ?? null;
     renderMatchReview(root, review, context);
     bindReviewMomentControls(root, review);
   } catch (error) {
@@ -2035,7 +2167,7 @@ async function renderHome(root, context = getRouteContext()) {
             <section class="panel">
               <p class="eyebrow">What It Does</p>
               <h2>Turn recent games into goal-linked review work</h2>
-              <p class="muted">RiftSense uses Nexus identity, Riot account data, and active goals to surface review candidates and next actions.</p>
+              <p class="muted">RiftSense uses Nexus identity, Riot account data, and active goals to surface reviews and next actions.</p>
             </section>
             <section class="panel">
               <p class="eyebrow">Start Here</p>
@@ -2167,8 +2299,8 @@ async function renderHome(root, context = getRouteContext()) {
         <section class="panel insights-panel">
           <div class="panel-header">
             <div>
-              <p class="eyebrow">Insights</p>
-              <h2>Recent read</h2>
+              <p class="eyebrow">Current Focus</p>
+              <h2>Latest Pattern</h2>
             </div>
           </div>
           <section class="insight-grid">
@@ -2182,14 +2314,14 @@ async function renderHome(root, context = getRouteContext()) {
       <section class="panel recent-signals-panel">
         <div class="panel-header">
           <div>
-            <p class="eyebrow">Recent Signals</p>
-            <h2>Goal-linked evidence</h2>
+            <p class="eyebrow">Review Patterns</p>
+            <h2>Reviewed evidence</h2>
           </div>
         </div>
           <section class="signal-grid">
           ${goalSignals.length > 0
             ? goalSignals.map(signalCard).join("")
-            : '<p class="muted">No goal-linked signals yet. Review a game to record the first one.</p>'}
+            : '<p class="muted">No reviewed patterns yet. Review a game to record the first one.</p>'}
         </section>
       </section>
 
@@ -2249,7 +2381,7 @@ function renderPublicAbout(root) {
         <section class="panel">
           <p class="eyebrow">Current Scope</p>
           <h2>Goals, evidence, and setup</h2>
-          <p class="muted">Authenticated players can save setup, see goal-linked evidence states, and review Riot recent-game candidates when Riot identity and RiftSense config are available.</p>
+          <p class="muted">Authenticated players can save setup, see goal-linked evidence states, and review recent Riot games when Riot identity and RiftSense config are available.</p>
         </section>
         <section class="panel">
           <p class="eyebrow">Access</p>
