@@ -943,6 +943,12 @@ p {
 .review-signal-row,
 .review-moment-control,
 .review-moment-card,
+.main-review-card,
+.review-section,
+.death-review-list,
+.death-review-item,
+.observed-pattern-grid,
+.observed-pattern-item,
 .review-factor-group,
 .review-moment-main,
 .review-selection-reason,
@@ -975,8 +981,67 @@ p {
   border-color: var(--border-strong);
 }
 
-.review-moment-card {
+.review-moment-card,
+.main-review-card {
   border-color: var(--border-strong);
+}
+
+.main-review-card {
+  gap: 12px;
+}
+
+.compact-section-heading {
+  margin-top: 18px;
+  margin-bottom: 0;
+  padding: 0;
+}
+
+.compact-section-heading h3 {
+  margin: 0;
+}
+
+.death-review-list {
+  gap: 12px;
+}
+
+.death-review-item,
+.observed-pattern-item {
+  min-height: 100%;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.death-review-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.death-review-head h4,
+.observed-pattern-item h4 {
+  margin: 0;
+}
+
+.death-context-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.death-context-row span {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.observed-pattern-grid {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  align-items: stretch;
 }
 
 .review-moment-body {

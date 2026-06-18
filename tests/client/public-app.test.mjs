@@ -960,23 +960,26 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("8/5/6 KDA");
     expect(document.body.textContent).toContain("Goal: Die Less · 0 of 2 reviewed");
     expect(document.body.textContent).not.toContain("Match Summary");
-    expect(document.body.textContent).toContain("Death 1 of 2");
-    expect(document.body.textContent).toContain("Death at 08:14");
-    expect(document.body.textContent).toContain("Why this was selected");
+    expect(document.body.textContent).toContain("Main Review");
+    expect(document.body.textContent).toContain("Complete Death Review");
+    expect(document.body.textContent).toContain("All 2 deaths");
+    expect(document.body.textContent).toContain("Death 1 · 08:14");
+    expect(document.body.textContent).toContain("Death 2 · 10:00");
+    expect(document.body.textContent).toContain("Review takeaway");
     expect(document.body.textContent).toContain("Evidence");
-    expect(document.body.textContent).toContain("Likely contributing factors");
     expect(document.body.textContent).toContain("Walked forward with missing enemies");
-    expect(document.querySelectorAll("[data-review-moment-card]")).toHaveLength(1);
-    expect(document.querySelectorAll("[data-review-moment-card] .review-factor-option")).toHaveLength(1);
-    expect(document.querySelector(".review-moment-body")).toBeTruthy();
+    expect(document.querySelectorAll("[data-main-review]")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-death-review-item]")).toHaveLength(2);
+    expect(document.querySelectorAll("[data-death-review-item] .review-factor-option").length).toBeGreaterThan(0);
     expect(document.querySelector(".review-factor-grid")).toBeTruthy();
     expect(document.querySelector(".review-factor-option input")?.type).toBe("checkbox");
-    expect(document.querySelector(".debug-evidence")?.hasAttribute("open")).toBe(false);
+    expect(document.querySelector(".technical-evidence")?.hasAttribute("open")).toBe(false);
     expect(document.body.textContent).not.toContain("Detected Signals");
     expect(document.body.textContent).not.toContain("Observed pattern");
     expect(document.body.textContent).not.toContain("candidate");
     expect(document.body.textContent).not.toContain("raw signal counts");
-    expect(document.body.textContent).toContain("Debug evidence");
+    expect(document.body.textContent).toContain("Technical evidence");
+    expect(document.body.textContent).not.toContain("Debug evidence");
     expect(document.body.textContent).toContain("08:14");
     expect(document.body.textContent).toContain("Killed by LeBlanc, assisted by Briar");
     expect(document.body.textContent).toContain("Detected signals: Walked forward with missing enemies");
@@ -985,6 +988,100 @@ describe("public app routes", () => {
     expect(document.body.textContent).not.toContain("Raw signal counts");
     expect(document.body.textContent).not.toContain("SECRET_TIMELINE_EVENT");
     expect(document.body.textContent).not.toContain("SECRET_MATCH_JSON");
+  });
+
+  it("renders every death with uncertainty status and consistent pattern items", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/matches/NA1_four/evaluation") {
+        return mockJsonResponse({
+          matchId: "NA1_four",
+          activeGoalName: "Die Less",
+          evaluationStatus: "current",
+          evaluationVersion: "deterministic-v2",
+          matchSummary: {
+            championName: "Caitlyn",
+            queueLabel: "Ranked Solo/Duo",
+            result: "Win",
+            kills: 4,
+            deaths: 4,
+            assists: 12,
+            role: "ADC"
+          },
+          evaluationSummary: { deathCount: 4 },
+          deathEvents: [
+            {
+              deathIndex: 1,
+              timestampSeconds: 420,
+              killerChampionName: "Annie",
+              tags: ["solo_death_candidate"],
+              nearbyAllyChampionNames: ["Lulu"]
+            },
+            {
+              deathIndex: 2,
+              timestampSeconds: 721,
+              killerChampionName: "Lee Sin",
+              tags: ["multi_enemy_collapse_candidate"],
+              nearbyEnemyCount: 2,
+              nearbyEnemyChampionNames: ["Lee Sin", "Jinx"]
+            },
+            {
+              deathIndex: 3,
+              timestampSeconds: 990,
+              killerChampionName: "Jinx",
+              tags: ["objective_window_candidate"]
+            },
+            {
+              deathIndex: 4,
+              timestampSeconds: 1200,
+              killerChampionName: "Annie",
+              tags: ["death_count"]
+            }
+          ],
+          deterministicTagCounts: {
+            death_count: 4,
+            solo_death_candidate: 1,
+            multi_enemy_collapse_candidate: 1,
+            objective_window_candidate: 1
+          },
+          reviewedMoments: []
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/review?matchId=NA1_four");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("Caitlyn · Win · Ranked Solo/Duo");
+    expect(document.body.textContent).toContain("ADC · 4/4/12 KDA · Goal: Die Less · 0 of 4 reviewed");
+    expect(document.querySelectorAll("[data-main-review]")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-death-review-item]")).toHaveLength(4);
+    expect(document.body.textContent).toContain("Death 4 · 20:00");
+    expect(document.body.textContent).toContain("Needs manual review");
+    expect(document.body.textContent).not.toContain("Multiple enemies");
+    expect(document.querySelectorAll("[data-observed-pattern-item]").length).toBeGreaterThanOrEqual(2);
+    document.querySelectorAll("[data-observed-pattern-item]").forEach((item) => {
+      expect(item.querySelector("h4")).toBeTruthy();
+      expect(item.querySelectorAll("p")).toHaveLength(2);
+    });
+    expect(document.querySelector(".technical-evidence")?.hasAttribute("open")).toBe(false);
+    expect(document.body.textContent).not.toContain("Raw deterministic facts");
+    expect(document.body.textContent).not.toContain("Raw signal counts");
+    expect(document.body.textContent).not.toContain("Candidate");
+    expect(document.body.textContent).not.toContain("Overlapping detected signals");
   });
 
   it("builds review moments with death-specific signals and contextual questions", () => {
@@ -1051,6 +1148,48 @@ describe("public app routes", () => {
     ]);
     expect(plan.reviewMoments[0].factorOptions.map((option) => option.label).join(" ")).not.toContain("Observed pattern");
     expect(plan.reviewMoments[0].factorOptions.map((option) => option.label).join(" ")).not.toContain("candidate");
+  });
+
+  it("does not promote weak 2v2, post-6 level timing, or post-death facts as primary causes", () => {
+    const plan = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      evaluationSummary: { deathCount: 3 },
+      deterministicTagCounts: {
+        death_count: 3,
+        multi_enemy_collapse_candidate: 1,
+        level_up_all_in_candidate: 1,
+        solo_death_candidate: 1
+      },
+      deathEvents: [
+        {
+          deathIndex: 1,
+          timestampSeconds: 100,
+          tags: ["multi_enemy_collapse_candidate"],
+          nearbyEnemyCount: 2,
+          nearbyEnemyChampionNames: ["Jinx", "Lulu"]
+        },
+        {
+          deathIndex: 2,
+          timestampSeconds: 200,
+          tags: ["level_up_all_in_candidate"],
+          enemyLevelUpsBeforeDeath: [{ level: 7 }]
+        },
+        {
+          deathIndex: 3,
+          timestampSeconds: 300,
+          tags: ["solo_death_candidate"],
+          postDeathEvents: [{ type: "dragon" }]
+        }
+      ]
+    });
+
+    const byDeath = new Map(plan.reviewMoments.map((moment) => [moment.deathIndex, moment]));
+    expect(byDeath.get(1).primaryLabel).toBe("No clear deterministic cause");
+    expect(byDeath.get(1).factorOptions.map((option) => option.label)).not.toContain("Walked forward with missing enemies");
+    expect(byDeath.get(2).primaryLabel).toBe("No clear deterministic cause");
+    expect(byDeath.get(2).factorOptions.map((option) => option.label)).not.toContain("Enemy level-up timing");
+    expect(byDeath.get(3).evidenceFacts.join(" ")).not.toContain("dragon");
+    expect(new Set(plan.reviewMoments.map((moment) => moment.reviewQuestion)).size).toBeGreaterThan(1);
   });
 
   it("uses neutral review moment language for unknown or non-death goal types", () => {
