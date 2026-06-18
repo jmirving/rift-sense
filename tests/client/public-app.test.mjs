@@ -1462,6 +1462,165 @@ describe("public app routes", () => {
     expect(topGank.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Lane gank/collapse");
   });
 
+  it("separates facts, impact, review questions, and suppresses filler reasons", () => {
+    const plan = buildMatchReviewPlan({
+      activeGoalName: "Trading",
+      matchSummary: { role: "ADC" },
+      evaluationSummary: { deathCount: 2 },
+      deterministicTagCounts: { death_count: 2 },
+      deathEvents: [
+        {
+          deathIndex: 1,
+          timestampSeconds: 300,
+          nearbyEnemyCount: 2,
+          nearbyAllyChampionNames: ["Lulu"],
+          enemyRolesInvolved: ["bot", "support"],
+          killerChampionName: "Jinx",
+          objectiveName: "dragon",
+          objectiveTakenSecondsAfterDeath: 38,
+          shutdownGoldGiven: 300
+        },
+        {
+          deathIndex: 2,
+          timestampSeconds: 600,
+          nearbyEnemyCount: 2,
+          nearbyAllyChampionNames: ["Lulu"],
+          enemyRolesInvolved: ["bot", "support"],
+          killerChampionName: "Jinx"
+        }
+      ]
+    });
+
+    const first = plan.reviewMoments[0];
+    const text = JSON.stringify(first);
+    expect(text).not.toContain("lane matchup participants were involved in lane phase");
+    expect(first.factorOptions[0].interpretationReasons.join(" ")).toContain("execution/trade timing");
+    expect(first.consequenceFacts.join(" ")).toContain("enemy took dragon 38s after this death");
+    expect(first.consequenceFacts.join(" ")).toContain("300g shutdown given");
+    expect(plan.reviewMoments[1].consequenceFacts).toEqual([]);
+  });
+
+  it("shows assessment progress, checklist counts, and completion next action", async () => {
+    const putBodies = [];
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Die Less",
+                riotEvidence: {
+                  initialAssessmentTarget: 3,
+                  candidateGames: [
+                    { matchId: "NA1_flow", evaluationSummary: { deathCount: 2 }, evaluationDeaths: [{ deathIndex: 1 }, { deathIndex: 2 }] },
+                    { matchId: "NA1_next", evaluationSummary: { deathCount: 1 }, evaluationDeaths: [{ deathIndex: 1 }] },
+                    { matchId: "NA1_third", evaluationSummary: { deathCount: 1 }, evaluationDeaths: [{ deathIndex: 1 }] }
+                  ]
+                }
+              }
+            }
+          }
+        });
+      }
+      if (url === "/api/matches/NA1_flow/evaluation") {
+        return mockJsonResponse({
+          matchId: "NA1_flow",
+          activeGoalName: "Die Less",
+          matchSummary: { championName: "Jhin", queueLabel: "Ranked Solo/Duo", result: "Loss", kills: 1, deaths: 2, assists: 1 },
+          evaluationSummary: { deathCount: 2 },
+          deathEvents: [
+            { deathIndex: 1, timestampSeconds: 494, killerChampionName: "LeBlanc", tags: ["solo_death_candidate"] },
+            { deathIndex: 2, timestampSeconds: 620, killerChampionName: "Jinx", tags: ["death_count"] }
+          ],
+          deterministicTagCounts: { death_count: 2, solo_death_candidate: 1 },
+          reviewedMoments: []
+        });
+      }
+      if (url === "/api/matches/NA1_flow/reviewed-moments" && options.method === "PUT") {
+        const body = JSON.parse(options.body);
+        putBodies.push(body);
+        return mockJsonResponse({ reviewedMoment: body });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/review?matchId=NA1_flow");
+
+    await renderApp(document.querySelector("#app"));
+    expect(document.body.textContent).toContain("Game 1 of 3");
+    expect(document.body.textContent).toContain("0 Reviewed");
+    expect(document.body.textContent).toContain("2 Not reviewed");
+    expect(document.body.textContent).not.toContain("Game review complete");
+
+    document.querySelectorAll("[data-death-review-item]")[0].querySelector('[data-review-moment-action="reviewed"]').click();
+    await flushAsyncWork();
+    expect(document.body.textContent).toContain("1 Reviewed");
+    expect(document.body.textContent).toContain("1 Not reviewed");
+    expect(document.querySelector("[data-death-review-item].is-reviewed")).toBeTruthy();
+
+    document.querySelectorAll("[data-death-review-item]")[1].querySelector('[data-review-moment-action="skipped"]').click();
+    await flushAsyncWork();
+    expect(putBodies[1].status).toBe("unsure");
+    expect(document.body.textContent).toContain("Game review complete");
+    expect(document.body.textContent).toContain("1 reviewed · 1 needs manual review · 2 total");
+    expect(document.querySelector('a[href="/review?matchId=NA1_next"]')?.textContent).toContain("Go to next initial assessment game");
+  });
+
+  it("lets the user set and persist a main review focus", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+      if (url === "/api/home") {
+        return mockJsonResponse({ home: { goalDashboard: { activePersonalGoal: { title: "Die Less", riotEvidence: { candidateGames: [] } } } } });
+      }
+      if (url === "/api/matches/NA1_focus/evaluation") {
+        return mockJsonResponse({
+          matchId: "NA1_focus",
+          activeGoalName: "Die Less",
+          matchSummary: { championName: "Jhin", queueLabel: "Ranked Solo/Duo", result: "Loss", role: "ADC" },
+          evaluationSummary: { deathCount: 2 },
+          deathEvents: [
+            { deathIndex: 1, timestampSeconds: 300, nearbyEnemyCount: 2, nearbyAllyChampionNames: ["Lulu"], enemyRolesInvolved: ["bot", "support"], killerChampionName: "Jinx" },
+            { deathIndex: 2, timestampSeconds: 620, killerChampionName: "LeBlanc", tags: ["solo_death_candidate"] }
+          ],
+          deterministicTagCounts: { death_count: 2, solo_death_candidate: 1 },
+          reviewedMoments: []
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/review?matchId=NA1_focus");
+
+    await renderApp(document.querySelector("#app"));
+    document.querySelectorAll("[data-death-review-item]")[1].querySelector("[data-set-main-focus-death]").click();
+    expect(document.querySelector("[data-main-review]")?.textContent).toContain("User-selected focus: Death 2");
+
+    await renderApp(document.querySelector("#app"));
+    expect(document.querySelector("[data-main-review]")?.textContent).toContain("User-selected focus: Death 2");
+
+    document.querySelector("[data-set-main-focus-pattern]")?.click();
+    expect(document.querySelector("[data-main-review]")?.textContent).toContain("User-selected focus:");
+  });
+
   it("uses neutral review moment language for unknown or non-death goal types", () => {
     const unknownPlan = buildMatchReviewPlan({
       activeGoalName: "Improve map awareness",

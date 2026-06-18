@@ -7,6 +7,12 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function escapeCssIdentifier(value) {
+  return typeof CSS !== "undefined" && typeof CSS.escape === "function"
+    ? CSS.escape(String(value ?? ""))
+    : String(value ?? "").replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+}
+
 const state = {
   session: null,
   recentEvaluationPreparationKeys: new Set(),
@@ -15,6 +21,7 @@ const state = {
 };
 
 const RECENT_EVALUATION_PREPARATION_LIMIT = 3;
+const INITIAL_ASSESSMENT_TARGET = 3;
 
 function elapsedMs(startedAt) {
   return Math.round((performance.now() - startedAt) * 100) / 100;
@@ -1325,6 +1332,27 @@ function reviewMomentKey(deathIndex, signalId) {
   return `${deathIndex}:${signalId}`;
 }
 
+function mainReviewStorageKey(matchId) {
+  return `riftsense.mainReviewFocus.${matchId}`;
+}
+
+function readStoredMainReviewFocus(matchId) {
+  if (!matchId) return null;
+  try {
+    return JSON.parse(window.localStorage.getItem(mainReviewStorageKey(matchId)) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredMainReviewFocus(matchId, focus) {
+  if (!matchId || !focus) return;
+  window.localStorage.setItem(mainReviewStorageKey(matchId), JSON.stringify({
+    ...focus,
+    selectedByUser: true
+  }));
+}
+
 function reviewedMomentIndex(reviewedMoments = []) {
   return new Map(
     reviewedMoments.map((moment) => [reviewMomentKey(moment.deathIndex, moment.signalId), moment])
@@ -1791,6 +1819,97 @@ function alliedCoverReason(death) {
   return "allied cover unclear";
 }
 
+function compactUncertaintyNote(lines = [], fallback = "Needs replay check") {
+  const normalized = [...new Set(lines.map((line) => String(line ?? "").trim()).filter(Boolean))];
+  const uncertainty = normalized.filter((line) =>
+    /unclear|not detected|manual review|no clear|not enough/i.test(line)
+  );
+  if (uncertainty.length <= 1) {
+    return normalized[0] ?? fallback;
+  }
+  const objective = uncertainty.some((line) => /objective/i.test(line));
+  const ally = uncertainty.some((line) => /allied|cover|ally/i.test(line));
+  if (objective && ally) return "Replay check: confirm objective relevance and ally position.";
+  if (objective) return "Replay check: confirm objective relevance.";
+  if (ally) return "Replay check: confirm whether allied cover could affect the fight.";
+  return fallback;
+}
+
+function filterInterpretationReasons(reasons = []) {
+  const fillerPatterns = [
+    /lane matchup participants were involved/i,
+    /objective relevance unclear/i,
+    /use this when the replay shows a different cause/i,
+    /relevant because it was relevant/i
+  ];
+  const useful = reasons
+    .map((reason) => String(reason ?? "").trim())
+    .filter((reason) => reason && !fillerPatterns.some((pattern) => pattern.test(reason)));
+  return useful.length > 1 ? [compactUncertaintyNote(useful), ...useful.filter((reason) => !/unclear|not detected|manual review|no clear/i.test(reason))].slice(0, 2) : useful;
+}
+
+function deathConsequenceFacts(death = {}) {
+  const objectiveImpactFacts = [];
+  const economicImpactFacts = [];
+  const waveImpactFacts = [];
+  const consequenceFacts = [];
+  const confidence = [];
+  const objective = objectiveEvidenceWithName(death);
+  const objectiveTakenAfter = Number(death?.objectiveTakenSecondsAfterDeath ?? death?.objective?.takenSecondsAfterDeath ?? NaN);
+  if (objective.supported && Number.isFinite(objectiveTakenAfter) && objectiveTakenAfter >= 0) {
+    objectiveImpactFacts.push(`Follow-up: enemy took ${objective.objectiveName} ${Math.round(objectiveTakenAfter)}s after this death.`);
+    confidence.push("medium");
+  }
+  const plateLabel = death?.turretPlateLostLane ?? death?.plateLostLane ?? death?.turretPlateLane ?? "";
+  if (death?.turretPlateLostAfterDeath || death?.plateLostAfterDeath || death?.turretPlatesLostAfterDeath) {
+    objectiveImpactFacts.push(`Follow-up: ${plateLabel ? `${plateLabel} ` : ""}outer plate fell during the death window.`);
+    confidence.push("medium");
+  }
+  const turretLabel = death?.turretDestroyedLane ?? death?.towerDestroyedLane ?? death?.turretLane ?? "";
+  if (death?.turretDestroyedAfterDeath || death?.towerDestroyedAfterDeath) {
+    objectiveImpactFacts.push(`Follow-up: ${turretLabel ? `${turretLabel} ` : ""}turret fell after this death.`);
+    confidence.push("medium");
+  }
+  const shutdownGold = Number(death?.shutdownGoldGiven ?? death?.shutdownGold ?? NaN);
+  if (Number.isFinite(shutdownGold) && shutdownGold > 0) {
+    economicImpactFacts.push(`Kill impact: ${Math.round(shutdownGold)}g shutdown given.`);
+    confidence.push("high");
+  }
+  const killGold = Number(death?.killGoldGiven ?? death?.killGold ?? NaN);
+  if (Number.isFinite(killGold) && killGold > 0) {
+    economicImpactFacts.push(`Kill impact: ${Math.round(killGold)}g kill gold given.`);
+    confidence.push("high");
+  }
+  if (death?.waveCrashedWhileDead || death?.waveCrashedAfterDeath) {
+    waveImpactFacts.push("Possible lane cost: wave crashed while you were dead.");
+    confidence.push("low");
+  } else if (death?.waveStateAfterDeath || death?.waveStateAtDeath) {
+    waveImpactFacts.push(`Possible wave cost: ${death.waveStateAfterDeath ?? death.waveStateAtDeath}.`);
+    confidence.push("low");
+  }
+  const missedMinions = Number(death?.missedMinionEstimate ?? death?.missedMinionsWhileDead ?? NaN);
+  if (Number.isFinite(missedMinions) && missedMinions > 0) {
+    waveImpactFacts.push(`Possible wave cost: about ${Math.round(missedMinions)} minions during the death window.`);
+    confidence.push("low");
+  }
+  if (death?.teamfightStartedWhileDead || death?.objectiveFightStartedWhileDead) {
+    consequenceFacts.push("After this death: a teamfight/objective fight started while you were dead.");
+    confidence.push("medium");
+  }
+  if (death?.resetWindowMissed || death?.recallWindowMissed) {
+    consequenceFacts.push("Possible reset cost: recall/reset window may have been missed.");
+    confidence.push("low");
+  }
+  const all = [...objectiveImpactFacts, ...economicImpactFacts, ...waveImpactFacts, ...consequenceFacts];
+  return {
+    consequenceFacts: all,
+    economicImpactFacts,
+    objectiveImpactFacts,
+    waveImpactFacts,
+    confidence: confidence.includes("high") ? "high" : confidence.includes("medium") ? "medium" : all.length ? "low" : ""
+  };
+}
+
 function repeatedEnemySignature(death) {
   const participants = deathKillParticipants(death).sort((left, right) => left.localeCompare(right));
   return participants.length > 0 ? participants.join(" + ") : "";
@@ -1813,7 +1932,7 @@ function candidateFrom({ id, label, category, confidence = "Low", facts = [], re
     category,
     confidence,
     supportingFacts: [...new Set(facts)].filter(Boolean),
-    interpretationReasons: [...new Set(reasons)].filter(Boolean),
+    interpretationReasons: filterInterpretationReasons([...new Set(reasons)].filter(Boolean)),
     affectedDeathIds,
     sourceSignals,
     causeCategory: causeCategory ?? candidateCauseCategory(id),
@@ -1872,9 +1991,9 @@ function reviewMomentFactorOptions(death, goalKind, context = {}) {
         `Allied support nearby: ${deathAllyParticipants(death).join(", ") || (fightShape.allyCount > 1 ? "yes" : "not detected")}`
       ],
       reasons: fightShape.id === "lane_2v2_death"
-        ? [involvedRoles ? `enemy ${involvedRoles} were involved in lane phase` : "lane matchup participants were involved in lane phase"]
+        ? [`This was an even 2v2 by count${involvedRoles ? ` against enemy ${involvedRoles}` : ""}, so the replay question is execution/trade timing, not outnumbering.`]
         : fightShape.id === "lane_2v1_death"
-          ? [involvedRoles ? `enemy ${involvedRoles} were involved while allied lane cover was not detected` : "lane matchup participants were involved while allied lane cover was not detected"]
+          ? [involvedRoles ? `Enemy ${involvedRoles} fought while allied lane cover was not detected.` : "Enemy lane pressure landed before allied cover was detected."]
           : fightShape.id === "even_skirmish"
             ? ["this was even by participant count; review engage timing instead of treating it as outnumbered"]
             : ["enemy numbers exceeded allied participants close enough to influence the death"],
@@ -2000,7 +2119,7 @@ function reviewMomentFactorOptions(death, goalKind, context = {}) {
     category: "manual_override",
     confidence: "Manual",
     facts: ["Generated candidates did not explain this death"],
-    reasons: ["use this when the replay shows a different cause"],
+    reasons: ["The generated options do not fit."],
     affectedDeathIds: deathIndex ? [deathIndex] : [],
     causeCategory: "other"
   }));
@@ -2278,9 +2397,65 @@ function buildPatternSummaries(moments) {
   return [...byLabel.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
 }
 
-function buildMainReview(moments, patterns) {
+function findMomentByDeathIndex(moments, deathIndex) {
+  return moments.find((moment) => Number(moment.deathIndex) === Number(deathIndex));
+}
+
+function buildManualMainReview(focus, moments) {
+  const moment = findMomentByDeathIndex(moments, focus?.mainReviewDeathIndex);
+  return {
+    type: "manual",
+    title: focus?.mainReviewLabel || "Manual review focus",
+    diagnosis: focus?.mainReviewNote || "The generated options were not enough for this game.",
+    impact: "",
+    evidence: moment ? [`Death ${moment.deathIndex} at ${moment.time}`] : [],
+    takeaway: "Next game: write the replay-confirmed rule before queueing again.",
+    confidence: "Manual",
+    selectedByUser: true
+  };
+}
+
+function buildMainReview(moments, patterns, selectedFocus = null) {
   if (moments.length === 0) {
     return null;
+  }
+  if (selectedFocus?.selectedByUser) {
+    if (selectedFocus.mainReviewType === "death") {
+      const moment = findMomentByDeathIndex(moments, selectedFocus.mainReviewDeathIndex);
+      const factor = moment?.factorOptions.find((option) => option.id === selectedFocus.mainReviewPatternId) ??
+        moment?.factorOptions.find((option) => option.id !== "manual_other_pattern") ??
+        moment?.factorOptions[0];
+      if (moment && factor) {
+        return {
+          type: "death",
+          title: selectedFocus.mainReviewLabel || factor.label,
+          diagnosis: `User-selected focus: Death ${moment.deathIndex} at ${moment.time}.`,
+          impact: moment.consequenceFacts?.[0] ?? "",
+          evidence: (moment.evidenceFacts?.length ? moment.evidenceFacts : [`Death ${moment.deathIndex} at ${moment.time}`]).slice(0, 4),
+          takeaway: factor.nextGameRule ?? nextGameRuleForLabel(factor.label),
+          confidence: factor.confidence ?? "Manual",
+          selectedByUser: true
+        };
+      }
+    }
+    if (selectedFocus.mainReviewType === "pattern") {
+      const pattern = patterns.find((entry) => entry.id === selectedFocus.mainReviewPatternId || entry.label === selectedFocus.mainReviewLabel);
+      if (pattern) {
+        return {
+          type: "pattern",
+          title: pattern.label,
+          diagnosis: `User-selected focus: ${pattern.count} ${pattern.count === 1 ? "death" : "deaths"} matched this pattern.`,
+          impact: "",
+          evidence: pattern.times.slice(0, 4).map((time) => `Death at ${time}`),
+          takeaway: nextGameRuleForLabel(pattern.label),
+          confidence: confidenceLabel(pattern.count, moments.length),
+          selectedByUser: true
+        };
+      }
+    }
+    if (selectedFocus.mainReviewType === "manual") {
+      return buildManualMainReview(selectedFocus, moments);
+    }
   }
   const repeatedPattern = patterns.find((pattern) => pattern.count > 1);
   if (repeatedPattern) {
@@ -2291,7 +2466,7 @@ function buildMainReview(moments, patterns) {
       type: "pattern",
       title: repeatedPattern.label,
       diagnosis: `${repeatedPattern.count} deaths shared this pattern.`,
-      whyItMattered: "Repeated deaths are the fastest place to find one rule that changes the next game.",
+      impact: "Repeated deaths point to one rule worth checking first.",
       evidence: relatedMoments.slice(0, 4).map((moment) => `Death ${moment.deathIndex} at ${moment.time}`),
       takeaway: nextGameRuleForLabel(repeatedPattern.label),
       confidence: confidenceLabel(repeatedPattern.count, moments.length)
@@ -2304,7 +2479,7 @@ function buildMainReview(moments, patterns) {
     type: "death",
     title: uncertain ? `Review Death ${moment.deathIndex} manually` : factor.label,
     diagnosis: uncertain ? "No clear pattern yet." : `${factor.label} was the clearest review issue.`,
-    whyItMattered: moment.whyReview || "This was the highest-priority death in the match.",
+    impact: moment.consequenceFacts?.[0] ?? "",
     evidence: (moment.evidenceFacts?.length ? moment.evidenceFacts : [`Death ${moment.deathIndex} at ${moment.time}`]).slice(0, 4),
     takeaway: uncertain ? "Next game: pause this replay moment and write what information was missing." : nextGameRuleForLabel(factor.label),
     confidence: uncertain ? "Low" : confidenceLabel(1, moments.length)
@@ -2322,6 +2497,7 @@ export function buildMatchReviewPlan(review) {
     playerSide: review?.matchSummary?.teamSide ?? review?.matchSummary?.side ?? review?.playerSide ?? review?.teamSide,
     tagCounts
   };
+  const selectedMainFocus = review?.selectedMainReviewFocus ?? readStoredMainReviewFocus(review?.matchId);
   if (!review?.evaluationSummary || deaths.length === 0) {
     return {
       activeGoalName: goalName,
@@ -2369,6 +2545,7 @@ export function buildMatchReviewPlan(review) {
         repeatedEnemySignatures,
         deathsByRepeatedSignature
       });
+      const consequence = deathConsequenceFacts(deathWithIndex);
       const primaryFactor = factorOptions.find((option) =>
         !["no_clear_deterministic_cause", "manual_other_pattern"].includes(option.id)
       ) ?? factorOptions[0];
@@ -2389,9 +2566,14 @@ export function buildMatchReviewPlan(review) {
         detectedSignals: reviewMomentSignals(deathWithIndex),
         eventSummary: reviewMomentEventSummary(deathWithIndex, goalKind),
         evidenceFacts: reviewMomentEvidenceFacts(deathWithIndex, goalKind),
+        consequenceFacts: consequence.consequenceFacts,
+        economicImpactFacts: consequence.economicImpactFacts,
+        objectiveImpactFacts: consequence.objectiveImpactFacts,
+        waveImpactFacts: consequence.waveImpactFacts,
+        consequenceConfidence: consequence.confidence,
         factorOptions,
         defaultFactorId: factorOptions[0]?.id ?? primarySignal,
-        whyReview: primaryFactor?.interpretationReasons?.[0] ?? reviewMomentReasons(deathWithIndex, tagCounts),
+        whyReview: primaryFactor?.interpretationReasons?.[0] ?? compactUncertaintyNote([reviewMomentReasons(deathWithIndex, tagCounts)], "Needs replay check."),
         reviewQuestion: reviewQuestionForDeath(deathWithIndex),
         deterministicLesson: Number(death?.killerLevel ?? 0) > Number(death?.victimLevel ?? 0)
           ? "Enemy level lead before contesting space."
@@ -2403,7 +2585,7 @@ export function buildMatchReviewPlan(review) {
   return {
     activeGoalName: goalName,
     goalKind,
-    mainReview: buildMainReview(reviewMoments, patterns),
+    mainReview: buildMainReview(reviewMoments, patterns, selectedMainFocus),
     patterns,
     primaryPattern: primaryTag ? {
       id: primaryTag[0],
@@ -2468,6 +2650,22 @@ function reviewStatusUi(reviewedMoment) {
   };
 }
 
+function reviewProgressSummary(plan, reviewedMoments = []) {
+  const momentsByKey = reviewedMomentIndex(reviewedMoments);
+  return plan.reviewMoments.reduce((summary, moment) => {
+    const reviewedMoment = momentsByKey.get(reviewMomentKey(moment.deathIndex, moment.primarySignal));
+    if (!reviewedMoment) {
+      summary.notReviewed += 1;
+    } else if (["unsure", "dismissed", "skipped", "needs_review"].includes(String(reviewedMoment.status ?? "").toLowerCase())) {
+      summary.needsManualReview += 1;
+    } else {
+      summary.reviewed += 1;
+    }
+    summary.total += 1;
+    return summary;
+  }, { reviewed: 0, needsManualReview: 0, notReviewed: 0, total: 0 });
+}
+
 function reviewCompletionSummary(plan, reviewedMoments = []) {
   const counts = new Map();
   const momentsByKey = reviewedMomentIndex(reviewedMoments);
@@ -2484,16 +2682,97 @@ function reviewCompletionSummary(plan, reviewedMoments = []) {
   const primary = patterns[0]?.label ?? "No clear deterministic cause";
   return {
     patterns,
-    focus: `${plan.activeGoalName}: ${primary}`
+    focus: plan.mainReview?.title ? `${plan.activeGoalName}: ${plan.mainReview.title}` : `${plan.activeGoalName}: ${primary}`
   };
+}
+
+function assessmentState(review) {
+  const target = Number(review?.assessment?.target ?? INITIAL_ASSESSMENT_TARGET);
+  const games = review?.assessment?.candidateGames ?? [];
+  const currentIndex = games.findIndex((game) => game.matchId === review?.matchId);
+  const completedIds = new Set(review?.assessment?.completedMatchIds ?? []);
+  const completedCount = Math.min(target, Number(review?.assessment?.completedCount ?? completedIds.size ?? 0));
+  const availableCount = games.length || Number(review?.assessment?.availableCount ?? 0);
+  const nextGame = games.find((game, index) => index !== currentIndex && !completedIds.has(game.matchId)) ?? null;
+  return {
+    target,
+    availableCount,
+    currentNumber: currentIndex >= 0 ? Math.min(currentIndex + 1, target) : Math.min(completedCount + 1, target),
+    completedCount,
+    remainingCount: Math.max(0, Math.min(target, availableCount || target) - completedCount),
+    nextGame,
+    thresholdReached: completedCount >= target
+  };
+}
+
+function renderAssessmentProgress(review, complete) {
+  const assessment = assessmentState(review);
+  const completedCount = complete ? Math.max(assessment.completedCount, assessment.currentNumber) : assessment.completedCount;
+  const availableText = assessment.availableCount > 0 && assessment.availableCount < assessment.target
+    ? `${completedCount} of ${assessment.availableCount} available games reviewed`
+    : `${completedCount} complete · ${Math.max(0, assessment.target - completedCount)} remaining`;
+  return `
+    <article class="panel review-progress-panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Initial assessment</p>
+          <h3>Game ${escapeHtml(String(assessment.currentNumber))} of ${escapeHtml(String(assessment.target))}</h3>
+        </div>
+        <span class="context-badge">${escapeHtml(availableText)}</span>
+      </div>
+      <p class="muted">${assessment.availableCount > 0 && assessment.availableCount < assessment.target
+        ? "Review more games as they become available."
+        : "After 3 reviewed games, RiftSense will suggest first mini-goals."}</p>
+    </article>
+  `;
+}
+
+function renderReviewChecklist(plan, reviewedMoments = []) {
+  const momentsByKey = reviewedMomentIndex(reviewedMoments);
+  const summary = reviewProgressSummary(plan, reviewedMoments);
+  return `
+    <aside class="panel review-checklist-panel" aria-labelledby="review-checklist-title">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Review progress</p>
+          <h3 id="review-checklist-title">${summary.reviewed + summary.needsManualReview} of ${summary.total} triaged</h3>
+        </div>
+      </div>
+      <div class="review-checklist-counts">
+        <span class="review-count-pill is-reviewed">${summary.reviewed} Reviewed</span>
+        <span class="review-count-pill is-needs-review">${summary.needsManualReview} Needs manual review</span>
+        <span class="review-count-pill is-unreviewed">${summary.notReviewed} Not reviewed</span>
+      </div>
+      <div class="review-checklist-items">
+        ${plan.reviewMoments.map((moment) => {
+          const reviewedMoment = momentsByKey.get(reviewMomentKey(moment.deathIndex, moment.primarySignal));
+          const status = reviewStatusUi(reviewedMoment);
+          return `
+            <button class="review-checklist-item ${reviewedMoment ? "is-complete" : "is-open"}" type="button" data-jump-to-death="${escapeHtml(String(moment.deathIndex))}">
+              <span>Death ${escapeHtml(String(moment.deathIndex))} · ${escapeHtml(moment.time)}</span>
+              <span>${escapeHtml(status.label)}</span>
+            </button>
+          `;
+        }).join("")}
+      </div>
+    </aside>
+  `;
 }
 
 function renderReviewCompletion(plan, review, context = getRouteContext()) {
   const summary = reviewCompletionSummary(plan, review.reviewedMoments);
+  const progress = reviewProgressSummary(plan, review.reviewedMoments);
+  const assessment = assessmentState(review);
+  const completeCount = Math.max(assessment.completedCount, assessment.currentNumber);
+  const assessmentComplete = completeCount >= assessment.target || !assessment.nextGame;
+  const nextHref = assessment.nextGame?.matchId
+    ? toAppHref(`/review?matchId=${encodeURIComponent(assessment.nextGame.matchId)}`, context)
+    : null;
   return `
     <article class="panel review-moment-card" data-review-complete>
       <p class="eyebrow">Review complete</p>
-      <h3>${escapeHtml(plan.activeGoalName)}</h3>
+      <h3>${escapeHtml(assessmentComplete ? "Initial assessment game complete" : "Game review complete")}</h3>
+      <p class="muted">${escapeHtml(progress.reviewed)} reviewed · ${escapeHtml(progress.needsManualReview)} needs manual review · ${escapeHtml(progress.total)} total</p>
       <section class="compact-list">
         ${summary.patterns.length > 0
           ? summary.patterns.map((pattern) => `
@@ -2505,12 +2784,21 @@ function renderReviewCompletion(plan, review, context = getRouteContext()) {
           : '<p class="muted">No repeated pattern was recorded.</p>'}
       </section>
       <div class="next-focus-box">
-        <p class="eyebrow">Next-game focus</p>
+        <p class="eyebrow">Selected main focus · Next-game focus</p>
         <h4>${escapeHtml(summary.focus)}</h4>
       </div>
+      ${assessmentComplete ? `
+        <div class="next-focus-box">
+          <p class="eyebrow">Next step</p>
+          <h4>RiftSense has enough reviewed evidence to suggest first mini-goals.</h4>
+        </div>
+      ` : ""}
       <div class="action-row">
-        <button class="button" type="button" data-save-review-focus>Save focus</button>
-        <a class="button secondary" href="${escapeHtml(toAppHref("/", context) ?? "/")}">Review another game</a>
+        ${nextHref && !assessmentComplete
+          ? `<a class="button" href="${escapeHtml(nextHref)}">Go to next initial assessment game</a>`
+          : `<button class="button" type="button" disabled>Create mini-goals</button>`}
+        <a class="button secondary" href="${escapeHtml(toAppHref("/", context) ?? "/")}">Back to dashboard</a>
+        <button class="button secondary" type="button" data-change-main-focus>Change main focus</button>
       </div>
     </article>
   `;
@@ -2551,7 +2839,7 @@ function renderMainReview(plan) {
         <span class="context-badge">${escapeHtml(main.confidence)} confidence</span>
       </div>
       <p class="review-event-summary">${escapeHtml(main.diagnosis)}</p>
-      <p class="muted">${escapeHtml(main.whyItMattered)}</p>
+      ${main.impact ? `<p class="muted">${escapeHtml(main.impact)}</p>` : ""}
       <div class="review-evidence-facts">
         <p class="eyebrow">Evidence</p>
         <ul>
@@ -2561,6 +2849,9 @@ function renderMainReview(plan) {
       <div class="next-focus-box">
         <p class="eyebrow">Review takeaway</p>
         <h4>${escapeHtml(main.takeaway)}</h4>
+      </div>
+      <div class="action-row">
+        <button class="button secondary" type="button" data-change-main-focus>Change focus</button>
       </div>
     </article>
   `;
@@ -2612,11 +2903,12 @@ function renderDeathReviewList(plan, review) {
           const selectedCandidate = moment.factorOptions.find((option) => option.id === selectedFactor) ?? moment.factorOptions[0];
           const reasons = selectedCandidate?.interpretationReasons?.length
             ? selectedCandidate.interpretationReasons
-            : [moment.whyReview || "No clear pattern yet - review this death manually."];
+            : [moment.reviewQuestion || "Needs replay check."];
+          const impactFacts = moment.consequenceFacts?.length ? moment.consequenceFacts : [];
           const contextFacts = deathContextFacts(moment);
           const locationLabel = moment.locationZone?.userRelativeZoneLabel || "";
           return `
-            <article class="death-review-item ${reviewedMoment ? "is-reviewed" : "is-unreviewed"}" data-death-review-item>
+            <article class="death-review-item ${reviewedMoment ? "is-reviewed" : "is-unreviewed"}" id="death-${escapeHtml(String(moment.deathIndex))}" data-death-review-item data-death-index="${escapeHtml(String(moment.deathIndex))}">
               <div class="death-review-head">
                 <div>
                   <p class="eyebrow">Death ${escapeHtml(String(moment.deathIndex))} · ${escapeHtml(moment.time)}</p>
@@ -2624,23 +2916,34 @@ function renderDeathReviewList(plan, review) {
                 </div>
                 <span class="${escapeHtml(statusUi.badgeClass)}">${escapeHtml(statusUi.label)}</span>
               </div>
+              ${reviewedMoment ? `<p class="reviewed-summary-line">${escapeHtml(statusUi.label)} · ${escapeHtml(selectedCandidate?.label ?? "Pattern recorded")}</p>` : ""}
               ${locationLabel ? `<p class="death-location-line">Location: ${escapeHtml(locationLabel)}</p>` : ""}
               ${contextFacts.length > 0 ? `
                 <div class="death-context-row">
                   ${contextFacts.map((fact) => `<span>${escapeHtml(fact)}</span>`).join("")}
                 </div>
               ` : ""}
-              <div class="review-evidence-facts">
-                <p class="eyebrow">Facts</p>
-                <ul>
-                  ${facts.map((fact) => `<li>${escapeHtml(fact)}</li>`).join("")}
-                </ul>
-              </div>
-              <div class="review-evidence-facts">
-                <p class="eyebrow">Why it matters</p>
-                <ul>
-                  ${reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}
-                </ul>
+              <div class="death-review-expanded">
+                <div class="review-evidence-facts">
+                  <p class="eyebrow">Facts</p>
+                  <ul>
+                    ${facts.map((fact) => `<li>${escapeHtml(fact)}</li>`).join("")}
+                  </ul>
+                </div>
+                ${impactFacts.length > 0 ? `
+                  <div class="review-evidence-facts">
+                    <p class="eyebrow">Impact</p>
+                    <ul>
+                      ${impactFacts.map((fact) => `<li>${escapeHtml(fact)}</li>`).join("")}
+                    </ul>
+                  </div>
+                ` : ""}
+                <div class="review-evidence-facts">
+                  <p class="eyebrow">${impactFacts.length > 0 ? "Review question" : "Needs replay check"}</p>
+                  <ul>
+                    ${(impactFacts.length > 0 ? [moment.reviewQuestion] : reasons).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}
+                  </ul>
+                </div>
               </div>
               <div class="review-factor-grid">
                 ${moment.factorOptions.map((factor, factorIndex) => `
@@ -2651,6 +2954,7 @@ function renderDeathReviewList(plan, review) {
                 `).join("")}
               </div>
               <div class="action-row">
+                <button class="button secondary" type="button" data-set-main-focus-death="${escapeHtml(String(moment.deathIndex))}" data-focus-label="${escapeHtml(selectedCandidate?.label ?? moment.primaryLabel)}" data-pattern-id="${escapeHtml(selectedCandidate?.id ?? "")}">Set as main focus</button>
                 <button class="${escapeHtml(statusUi.reviewedClass)}" type="button" aria-pressed="${escapeHtml(statusUi.reviewedPressed)}" data-review-moment-action="reviewed" data-death-index="${escapeHtml(String(moment.deathIndex))}" data-death-timestamp-seconds="${escapeHtml(String(Number(moment.death?.timestampSeconds ?? 0)))}" data-signal-id="${escapeHtml(moment.primarySignal)}">Mark reviewed</button>
                 <button class="${escapeHtml(statusUi.needsReviewClass)}" type="button" aria-pressed="${escapeHtml(statusUi.needsReviewPressed)}" data-review-moment-action="skipped" data-death-index="${escapeHtml(String(moment.deathIndex))}" data-death-timestamp-seconds="${escapeHtml(String(Number(moment.death?.timestampSeconds ?? 0)))}" data-signal-id="${escapeHtml(moment.primarySignal)}">Needs review</button>
               </div>
@@ -2680,6 +2984,7 @@ function renderObservedPatterns(plan) {
             <h4>${escapeHtml(pattern.label)}</h4>
             <p class="muted">${escapeHtml(String(pattern.count))} ${pattern.count === 1 ? "death" : "deaths"}</p>
             <p class="muted">${escapeHtml(pattern.times.slice(0, 4).join(", "))}</p>
+            <button class="button secondary compact-row-action" type="button" data-set-main-focus-pattern="${escapeHtml(pattern.id)}" data-focus-label="${escapeHtml(pattern.label)}">Set as main focus</button>
           </article>
         `).join("")}
       </section>
@@ -2698,7 +3003,9 @@ function renderReviewPlan(plan, review) {
   const complete = plan.reviewMoments.length > 0 && plan.reviewMoments.every((moment) => uiMomentIsComplete(moment, reviewedMoments));
 
   return `
+    ${renderAssessmentProgress(review, complete)}
     ${renderMainReview(plan)}
+    ${renderReviewChecklist(plan, reviewedMoments)}
     ${complete ? renderReviewCompletion(plan, review) : ""}
     ${renderDeathReviewList(plan, review)}
     ${renderObservedPatterns(plan)}
@@ -2819,6 +3126,54 @@ function bindReviewMomentControls(root, review) {
       return;
     }
 
+    const checklistButton = event.target.closest("[data-jump-to-death]");
+    if (checklistButton) {
+      const target = root.querySelector(`[data-death-index="${escapeCssIdentifier(checklistButton.dataset.jumpToDeath)}"]`);
+      target?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      target?.focus?.();
+      return;
+    }
+
+    const changeFocusButton = event.target.closest("[data-change-main-focus]");
+    if (changeFocusButton) {
+      const target = root.querySelector("[data-death-review-item]:not(.is-reviewed)") ?? root.querySelector("[data-observed-pattern-item]");
+      target?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      return;
+    }
+
+    const focusDeathButton = event.target.closest("[data-set-main-focus-death]");
+    if (focusDeathButton) {
+      const deathItem = focusDeathButton.closest("[data-death-review-item]");
+      const selectedInput = deathItem?.querySelector('input[type="radio"]:checked');
+      const focus = {
+        mainReviewType: selectedInput?.value === "manual_other_pattern" ? "manual" : "death",
+        mainReviewDeathIndex: Number(focusDeathButton.dataset.setMainFocusDeath),
+        mainReviewPatternId: selectedInput?.value || focusDeathButton.dataset.patternId || "",
+        mainReviewLabel: selectedInput?.closest("label")?.textContent?.trim() || focusDeathButton.dataset.focusLabel || "Manual review focus",
+        selectedByUser: true
+      };
+      review.selectedMainReviewFocus = focus;
+      writeStoredMainReviewFocus(review.matchId, focus);
+      renderMatchReview(root, review, getRouteContext());
+      bindReviewMomentControls(root, review);
+      return;
+    }
+
+    const focusPatternButton = event.target.closest("[data-set-main-focus-pattern]");
+    if (focusPatternButton) {
+      const focus = {
+        mainReviewType: "pattern",
+        mainReviewPatternId: focusPatternButton.dataset.setMainFocusPattern,
+        mainReviewLabel: focusPatternButton.dataset.focusLabel,
+        selectedByUser: true
+      };
+      review.selectedMainReviewFocus = focus;
+      writeStoredMainReviewFocus(review.matchId, focus);
+      renderMatchReview(root, review, getRouteContext());
+      bindReviewMomentControls(root, review);
+      return;
+    }
+
     const momentActionButton = event.target.closest("[data-review-moment-action]");
     if (momentActionButton) {
       const deathItem = momentActionButton.closest("[data-death-review-item]");
@@ -2891,6 +3246,31 @@ function candidateToReview(game) {
   };
 }
 
+function reviewIsTriaged(reviewLike) {
+  const deaths = Array.isArray(reviewLike?.evaluationDeaths) ? reviewLike.evaluationDeaths : reviewLike?.deathEvents ?? [];
+  const reviewed = reviewLike?.reviewedMoments ?? [];
+  if (!Array.isArray(deaths) || deaths.length === 0) return Boolean(reviewLike?.reviewedAt || reviewLike?.reviewComplete);
+  return deaths.every((death, index) => {
+    const deathIndex = Number(death?.deathIndex ?? index + 1);
+    return reviewed.some((moment) => Number(moment?.deathIndex) === deathIndex);
+  });
+}
+
+function attachAssessmentState(review, homeResult) {
+  const riotEvidence = homeResult?.home?.goalDashboard?.activePersonalGoal?.riotEvidence ?? null;
+  const games = (riotEvidence?.candidateGames ?? riotEvidence?.recentGames ?? [])
+    .filter((game) => game?.matchId && (game.evaluationSummary || game.evaluationDeaths?.length || game.matchId === review?.matchId));
+  const completedMatchIds = games.filter(reviewIsTriaged).map((game) => game.matchId);
+  review.assessment = {
+    target: Number(riotEvidence?.initialAssessmentTarget ?? INITIAL_ASSESSMENT_TARGET),
+    candidateGames: games,
+    completedMatchIds,
+    completedCount: completedMatchIds.length,
+    availableCount: games.length
+  };
+  return review;
+}
+
 async function renderReviewPage(root, context = getRouteContext()) {
   const url = new URL(window.location.href);
   const matchId = url.searchParams.get("matchId");
@@ -2914,6 +3294,7 @@ async function renderReviewPage(root, context = getRouteContext()) {
         throw new Error("Match review not found.");
       }
       review.activeGoal = home?.goalDashboard?.activePersonalGoal ?? null;
+      attachAssessmentState(review, { home });
       renderMatchReview(root, review, context);
       bindReviewMomentControls(root, review);
       return;
@@ -2924,6 +3305,7 @@ async function renderReviewPage(root, context = getRouteContext()) {
       requestJson(context.homeApiUrl, context.requestOptions).catch(() => null)
     ]);
     review.activeGoal = homeResult?.home?.goalDashboard?.activePersonalGoal ?? null;
+    attachAssessmentState(review, homeResult);
     renderMatchReview(root, review, context);
     bindReviewMomentControls(root, review);
   } catch (error) {

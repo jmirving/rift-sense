@@ -972,6 +972,8 @@ p {
 .review-moment-control,
 .review-moment-card,
 .main-review-card,
+.review-progress-panel,
+.review-checklist-panel,
 .review-section,
 .death-review-list,
 .death-review-item,
@@ -1041,6 +1043,26 @@ p {
   background: rgba(255, 255, 255, 0.035);
 }
 
+.death-review-item.is-reviewed {
+  opacity: 0.72;
+  background: rgba(125, 214, 149, 0.055);
+}
+
+.death-review-item.is-reviewed .death-review-expanded,
+.death-review-item.is-reviewed .review-factor-grid {
+  display: none;
+}
+
+.death-review-item.is-unreviewed {
+  border-color: var(--border-strong);
+}
+
+.reviewed-summary-line {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .death-review-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1076,6 +1098,68 @@ p {
 .observed-pattern-grid {
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   align-items: stretch;
+}
+
+.review-progress-panel,
+.review-checklist-panel {
+  border-color: var(--border-strong);
+}
+
+.review-checklist-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.review-count-pill {
+  width: fit-content;
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.review-count-pill.is-reviewed {
+  border-color: rgba(125, 214, 149, 0.45);
+  color: #d8ffe0;
+}
+
+.review-count-pill.is-needs-review {
+  border-color: rgba(255, 143, 143, 0.45);
+  color: #ffe1e1;
+}
+
+.review-checklist-items {
+  display: grid;
+  gap: 6px;
+}
+
+.review-checklist-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.review-checklist-item span:last-child {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.review-checklist-item.is-complete {
+  opacity: 0.78;
 }
 
 .review-moment-body {
