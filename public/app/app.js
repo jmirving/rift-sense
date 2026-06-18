@@ -866,15 +866,15 @@ function riotReadinessLine(riotEvidence) {
 
 function tagLabel(value) {
   const labels = {
-    death_count: "Observed pattern",
-    solo_death_candidate: "Walked forward with missing cover",
+    death_count: "Deaths",
+    solo_death_candidate: "Walked forward without reliable cover",
     enemy_level_up_recently_candidate: "Enemy level-up timing",
     level_up_all_in_candidate: "Enemy level-up timing",
     multi_enemy_collapse_candidate: "Walked forward with missing enemies",
-    objective_window_candidate: "Objective setup window",
+    objective_window_candidate: "Stayed during objective setup",
     objective_setup_death_candidate: "Collapsed on before objective",
-    objective_exit_death_candidate: "Stayed after objective ended",
-    isolated_forward_death_candidate: "Walked forward with missing cover",
+    objective_exit_death_candidate: "Stayed after objective window ended",
+    isolated_forward_death_candidate: "Walked forward without reliable cover",
     low_cs_interval: "Farm dropped after lane phase",
     missed_wave_after_recall: "Lost wave after recall timing",
     missed_side_wave_collection: "Missed side-wave collection",
@@ -1377,64 +1377,100 @@ function reviewMomentProgressLabel({ goalKind, index, total }) {
 }
 
 function reviewMomentFactorOptions(death, goalKind) {
-  const tags = death?.tags?.length ? death.tags : ["death_count"];
-  const factors = tags.map((tag) => ({
-    id: tag,
-    label: tagLabelForDeath(tag, death)
-  }));
+  const invalidLabels = new Set([
+    "death_count",
+    "observed_pattern",
+    "raw_signal_counts",
+    "selected_for_evaluation_ready",
+    "goal_relevant_signals"
+  ]);
+  const factors = [];
+  const seenLabels = new Set();
+  const addFactor = (id, label) => {
+    const normalizedId = String(id ?? "").toLowerCase();
+    const normalizedLabel = String(label ?? "").trim();
+    if (!normalizedLabel || invalidLabels.has(normalizedId) || normalizedId.includes("candidate") && !tagLabelForDeath(id, death)) {
+      return;
+    }
+    if (normalizedLabel.toLowerCase().includes("observed pattern") ||
+      normalizedLabel.toLowerCase().includes("candidate") ||
+      normalizedLabel.toLowerCase().includes("raw signal counts") ||
+      normalizedLabel.toLowerCase().includes("selected for evaluation ready") ||
+      normalizedLabel.toLowerCase().includes("goal-relevant signals")) {
+      return;
+    }
+    if (seenLabels.has(normalizedLabel.toLowerCase())) {
+      return;
+    }
+    seenLabels.add(normalizedLabel.toLowerCase());
+    factors.push({ id, label: normalizedLabel });
+  };
+
+  for (const tag of death?.tags ?? []) {
+    if (tag === "multi_enemy_collapse_candidate" && Number(death?.nearbyEnemyCount ?? 3) < 3) {
+      continue;
+    }
+    if ((tag === "enemy_level_up_recently_candidate" || tag === "level_up_all_in_candidate") &&
+      !(death?.enemyLevelUpsBeforeDeath ?? []).some((event) => [2, 3, 6].includes(Number(event?.level)))) {
+      continue;
+    }
+    addFactor(tag, tagLabelForDeath(tag, death));
+  }
 
   if (Number(death?.summonerSpellFlashCooldownSeconds ?? death?.flashCooldownSeconds ?? 0) > 0) {
-    factors.push({ id: "died_with_no_flash", label: "Died with no flash" });
-  }
-  if (goalKind === "unknown" && factors.length === 0) {
-    factors.push({ id: "observed_pattern", label: "Contributing factor" });
+    addFactor("died_with_no_flash", "Died with no flash");
   }
 
-  return factors.length > 0 ? factors : [{ id: "observed_pattern", label: "Observed pattern" }];
+  return factors.length > 0 ? factors : [{ id: "no_clear_deterministic_cause", label: "No clear deterministic cause" }];
 }
 
-function reviewMomentEvidenceSummary(death, goalKind) {
-  const pieces = [];
+function reviewMomentEvidenceFacts(death, goalKind) {
+  const facts = [];
   const tags = new Set(death?.tags ?? []);
   const killer = death?.killerChampionName ? `Killed by ${death.killerChampionName}` : "";
   const assists = (death?.assistingChampionNames ?? []).length
-    ? `assisted by ${(death.assistingChampionNames ?? []).join(", ")}`
+    ? `Assisted by ${(death.assistingChampionNames ?? []).join(", ")}`
     : "";
   const levels = Number(death?.killerLevel ?? 0) > Number(death?.victimLevel ?? 0)
-    ? `Enemy had a level lead (${death.victimLevel}-${death.killerLevel}).`
+    ? `Enemy level lead: ${death.victimLevel} vs ${death.killerLevel}`
     : "";
 
-  if (killer || assists) {
-    pieces.push([killer, assists].filter(Boolean).join(", ") + ".");
-  }
+  if (killer) facts.push(killer);
+  if (assists) facts.push(assists);
   if (tags.has("objective_setup_death_candidate") || tags.has("objective_window_candidate")) {
-    pieces.push("This happened near an objective setup window.");
+    facts.push("Near objective setup window");
   }
   if (tags.has("objective_exit_death_candidate")) {
-    pieces.push("This happened after the objective or structure play ended.");
+    facts.push("After objective window ended");
   }
   if (tags.has("solo_death_candidate") || tags.has("isolated_forward_death_candidate")) {
-    pieces.push("You were away from reliable allied cover.");
+    facts.push("Away from reliable allied cover");
   }
   if (tags.has("multi_enemy_collapse_candidate") && Number(death?.nearbyEnemyCount ?? 0) >= 3) {
-    pieces.push("Several enemies could reach the area.");
+    const enemies = (death?.nearbyEnemyChampionNames ?? []).slice(0, 5).join(", ");
+    facts.push(enemies ? `Nearby enemies: ${enemies}` : "Multiple enemies nearby");
   }
   if (tags.has("enemy_level_up_recently_candidate") || tags.has("level_up_all_in_candidate")) {
     const levelsHit = (death?.enemyLevelUpsBeforeDeath ?? [])
       .map((event) => Number(event?.level))
       .filter((level) => [2, 3, 6].includes(level));
     if (levelsHit.length > 0) {
-      pieces.push(levelsHit.includes(6) ? "Enemy ultimate timing mattered." : `Enemy level ${levelsHit[0]} timing mattered.`);
+      facts.push(levelsHit.includes(6) ? "Enemy ultimate timing" : `Enemy level ${levelsHit[0]} timing`);
     }
   }
   if (levels) {
-    pieces.push(levels);
+    facts.push(levels);
   }
 
-  if (pieces.length === 0 && goalKind === "unknown") {
-    return "A goal-relevant pattern was observed in this moment.";
+  return [...new Set(facts)].slice(0, 5);
+}
+
+function reviewMomentEventSummary(death, goalKind) {
+  if (isDeathReviewGoal(goalKind)) {
+    const killer = death?.killerChampionName ? `Killed by ${death.killerChampionName}` : "Death event";
+    return `${killer} at ${formatDeathTimestamp(death)}`;
   }
-  return pieces.join(" ");
+  return `Observed window at ${formatDeathTimestamp(death)}`;
 }
 
 function primarySignalForDeath(death) {
@@ -1615,7 +1651,8 @@ export function buildMatchReviewPlan(review) {
           headline: reviewMomentTitle({ goalKind, death, primarySignal, index: index + 1 }),
           progressLabel: reviewMomentProgressLabel({ goalKind, index: index + 1, total: deaths.length }),
           detectedSignals: reviewMomentSignals(death),
-          evidenceSummary: reviewMomentEvidenceSummary(death, goalKind),
+          eventSummary: reviewMomentEventSummary(death, goalKind),
+          evidenceFacts: reviewMomentEvidenceFacts(death, goalKind),
           factorOptions,
           defaultFactorId: factorOptions[0]?.id ?? primarySignal,
           whyReview: reviewMomentReasons(death, tagCounts),
@@ -1652,13 +1689,13 @@ function reviewCompletionSummary(plan, reviewedMoments = []) {
     const reviewedMoment = momentsByKey.get(reviewMomentKey(moment.deathIndex, moment.primarySignal));
     const factorId = reviewedMoment?.causeCategory ?? moment.primarySignal;
     const factor = moment.factorOptions.find((option) => option.id === factorId) ?? moment.factorOptions[0];
-    const label = factor?.label ?? "Observed pattern";
+    const label = factor?.label ?? "No clear deterministic cause";
     counts.set(label, (counts.get(label) ?? 0) + 1);
   }
   const patterns = [...counts.entries()]
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
     .map(([label, count]) => ({ label, count }));
-  const primary = patterns[0]?.label ?? "Observed pattern";
+  const primary = patterns[0]?.label ?? "No clear deterministic cause";
   return {
     patterns,
     focus: `${plan.activeGoalName}: ${primary}`
@@ -1722,6 +1759,7 @@ function renderReviewPlan(plan, review) {
   const index = currentReviewMomentIndex(plan, reviewedMoments, review.matchId);
   const moment = plan.reviewMoments[index];
   const selectedFactor = moment.defaultFactorId;
+  const facts = moment.evidenceFacts?.length ? moment.evidenceFacts : ["Not enough context detected"];
 
   return `
     <article class="panel review-moment-card" data-review-moment-card>
@@ -1732,15 +1770,33 @@ function renderReviewPlan(plan, review) {
         </div>
         <span class="context-badge">${escapeHtml(moment.timeWindow)}</span>
       </div>
-      <p class="muted">${escapeHtml(moment.evidenceSummary || "Observed pattern.")}</p>
-      <div class="review-factor-group" role="group" aria-label="Likely contributing factors">
-        <p class="eyebrow">Likely contributing factors</p>
-        ${moment.factorOptions.map((factor, factorIndex) => `
-          <label class="review-factor-option">
-            <input type="radio" name="review-factor" value="${escapeHtml(factor.id)}"${factor.id === selectedFactor || factorIndex === 0 ? " checked" : ""} />
-            <span>${escapeHtml(factor.label)}</span>
-          </label>
-        `).join("")}
+      <div class="review-moment-body">
+        <section class="review-moment-main">
+          <p class="review-event-summary">${escapeHtml(moment.eventSummary)}</p>
+          ${moment.whyReview ? `
+            <div class="review-selection-reason">
+              <p class="eyebrow">Why this was selected</p>
+              <p class="muted">${escapeHtml(moment.whyReview)}</p>
+            </div>
+          ` : ""}
+          <div class="review-evidence-facts">
+            <p class="eyebrow">Evidence</p>
+            <ul>
+              ${facts.map((fact) => `<li>${escapeHtml(fact)}</li>`).join("")}
+            </ul>
+          </div>
+        </section>
+        <section class="review-factor-group" role="group" aria-label="Likely contributing factors">
+          <p class="eyebrow">Likely contributing factors</p>
+          <div class="review-factor-grid">
+            ${moment.factorOptions.map((factor, factorIndex) => `
+              <label class="review-factor-option">
+                <input type="checkbox" name="review-factor" value="${escapeHtml(factor.id)}"${factor.id === selectedFactor || factorIndex === 0 ? " checked" : ""} />
+                <span>${escapeHtml(factor.label)}</span>
+              </label>
+            `).join("")}
+          </div>
+        </section>
       </div>
       <div class="action-row">
         <button class="button" type="button" data-review-moment-action="reviewed" data-death-index="${escapeHtml(String(moment.deathIndex))}" data-death-timestamp-seconds="${escapeHtml(String(Number(moment.death?.timestampSeconds ?? 0)))}" data-signal-id="${escapeHtml(moment.primarySignal)}">Mark reviewed</button>
@@ -1799,13 +1855,13 @@ function renderReviewLanding(root, context = getRouteContext()) {
 
 function renderMatchReview(root, review, context = getRouteContext()) {
   const summary = review.matchSummary ?? {};
-  const goalRelevance = review.goalRelevance ?? review.relevanceReason ?? null;
   const reviewPlan = buildMatchReviewPlan(review);
   const momentCount = reviewPlan.reviewMoments.length;
   const reviewedCount = reviewPlan.reviewMoments.filter((moment) => uiMomentIsComplete(moment, review.reviewedMoments)).length;
   const progressLabel = momentCount > 0
     ? `${reviewedCount} of ${momentCount} reviewed`
     : "No review moments ready";
+  const headerContext = `${kdaLabel(summary)} KDA · Goal: ${reviewPlan.activeGoalName} · ${progressLabel}`;
 
   root.innerHTML = appShell(`
     <section class="section-heading">
@@ -1813,31 +1869,15 @@ function renderMatchReview(root, review, context = getRouteContext()) {
         <p class="eyebrow">Match Review</p>
         <h2>${escapeHtml(summary.championName ?? "Unknown champion")} · ${escapeHtml(summary.result ?? "Unknown result")} · ${escapeHtml(summary.queueLabel ?? "Unknown queue")}</h2>
       </div>
-      <p class="section-copy">${escapeHtml(reviewPlan.activeGoalName)} · ${escapeHtml(progressLabel)}</p>
+      <p class="section-copy">${escapeHtml(headerContext)}</p>
     </section>
     ${renderReviewPlan(reviewPlan, review)}
-    <section class="review-workspace-layout">
-      <article class="panel review-run-panel">
-        <p class="eyebrow">Match Summary</p>
-        <h3>${escapeHtml(summary.championName ?? "Unknown champion")}</h3>
-        <div class="badge-row">
-          ${statusBadge(summary.result ?? "Unknown result", summary.result === "Win" ? "positive" : "watch")}
-          <span class="context-badge">${escapeHtml(summary.queueLabel ?? "Unknown queue")}</span>
-          <span class="context-badge">${escapeHtml(kdaLabel(summary))} KDA</span>
-        </div>
-        <p class="muted">Active goal: ${escapeHtml(reviewPlan.activeGoalName)}</p>
-      </article>
+    <section class="review-secondary-stack">
       <details class="panel debug-evidence">
         <summary>Debug evidence</summary>
         ${review.evaluationSummary ? renderDeathFacts(review.deathEvents, review.reviewedMoments) : '<p class="muted">Evaluation is not prepared for this match yet.</p>'}
         ${renderTagCounts(review.deterministicTagCounts)}
       </details>
-      ${goalRelevance ? `
-        <article class="panel">
-          <p class="eyebrow">Goal</p>
-          <p class="muted">${escapeHtml(goalRelevance)}</p>
-        </article>
-      ` : ""}
       ${!review.evaluationSummary ? `
         <article class="panel">
           <p class="eyebrow">Preparing</p>
@@ -1876,7 +1916,8 @@ function bindReviewMomentControls(root, review) {
 
     const momentActionButton = event.target.closest("[data-review-moment-action]");
     if (momentActionButton) {
-      const selectedFactor = root.querySelector('input[name="review-factor"]:checked')?.value || momentActionButton.dataset.signalId;
+      const selectedFactors = [...root.querySelectorAll('input[name="review-factor"]:checked')].map((input) => input.value);
+      const selectedFactor = selectedFactors[0] || momentActionButton.dataset.signalId;
       const body = {
         deathIndex: Number(momentActionButton.dataset.deathIndex),
         deathTimestampSeconds: momentActionButton.dataset.deathTimestampSeconds ? Number(momentActionButton.dataset.deathTimestampSeconds) : null,

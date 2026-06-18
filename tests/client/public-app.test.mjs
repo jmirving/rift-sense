@@ -958,14 +958,22 @@ describe("public app routes", () => {
 
     expect(document.body.textContent).toContain("Jhin · Loss · Ranked Solo/Duo");
     expect(document.body.textContent).toContain("8/5/6 KDA");
-    expect(document.body.textContent).toContain("Die Less · 0 of 2 reviewed");
+    expect(document.body.textContent).toContain("Goal: Die Less · 0 of 2 reviewed");
+    expect(document.body.textContent).not.toContain("Match Summary");
     expect(document.body.textContent).toContain("Death 1 of 2");
     expect(document.body.textContent).toContain("Death at 08:14");
+    expect(document.body.textContent).toContain("Why this was selected");
+    expect(document.body.textContent).toContain("Evidence");
     expect(document.body.textContent).toContain("Likely contributing factors");
     expect(document.body.textContent).toContain("Walked forward with missing enemies");
     expect(document.querySelectorAll("[data-review-moment-card]")).toHaveLength(1);
     expect(document.querySelectorAll("[data-review-moment-card] .review-factor-option")).toHaveLength(1);
+    expect(document.querySelector(".review-moment-body")).toBeTruthy();
+    expect(document.querySelector(".review-factor-grid")).toBeTruthy();
+    expect(document.querySelector(".review-factor-option input")?.type).toBe("checkbox");
+    expect(document.querySelector(".debug-evidence")?.hasAttribute("open")).toBe(false);
     expect(document.body.textContent).not.toContain("Detected Signals");
+    expect(document.body.textContent).not.toContain("Observed pattern");
     expect(document.body.textContent).not.toContain("candidate");
     expect(document.body.textContent).not.toContain("raw signal counts");
     expect(document.body.textContent).toContain("Debug evidence");
@@ -1024,6 +1032,27 @@ describe("public app routes", () => {
     expect(byDeath.get(3).reviewQuestion).toBe("Did the enemy hit the level breakpoint before you committed?");
   });
 
+  it("filters weak review labels and falls back to no clear cause", () => {
+    const plan = buildMatchReviewPlan({
+      activeGoalName: "Improve map awareness",
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1 },
+      deathEvents: [
+        {
+          deathIndex: 1,
+          timestampSeconds: 120,
+          tags: ["death_count", "selected_for_evaluation_ready", "raw_signal_counts"]
+        }
+      ]
+    });
+
+    expect(plan.reviewMoments[0].factorOptions).toEqual([
+      { id: "no_clear_deterministic_cause", label: "No clear deterministic cause" }
+    ]);
+    expect(plan.reviewMoments[0].factorOptions.map((option) => option.label).join(" ")).not.toContain("Observed pattern");
+    expect(plan.reviewMoments[0].factorOptions.map((option) => option.label).join(" ")).not.toContain("candidate");
+  });
+
   it("uses neutral review moment language for unknown or non-death goal types", () => {
     const unknownPlan = buildMatchReviewPlan({
       activeGoalName: "Improve map awareness",
@@ -1052,6 +1081,7 @@ describe("public app routes", () => {
 
     expect(unknownPlan.reviewMoments[0].progressLabel).toBe("Moment 1 of 1");
     expect(unknownPlan.reviewMoments[0].headline).toBe("Review moment 1");
+    expect(unknownPlan.reviewMoments[0].eventSummary).toContain("Observed window");
     expect(farmPlan.reviewMoments[0].progressLabel).toBe("Moment 1 of 1");
     expect(farmPlan.reviewMoments[0].headline).not.toContain("Death");
   });
@@ -1193,7 +1223,7 @@ describe("public app routes", () => {
     await renderApp(document.querySelector("#app"));
 
     expect(document.body.textContent).toContain("Review complete");
-    expect(document.body.textContent).toContain("Detected signals: Walked forward with missing cover");
+    expect(document.body.textContent).toContain("Detected signals: Walked forward without reliable cover");
     expect(document.body.textContent).not.toContain("Review status:");
   });
 

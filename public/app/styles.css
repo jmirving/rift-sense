@@ -655,6 +655,7 @@ p {
 .segmented-options,
 .goal-management-layout,
 .review-workspace-layout,
+.review-secondary-stack,
 .compact-list,
 .review-tag-grid {
   display: grid;
@@ -943,6 +944,9 @@ p {
 .review-moment-control,
 .review-moment-card,
 .review-factor-group,
+.review-moment-main,
+.review-selection-reason,
+.review-evidence-facts,
 .next-focus-box {
   display: grid;
   gap: 8px;
@@ -975,26 +979,60 @@ p {
   border-color: var(--border-strong);
 }
 
+.review-moment-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.85fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.review-event-summary {
+  margin: 0;
+  font-weight: 700;
+}
+
+.review-evidence-facts ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
+.review-evidence-facts li + li {
+  margin-top: 4px;
+}
+
 .review-factor-group {
   gap: 10px;
-  margin-top: 8px;
+}
+
+.review-factor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
 }
 
 .review-factor-option {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
-  width: fit-content;
-  min-height: 34px;
-  padding: 7px 10px;
+  min-height: 58px;
+  height: 100%;
+  padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
   color: var(--text);
+  cursor: pointer;
+  line-height: 1.25;
 }
 
 .review-factor-option input {
-  margin: 0;
+  margin: 2px 0 0;
+  flex: 0 0 auto;
+}
+
+.review-secondary-stack {
+  margin-top: 16px;
 }
 
 .next-focus-box {
@@ -1341,6 +1379,7 @@ body.nav-collapsed .session-panel {
   .focus-board-head,
   .goal-management-layout,
   .review-workspace-layout,
+  .review-moment-body,
   .dashboard-two-column,
   .active-goal-hero,
   .active-goal-footer,
