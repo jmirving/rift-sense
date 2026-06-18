@@ -1416,6 +1416,168 @@ function roleIsBotLane(role) {
   return ["adc", "bottom", "bot", "support", "utility"].some((value) => normalized.includes(value));
 }
 
+function normalizeTeamSide(value) {
+  const normalized = String(value ?? "").toLowerCase();
+  if (normalized.includes("blue") || normalized === "100") return "blue";
+  if (normalized.includes("red") || normalized === "200") return "red";
+  return "";
+}
+
+function teamRelativeLabel(label, side) {
+  if (!label || !side) return label;
+  const enemySide = side === "blue" ? "red" : "blue";
+  return label
+    .replaceAll(`${side}-side `, "allied ")
+    .replaceAll(`${enemySide}-side `, "enemy ");
+}
+
+function rawDeathPosition(death = {}) {
+  const position = death.position ?? death.victimPosition ?? death.coordinates ?? {};
+  const x = Number(death.x ?? death.positionX ?? death.victimX ?? position.x ?? position.positionX);
+  const y = Number(death.y ?? death.positionY ?? death.victimY ?? position.y ?? position.positionY);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return null;
+  }
+  return { x, y };
+}
+
+function nearPoint(position, point, radius = 900) {
+  return Math.hypot(position.x - point.x, position.y - point.y) <= radius;
+}
+
+export function mapDeathPositionToZone({ x, y, playerSide, teamSide, lane, role, nearestObjective, nearestCamp } = {}) {
+  const position = { x: Number(x), y: Number(y) };
+  const side = normalizeTeamSide(playerSide ?? teamSide);
+  const laneHint = String(lane ?? role ?? "").toLowerCase();
+  const result = {
+    rawPosition: Number.isFinite(position.x) && Number.isFinite(position.y) ? position : null,
+    absoluteZoneLabel: "unknown location",
+    userRelativeZoneLabel: "unknown location",
+    broadRegion: "unknown",
+    laneRegion: "",
+    jungleQuadrant: "",
+    nearestLandmark: "",
+    confidence: "low"
+  };
+  if (!result.rawPosition) return result;
+
+  const landmarks = [
+    { name: "dragon", label: "dragon pit", broadRegion: "objective", x: 9866, y: 4414, radius: 950 },
+    { name: "baron", label: "Baron pit", broadRegion: "objective", x: 5007, y: 10471, radius: 950 },
+    { name: "herald", label: "grubs / Herald pit", broadRegion: "objective", x: 5007, y: 10471, radius: 950 },
+    { name: "blue buff", label: "blue buff", broadRegion: "jungle", x: 3900, y: 7900, radius: 750 },
+    { name: "red buff", label: "red buff", broadRegion: "jungle", x: 7800, y: 3900, radius: 750 },
+    { name: "raptors", label: "raptors", broadRegion: "jungle", x: 7200, y: 5200, radius: 650 },
+    { name: "krugs", label: "krugs", broadRegion: "jungle", x: 8400, y: 2700, radius: 700 },
+    { name: "gromp", label: "gromp", broadRegion: "jungle", x: 2100, y: 8400, radius: 700 },
+    { name: "wolves", label: "wolves", broadRegion: "jungle", x: 3800, y: 6400, radius: 700 },
+    { name: "pixel brush", label: "pixel brush area", broadRegion: "river", x: 6800, y: 8200, radius: 750 },
+    { name: "pixel brush", label: "pixel brush area", broadRegion: "river", x: 8000, y: 6600, radius: 750 }
+  ];
+  const objectiveName = String(nearestObjective?.name ?? nearestObjective ?? "").toLowerCase();
+  const campName = String(nearestCamp?.name ?? nearestCamp ?? "").toLowerCase();
+  const landmark = landmarks.find((entry) =>
+    nearPoint(position, entry, entry.radius) ||
+    objectiveName.includes(entry.name) ||
+    campName.includes(entry.name)
+  );
+  if (landmark) {
+    result.absoluteZoneLabel = landmark.label;
+    result.broadRegion = landmark.broadRegion;
+    result.nearestLandmark = landmark.label;
+    result.confidence = "high";
+  }
+
+  const inBase = position.x < 2100 && position.y < 2100
+    ? "blue-side base / nexus area"
+    : position.x > 12800 && position.y > 12800
+      ? "red-side base / nexus area"
+      : "";
+  if (inBase) {
+    result.absoluteZoneLabel = inBase;
+    result.broadRegion = "base";
+    result.confidence = "high";
+  } else if (!landmark || landmark.broadRegion === "jungle") {
+    const laneZones = [
+      { label: "blue-side bot outer area", laneRegion: "bot outer area", laneName: "bot", test: position.x > 8800 && position.y < 3300 },
+      { label: "blue-side bot inner area", laneRegion: "bot inner area", laneName: "bot", test: position.x > 6200 && position.x <= 8800 && position.y < 3600 },
+      { label: "red-side bot outer area", laneRegion: "bot outer area", laneName: "bot", test: position.x > 11500 && position.y < 6200 && position.y >= 3300 },
+      { label: "red-side bot inner area", laneRegion: "bot inner area", laneName: "bot", test: position.x > 11800 && position.y >= 6200 && position.y < 9200 },
+      { label: "blue-side top outer area", laneRegion: "top outer area", laneName: "top", test: position.x < 3300 && position.y > 8800 },
+      { label: "blue-side top inner area", laneRegion: "top inner area", laneName: "top", test: position.x < 3600 && position.y > 6200 && position.y <= 8800 },
+      { label: "red-side top outer area", laneRegion: "top outer area", laneName: "top", test: position.x < 6200 && position.y > 11500 },
+      { label: "red-side top inner area", laneRegion: "top inner area", laneName: "top", test: position.x >= 6200 && position.x < 9200 && position.y > 11800 },
+      { label: "mid outer area", laneRegion: "mid outer area", laneName: "mid", test: Math.abs(position.x - position.y) < 900 && position.x > 3600 && position.x < 6200 },
+      { label: "mid inner area", laneRegion: "mid inner area", laneName: "mid", test: Math.abs(position.x - position.y) < 900 && position.x >= 6200 && position.x < 9200 },
+      { label: "top lane center / between outer towers", laneRegion: "top lane center", laneName: "top", test: position.x < 5200 && position.y > 9300 && position.y < 11600 },
+      { label: "bot lane center / between outer towers", laneRegion: "bot lane center", laneName: "bot", test: position.x > 9300 && position.x < 11600 && position.y < 5200 },
+      { label: "mid lane center / between outer towers", laneRegion: "mid lane center", laneName: "mid", test: Math.abs(position.x - position.y) < 900 && position.x >= 5200 && position.x <= 9300 }
+    ];
+    const laneZone = laneZones.find((zone) => zone.test);
+    if (laneZone) {
+      result.absoluteZoneLabel = laneZone.label;
+      result.broadRegion = "lane";
+      result.laneRegion = laneZone.laneRegion;
+      result.confidence = laneHint.includes(laneZone.laneName) ? "high" : "medium";
+    } else if (!landmark) {
+      const riverLabel = position.y - position.x > 1600 && position.x > 4400 && position.x < 7800
+        ? "top river"
+        : position.x - position.y > 1600 && position.x > 7600 && position.x < 10800
+          ? "bot river"
+          : Math.abs(position.x - position.y) < 950 && position.x > 5600 && position.x < 9000
+            ? "mid river"
+            : "";
+      if (riverLabel) {
+        result.absoluteZoneLabel = riverLabel;
+        result.broadRegion = "river";
+        result.confidence = "medium";
+      } else {
+        const quadrant = position.x < 6000 && position.y < 7800
+          ? "blue-side blue quadrant / west quadrant"
+          : position.x >= 6000 && position.y < 6500
+            ? "blue-side red quadrant / south quadrant"
+            : position.x > 8800 && position.y >= 6500
+              ? "red-side blue quadrant / east quadrant"
+              : "red-side red quadrant / north quadrant";
+        result.absoluteZoneLabel = quadrant;
+        result.broadRegion = "jungle";
+        result.jungleQuadrant = quadrant;
+        result.confidence = "medium";
+      }
+    }
+  }
+
+  result.userRelativeZoneLabel = teamRelativeLabel(result.absoluteZoneLabel, side);
+  if (result.nearestLandmark && !result.userRelativeZoneLabel.includes(result.nearestLandmark)) {
+    result.userRelativeZoneLabel = `${result.userRelativeZoneLabel} near ${result.nearestLandmark}`;
+  }
+  return result;
+}
+
+function deathLocationZone(death = {}, context = {}) {
+  const position = rawDeathPosition(death);
+  if (!position) {
+    return {
+      rawPosition: null,
+      absoluteZoneLabel: death.lane ?? death.positionLabel ?? death.location ?? "",
+      userRelativeZoneLabel: death.positionLabel ?? death.location ?? death.lane ?? "",
+      broadRegion: "",
+      laneRegion: "",
+      jungleQuadrant: "",
+      nearestLandmark: "",
+      confidence: "low"
+    };
+  }
+  return mapDeathPositionToZone({
+    ...position,
+    playerSide: death.playerSide ?? death.teamSide ?? death.side ?? context.playerSide ?? context.teamSide,
+    lane: death.lane ?? context.lane,
+    role: death.role ?? death.participantRole ?? context.role,
+    nearestObjective: death.nearestObjective ?? death.objectiveName,
+    nearestCamp: death.nearestCamp
+  });
+}
+
 function enemyParticipantCount(death) {
   return Math.max(
     Number(death?.nearbyEnemyCount ?? 0),
@@ -1428,48 +1590,139 @@ function alliedParticipantCount(death) {
   return 1 + Math.max(Number(death?.nearbyAllyCount ?? 0), deathAllyParticipants(death).length);
 }
 
+function normalizedRole(value) {
+  const normalized = String(value ?? "").toLowerCase();
+  if (normalized.includes("support") || normalized.includes("utility")) return "support";
+  if (normalized.includes("adc") || normalized.includes("bottom") || normalized === "bot") return "bot";
+  if (normalized.includes("jungle")) return "jungle";
+  if (normalized.includes("middle") || normalized.includes("mid")) return "mid";
+  if (normalized.includes("top")) return "top";
+  return normalized;
+}
+
+function enemyRolesInvolved(death = {}) {
+  const direct = death.enemyRolesInvolved ?? death.involvedEnemyRoles ?? death.nearbyEnemyRoles ?? [];
+  const roles = Array.isArray(direct) ? direct : [direct];
+  if (death.killerRole) roles.push(death.killerRole);
+  if (Array.isArray(death.assistingChampionRoles)) roles.push(...death.assistingChampionRoles);
+  return [...new Set(roles.map(normalizedRole).filter(Boolean))];
+}
+
+function roleListLabel(roles) {
+  const labels = {
+    bot: "bot carry",
+    support: "support",
+    jungle: "jungle",
+    mid: "mid",
+    top: "top"
+  };
+  return roles.map((role) => labels[role] ?? role).join(" + ");
+}
+
+function matchupContextForDeath(death, context = {}) {
+  const playerRole = normalizedRole(context.role ?? death?.role ?? death?.participantRole);
+  const locationZone = context.locationZone ?? deathLocationZone(death, context);
+  const phaseSeconds = Number(death?.timestampSeconds ?? 0);
+  const gamePhase = phaseSeconds > 14 * 60 ? "post-lane" : "lane";
+  const roles = enemyRolesInvolved(death);
+  const expected = playerRole === "bot" || playerRole === "support"
+    ? ["bot", "support"]
+    : playerRole === "top" || playerRole === "mid"
+      ? [playerRole]
+      : [];
+  const matchupParticipants = roles.filter((role) => expected.includes(role));
+  const nonMatchupParticipants = roles.filter((role) => !expected.includes(role));
+  return {
+    playerRole,
+    playerLane: playerRole === "bot" || playerRole === "support" ? "bot" : playerRole,
+    expectedMatchupParticipants: expected,
+    enemyParticipantsInvolved: roles,
+    matchupParticipantsInvolved: matchupParticipants,
+    nonMatchupEnemyParticipantsInvolved: nonMatchupParticipants,
+    lanePartnerPresent: Boolean(death?.alliedLanePartnerPresent) || deathAllyParticipants(death).length > 0,
+    gamePhase,
+    locationZone
+  };
+}
+
 function inferFightShape(death, context = {}) {
   const enemyCount = enemyParticipantCount(death);
   const allyCount = alliedParticipantCount(death);
-  const allyNames = deathAllyParticipants(death);
-  const botLane = roleIsBotLane(context.role ?? death?.role ?? death?.participantRole);
-  const lanePartnerPresent = Boolean(death?.alliedLanePartnerPresent) || allyNames.length > 0;
-  const lanePairFight = botLane && enemyCount === 2;
+  const numericFightShape = `${enemyCount || "?"}v${allyCount || "?"}`;
+  const matchup = matchupContextForDeath(death, context);
+  const botLane = roleIsBotLane(matchup.playerRole);
+  const lanePairFight = botLane && enemyCount === 2 && matchup.gamePhase === "lane";
+  const laneMatchupRoles = matchup.matchupParticipantsInvolved.length === 2 ||
+    matchup.enemyParticipantsInvolved.length === 0;
 
-  if (enemyCount >= 3) {
-    return {
-      id: "outnumbered_fight",
-      label: enemyCount >= allyCount + 2 ? "Collapsed on by multiple enemies" : "Outnumbered fight",
-      bucket: `${enemyCount}v${allyCount}`,
-      enemyCount,
-      allyCount,
-      category: "fight_shape"
-    };
-  }
-  if (lanePairFight && lanePartnerPresent) {
+  if (lanePairFight && matchup.lanePartnerPresent && laneMatchupRoles) {
     return {
       id: "lane_2v2_death",
       label: "2v2 lane death",
       bucket: "2v2",
+      numericFightShape,
+      fightInterpretation: "lane fight",
       enemyCount,
       allyCount,
       category: "fight_shape"
     };
   }
-  if (lanePairFight && !lanePartnerPresent) {
+  if (lanePairFight && !matchup.lanePartnerPresent && laneMatchupRoles) {
     return {
       id: "lane_2v1_death",
       label: "2v1 lane death",
       bucket: "2v1",
+      numericFightShape,
+      fightInterpretation: "lane fight",
+      enemyCount,
+      allyCount,
+      category: "fight_shape"
+    };
+  }
+  if (enemyCount > allyCount) {
+    const location = matchup.locationZone?.broadRegion;
+    const interpretation = enemyCount >= 3 ? "collapse" : "outnumbered";
+    return {
+      id: "outnumbered_fight",
+      label: enemyCount >= allyCount + 2 || location === "river" || location === "jungle"
+        ? "Collapsed on by multiple enemies"
+        : "Outnumbered fight",
+      bucket: numericFightShape,
+      numericFightShape,
+      fightInterpretation: interpretation,
+      enemyCount,
+      allyCount,
+      category: "fight_shape"
+    };
+  }
+  if (enemyCount === allyCount && enemyCount >= 3) {
+    return {
+      id: enemyCount >= 5 ? "teamfight" : "even_skirmish",
+      label: enemyCount >= 5 ? `${numericFightShape} teamfight` : `${numericFightShape} skirmish`,
+      bucket: numericFightShape,
+      numericFightShape,
+      fightInterpretation: enemyCount >= 5 ? "teamfight" : "even skirmish",
+      enemyCount,
+      allyCount,
+      category: "fight_shape"
+    };
+  }
+  if (enemyCount < allyCount && enemyCount > 0) {
+    return {
+      id: "allied_number_advantage",
+      label: `${numericFightShape} allied-number advantage`,
+      bucket: numericFightShape,
+      numericFightShape,
+      fightInterpretation: "advantaged fight",
       enemyCount,
       allyCount,
       category: "fight_shape"
     };
   }
   if (enemyCount === 1 && allyCount === 1) {
-    return { id: "isolated_duel", label: "1v1 death", bucket: "1v1", enemyCount, allyCount, category: "fight_shape" };
+    return { id: "isolated_duel", label: "1v1 death", bucket: "1v1", numericFightShape, fightInterpretation: "lane fight", enemyCount, allyCount, category: "fight_shape" };
   }
-  return { id: "fight_context", label: `${enemyCount || "?"}v${allyCount || "?"} fight`, bucket: `${enemyCount || "?"}v${allyCount || "?"}`, enemyCount, allyCount, category: "fight_shape" };
+  return { id: "fight_context", label: `${numericFightShape} fight`, bucket: numericFightShape, numericFightShape, fightInterpretation: "uncertain", enemyCount, allyCount, category: "fight_shape" };
 }
 
 function objectiveEvidence(death) {
@@ -1480,13 +1733,62 @@ function objectiveEvidence(death) {
   const reasons = [];
   if (Number.isFinite(beforeSpawn) && beforeSpawn >= 0) {
     facts.push(`${objectiveName} spawned ${Math.round(beforeSpawn)}s after the death`);
-    reasons.push("the death happened before vision or position could be finished");
+    reasons.push(`this happened ${Math.round(beforeSpawn)}s before ${objectiveName}`);
   }
   if (Number.isFinite(takenAfter) && takenAfter >= 0) {
     facts.push(`Enemy took ${objectiveName} ${Math.round(takenAfter)}s after the death`);
-    reasons.push("the death likely changed the objective fight or trade");
+    reasons.push(`enemy took ${objectiveName} ${Math.round(takenAfter)}s after the death`);
   }
   return { facts, reasons };
+}
+
+function objectiveNameForDeath(death) {
+  return death?.objectiveName ?? death?.objective?.name ?? "";
+}
+
+function objectiveEvidenceWithName(death) {
+  const evidence = objectiveEvidence(death);
+  return {
+    ...evidence,
+    objectiveName: objectiveNameForDeath(death) || "objective",
+    supported: evidence.facts.length > 0
+  };
+}
+
+function shownLevelEvidence(death, { includeRaw = false } = {}) {
+  const victimLevel = Number(death?.victimLevel ?? 0);
+  const killerLevel = Number(death?.killerLevel ?? 0);
+  const levelLead = killerLevel - victimLevel;
+  const breakpoint = (death?.enemyLevelUpsBeforeDeath ?? [])
+    .map((event) => Number(event?.level))
+    .find((level) => [2, 3, 6].includes(level));
+  if (breakpoint) {
+    return `Enemy level ${breakpoint} timing`;
+  }
+  if (levelLead >= 2) {
+    return `Enemy level lead: ${victimLevel} vs ${killerLevel}`;
+  }
+  if (includeRaw && victimLevel > 0 && killerLevel > 0) {
+    return `Levels: ${victimLevel} vs ${killerLevel}`;
+  }
+  return "";
+}
+
+function alliedCoverReason(death) {
+  const allyCount = alliedParticipantCount(death);
+  const enemyCount = enemyParticipantCount(death);
+  const explicitNearbyAllies = Number(death?.nearbyAllyCount ?? NaN);
+  const allyNames = deathAllyParticipants(death);
+  if (allyCount > enemyCount && enemyCount > 0) {
+    return "allies were nearby; review whether the first engage happened outside their peel/trade range";
+  }
+  if ((Number.isFinite(explicitNearbyAllies) && explicitNearbyAllies === 0) || allyNames.length === 0 && death?.nearbyAllyCount === 0) {
+    return "no nearby allied cover detected";
+  }
+  if (allyNames.length > 0 || Number.isFinite(explicitNearbyAllies)) {
+    return "ally proximity was detected, but functional peel/trade range is unclear";
+  }
+  return "allied cover unclear";
 }
 
 function repeatedEnemySignature(death) {
@@ -1553,7 +1855,12 @@ function reviewMomentFactorOptions(death, goalKind, context = {}) {
 
   const deathIndex = Number(death?.deathIndex ?? 0);
   const fightShape = inferFightShape(death, context);
-  if (fightShape.id === "lane_2v2_death" || fightShape.id === "lane_2v1_death" || fightShape.id === "outnumbered_fight") {
+  const locationZone = context.locationZone ?? deathLocationZone(death, context);
+  const matchupContext = matchupContextForDeath(death, { ...context, locationZone });
+  if (fightShape.id === "lane_2v2_death" || fightShape.id === "lane_2v1_death" ||
+    fightShape.id === "outnumbered_fight" && fightShape.enemyCount >= 3 ||
+    fightShape.id === "even_skirmish") {
+    const involvedRoles = roleListLabel(matchupContext.enemyParticipantsInvolved);
     addFactor(candidateFrom({
       id: fightShape.id,
       label: fightShape.label,
@@ -1565,10 +1872,58 @@ function reviewMomentFactorOptions(death, goalKind, context = {}) {
         `Allied support nearby: ${deathAllyParticipants(death).join(", ") || (fightShape.allyCount > 1 ? "yes" : "not detected")}`
       ],
       reasons: fightShape.id === "lane_2v2_death"
-        ? ["this looks like a lane-pair fight, not a generic multi-enemy collapse"]
+        ? [involvedRoles ? `enemy ${involvedRoles} were involved in lane phase` : "lane matchup participants were involved in lane phase"]
         : fightShape.id === "lane_2v1_death"
-          ? ["enemy lane pair was involved while allied lane cover was not detected"]
-          : ["three or more enemy participants were close enough to influence the death"],
+          ? [involvedRoles ? `enemy ${involvedRoles} were involved while allied lane cover was not detected` : "lane matchup participants were involved while allied lane cover was not detected"]
+          : fightShape.id === "even_skirmish"
+            ? ["this was even by participant count; review engage timing instead of treating it as outnumbered"]
+            : ["enemy numbers exceeded allied participants close enough to influence the death"],
+      affectedDeathIds: deathIndex ? [deathIndex] : [],
+      sourceSignals: death?.tags ?? []
+    }));
+  }
+
+  if (locationZone.broadRegion === "river" && matchupContext.enemyParticipantsInvolved.includes("jungle")) {
+    addFactor(candidateFrom({
+      id: "river_jungle_skirmish",
+      label: "River skirmish with jungle involved",
+      category: "location_context",
+      confidence: "Medium",
+      facts: [`Death happened in ${locationZone.userRelativeZoneLabel}`, "Enemy jungler was involved"],
+      reasons: ["river location makes objective/vision pressure more likely than lane trading"],
+      affectedDeathIds: deathIndex ? [deathIndex] : [],
+      sourceSignals: death?.tags ?? []
+    }));
+  } else if (["top", "mid"].includes(matchupContext.playerRole) && matchupContext.nonMatchupEnemyParticipantsInvolved.includes("jungle") && matchupContext.gamePhase === "lane") {
+    addFactor(candidateFrom({
+      id: "lane_gank_collapse",
+      label: "Lane gank/collapse",
+      category: "matchup_context",
+      confidence: "Medium",
+      facts: [`Enemy ${roleListLabel(matchupContext.enemyParticipantsInvolved)} were involved`],
+      reasons: [`enemy ${roleListLabel(matchupContext.nonMatchupEnemyParticipantsInvolved)} joined the ${matchupContext.playerLane} matchup`],
+      affectedDeathIds: deathIndex ? [deathIndex] : [],
+      sourceSignals: death?.tags ?? []
+    }));
+  } else if (locationZone.broadRegion === "jungle" && locationZone.userRelativeZoneLabel?.startsWith("enemy ")) {
+    addFactor(candidateFrom({
+      id: "enemy_jungle_forward_death",
+      label: "Forward death in enemy jungle",
+      category: "location_context",
+      confidence: "Medium",
+      facts: [`Death happened in ${locationZone.userRelativeZoneLabel}`],
+      reasons: ["enemy jungle position points to invade or collapse context"],
+      affectedDeathIds: deathIndex ? [deathIndex] : [],
+      sourceSignals: death?.tags ?? []
+    }));
+  } else if (locationZone.laneRegion?.includes("center") && matchupContext.matchupParticipantsInvolved.length > 0) {
+    addFactor(candidateFrom({
+      id: "lane_center_matchup_fight",
+      label: "Lane fight against matchup opponent",
+      category: "location_context",
+      confidence: "Medium",
+      facts: [`Death happened in ${locationZone.userRelativeZoneLabel}`, `Enemy ${roleListLabel(matchupContext.matchupParticipantsInvolved)} involved`],
+      reasons: ["lane-center location and matchup participants point to a lane fight"],
       affectedDeathIds: deathIndex ? [deathIndex] : [],
       sourceSignals: death?.tags ?? []
     }));
@@ -1579,17 +1934,17 @@ function reviewMomentFactorOptions(death, goalKind, context = {}) {
       continue;
     }
     if ((tag === "enemy_level_up_recently_candidate" || tag === "level_up_all_in_candidate") &&
-      !(death?.enemyLevelUpsBeforeDeath ?? []).some((event) => [2, 3].includes(Number(event?.level)))) {
+      !shownLevelEvidence(death)) {
       continue;
     }
     if (tag === "objective_setup_death_candidate" || tag === "objective_window_candidate" || tag === "objective_exit_death_candidate") {
-      const objective = objectiveEvidence(death);
+      const objective = objectiveEvidenceWithName(death);
       if (objective.facts.length === 0) {
         continue;
       }
       addFactor(candidateFrom({
         id: tag,
-        label: tag === "objective_exit_death_candidate" ? "Died after objective window ended" : "Died before objective setup completed",
+        label: tag === "objective_exit_death_candidate" ? `Died after ${objective.objectiveName} window ended` : `Died before ${objective.objectiveName} setup completed`,
         category: "objective_timing",
         confidence: "Medium",
         facts: objective.facts,
@@ -1670,35 +2025,38 @@ function reviewMomentFactorOptions(death, goalKind, context = {}) {
 function reviewMomentEvidenceFacts(death, goalKind) {
   const facts = [];
   const tags = new Set(death?.tags ?? []);
-  const fightShape = inferFightShape(death, { role: death?.role ?? death?.participantRole });
+  const locationZone = deathLocationZone(death, { role: death?.role ?? death?.participantRole });
+  const fightShape = inferFightShape(death, { role: death?.role ?? death?.participantRole, locationZone });
+  const matchup = matchupContextForDeath(death, { role: death?.role ?? death?.participantRole, locationZone });
   const killer = death?.killerChampionName ? `Killed by ${death.killerChampionName}` : "";
   const assists = (death?.assistingChampionNames ?? []).length
     ? `Assisted by ${(death.assistingChampionNames ?? []).join(", ")}`
     : "";
-  const levels = Number(death?.killerLevel ?? 0) > Number(death?.victimLevel ?? 0)
-    ? `Enemy level lead: ${death.victimLevel} vs ${death.killerLevel}`
-    : "";
+  const levels = shownLevelEvidence(death);
+  const participantRoles = roleListLabel(matchup.enemyParticipantsInvolved);
 
   if (killer) facts.push(killer);
   if (assists) facts.push(assists);
   facts.push(`Fight shape: ${fightShape.bucket}`);
+  if (locationZone?.userRelativeZoneLabel) facts.push(`Death happened in ${locationZone.userRelativeZoneLabel}`);
+  if (participantRoles) facts.push(`Enemy ${participantRoles} were involved`);
   facts.push(`Enemy participants: ${deathEnemyParticipants(death).join(", ") || fightShape.enemyCount}`);
   const allies = deathAllyParticipants(death).join(", ");
   facts.push(`Allied participants nearby: ${allies || "not detected"}`);
   if (tags.has("objective_setup_death_candidate") || tags.has("objective_window_candidate")) {
-    const objective = objectiveEvidence(death);
+    const objective = objectiveEvidenceWithName(death);
     if (objective.facts.length > 0) {
       facts.push(...objective.facts);
     }
   }
   if (tags.has("objective_exit_death_candidate")) {
-    const objective = objectiveEvidence(death);
+    const objective = objectiveEvidenceWithName(death);
     if (objective.facts.length > 0) {
       facts.push(...objective.facts);
     }
   }
   if (tags.has("solo_death_candidate") || tags.has("isolated_forward_death_candidate")) {
-    facts.push("Away from reliable allied cover");
+    facts.push(alliedCoverReason(death));
   }
   if (tags.has("multi_enemy_collapse_candidate") && Number(death?.nearbyEnemyCount ?? 0) >= 3) {
     const enemies = (death?.nearbyEnemyChampionNames ?? []).slice(0, 5).join(", ");
@@ -1707,7 +2065,7 @@ function reviewMomentEvidenceFacts(death, goalKind) {
   if (tags.has("enemy_level_up_recently_candidate") || tags.has("level_up_all_in_candidate")) {
     const levelsHit = (death?.enemyLevelUpsBeforeDeath ?? [])
       .map((event) => Number(event?.level))
-      .filter((level) => [2, 3].includes(level));
+      .filter((level) => [2, 3, 6].includes(level));
     if (levelsHit.length > 0) {
       facts.push(`Enemy level ${levelsHit[0]} timing`);
     }
@@ -1782,7 +2140,7 @@ function reviewMomentSignals(death) {
 function levelBreakpointLabel(death) {
   const levels = (death?.enemyLevelUpsBeforeDeath ?? [])
     .map((event) => Number(event?.level))
-    .filter((level) => [2, 3].includes(level));
+    .filter((level) => [2, 3, 6].includes(level));
   if (levels.length > 0) {
     return `the enemy hit level ${levels[0]} before you died`;
   }
@@ -1792,21 +2150,27 @@ function levelBreakpointLabel(death) {
 function reviewMomentReasons(death, tagCounts = {}) {
   const reasons = [];
   const tags = new Set(death?.tags ?? []);
-  if (tags.has("objective_setup_death_candidate")) {
-    reasons.push("this happened during objective setup");
-  } else if (tags.has("objective_exit_death_candidate")) {
-    reasons.push("this happened after the objective window ended");
-  } else if (tags.has("objective_window_candidate")) {
-    reasons.push("this happened near an objective window");
+  const objective = objectiveEvidenceWithName(death);
+  if (objective.supported && tags.has("objective_setup_death_candidate")) {
+    reasons.push(`this happened during ${objective.objectiveName} setup`);
+  } else if (objective.supported && tags.has("objective_exit_death_candidate")) {
+    reasons.push(`this happened after the ${objective.objectiveName} window ended`);
+  } else if (objective.supported && tags.has("objective_window_candidate")) {
+    reasons.push(`this happened near ${objective.objectiveName} timing`);
+  } else if (tags.has("objective_setup_death_candidate") || tags.has("objective_window_candidate") || tags.has("objective_exit_death_candidate")) {
+    reasons.push("Objective relevance unclear");
   }
   if (tags.has("solo_death_candidate") || tags.has("isolated_forward_death_candidate")) {
-    reasons.push("allied cover was not close enough to protect the play");
+    reasons.push(alliedCoverReason(death));
   }
   if (tags.has("multi_enemy_collapse_candidate") && Number(death?.nearbyEnemyCount ?? 0) >= 3) {
-    reasons.push("multiple enemies could reach the position");
+    const fightShape = inferFightShape(death, { role: death?.role ?? death?.participantRole });
+    reasons.push(fightShape.enemyCount > fightShape.allyCount
+      ? "multiple enemies could reach the position before enough allies could affect it"
+      : "multiple enemies were involved, but the fight was not outnumbered by participant count");
   }
   if ((tags.has("enemy_level_up_recently_candidate") || tags.has("level_up_all_in_candidate")) &&
-    (death?.enemyLevelUpsBeforeDeath ?? []).some((event) => [2, 3].includes(Number(event?.level)))) {
+    shownLevelEvidence(death)) {
     reasons.push(levelBreakpointLabel(death));
   }
   const repeatedTag = [...tags].find((tag) => Number(tagCounts[tag] ?? 0) > 1);
@@ -1818,11 +2182,15 @@ function reviewMomentReasons(death, tagCounts = {}) {
 
 function reviewQuestionForDeath(death) {
   const tags = new Set(death?.tags ?? []);
-  if (tags.has("objective_setup_death_candidate") || tags.has("objective_window_candidate")) {
-    return "Were you early, grouped, or late to the objective setup?";
+  const objective = objectiveEvidenceWithName(death);
+  if (objective.supported && (tags.has("objective_setup_death_candidate") || tags.has("objective_window_candidate"))) {
+    return `Were you early, grouped, or late to ${objective.objectiveName} setup?`;
   }
-  if (tags.has("objective_exit_death_candidate")) {
-    return "Was the objective already over when you stayed or walked forward?";
+  if (objective.supported && tags.has("objective_exit_death_candidate")) {
+    return `Was ${objective.objectiveName} already over when you stayed or walked forward?`;
+  }
+  if (tags.has("objective_setup_death_candidate") || tags.has("objective_window_candidate") || tags.has("objective_exit_death_candidate")) {
+    return "What objective information was confirmed before this death?";
   }
   if (tags.has("solo_death_candidate") || tags.has("isolated_forward_death_candidate")) {
     return "Who was close enough to cover you when you walked forward?";
@@ -1842,7 +2210,7 @@ function scoreReviewDeath(death, tagCounts = {}) {
   if (Number(death?.nearbyEnemyCount ?? 0) >= 3 && tags.has("multi_enemy_collapse_candidate")) score += 35;
   if (tags.has("objective_window_candidate") || tags.has("objective_setup_death_candidate") || tags.has("objective_exit_death_candidate")) score += 30;
   if ((tags.has("enemy_level_up_recently_candidate") || tags.has("level_up_all_in_candidate")) &&
-    (death?.enemyLevelUpsBeforeDeath ?? []).some((event) => [2, 3].includes(Number(event?.level)))) score += 25;
+    shownLevelEvidence(death)) score += 25;
   if (tags.has("solo_death_candidate") || tags.has("isolated_forward_death_candidate")) score += 20;
   if (Number(death?.killerLevel ?? 0) > Number(death?.victimLevel ?? 0)) score += 15;
   for (const tag of tags) {
@@ -1950,6 +2318,8 @@ export function buildMatchReviewPlan(review) {
   const goalKind = activeGoalKind(goalName);
   const reviewContext = {
     role: review?.matchSummary?.role ?? review?.matchSummary?.lane ?? review?.role,
+    lane: review?.matchSummary?.lane ?? review?.lane,
+    playerSide: review?.matchSummary?.teamSide ?? review?.matchSummary?.side ?? review?.playerSide ?? review?.teamSide,
     tagCounts
   };
   if (!review?.evaluationSummary || deaths.length === 0) {
@@ -1990,10 +2360,12 @@ export function buildMatchReviewPlan(review) {
     .map(({ death, priority }, index) => {
       const deathIndex = Number(death.deathIndex ?? index + 1);
       const primarySignal = primarySignalForDeath(death);
-      const deathWithIndex = { ...death, deathIndex, role: reviewContext.role };
-      const fightShape = inferFightShape(deathWithIndex, reviewContext);
+      const locationZone = deathLocationZone(death, reviewContext);
+      const deathWithIndex = { ...death, deathIndex, role: reviewContext.role, locationZone };
+      const fightShape = inferFightShape(deathWithIndex, { ...reviewContext, locationZone });
       const factorOptions = reviewMomentFactorOptions(deathWithIndex, goalKind, {
         ...reviewContext,
+        locationZone,
         repeatedEnemySignatures,
         deathsByRepeatedSignature
       });
@@ -2011,6 +2383,7 @@ export function buildMatchReviewPlan(review) {
         primaryLabel: primaryFactor?.label ?? "No clear pattern yet",
         statusLabel: primaryFactor?.id === "no_clear_deterministic_cause" ? "Needs manual review" : "Pattern detected",
         fightShape,
+        locationZone,
         headline: reviewMomentTitle({ goalKind, death, primarySignal, index: index + 1 }),
         progressLabel: reviewMomentProgressLabel({ goalKind, index: index + 1, total: deaths.length }),
         detectedSignals: reviewMomentSignals(deathWithIndex),
@@ -2061,12 +2434,46 @@ function uiMomentIsComplete(moment, reviewedMoments = []) {
   return Boolean(reviewedMomentForUiMoment(moment, reviewedMoments));
 }
 
+function selectedPatternIdForMoment(moment, reviewedMoment = null) {
+  const selected = reviewedMoment?.selectedPatternId ?? reviewedMoment?.patternId ?? reviewedMoment?.factorId ?? "";
+  if (selected && moment.factorOptions.some((option) => option.id === selected)) {
+    return selected;
+  }
+  if (reviewedMoment?.causeCategory) {
+    const byCategory = moment.factorOptions.find((option) => option.causeCategory === reviewedMoment.causeCategory);
+    if (byCategory) return byCategory.id;
+  }
+  return moment.defaultFactorId;
+}
+
+function reviewStatusUi(reviewedMoment) {
+  if (!reviewedMoment) {
+    return {
+      label: "Unreviewed",
+      badgeClass: "context-badge review-status-badge is-unreviewed",
+      reviewedPressed: "false",
+      needsReviewPressed: "false",
+      reviewedClass: "button secondary",
+      needsReviewClass: "button secondary"
+    };
+  }
+  const needsReview = ["unsure", "dismissed", "skipped", "needs_review"].includes(String(reviewedMoment.status ?? "").toLowerCase());
+  return {
+    label: needsReview ? "Needs manual review" : "Reviewed",
+    badgeClass: `context-badge review-status-badge ${needsReview ? "is-needs-review" : "is-reviewed"}`,
+    reviewedPressed: needsReview ? "false" : "true",
+    needsReviewPressed: needsReview ? "true" : "false",
+    reviewedClass: needsReview ? "button secondary" : "button is-selected",
+    needsReviewClass: needsReview ? "button warning is-selected" : "button secondary"
+  };
+}
+
 function reviewCompletionSummary(plan, reviewedMoments = []) {
   const counts = new Map();
   const momentsByKey = reviewedMomentIndex(reviewedMoments);
   for (const moment of plan.reviewMoments) {
     const reviewedMoment = momentsByKey.get(reviewMomentKey(moment.deathIndex, moment.primarySignal));
-    const factorId = reviewedMoment?.causeCategory ?? moment.primarySignal;
+    const factorId = selectedPatternIdForMoment(moment, reviewedMoment);
     const factor = moment.factorOptions.find((option) => option.id === factorId) ?? moment.factorOptions[0];
     const label = factor?.label ?? "No clear deterministic cause";
     counts.set(label, (counts.get(label) ?? 0) + 1);
@@ -2164,7 +2571,7 @@ function deathContextFacts(moment) {
   const facts = [];
   const allies = (death.nearbyAllyChampionNames ?? []).slice(0, 4).join(", ");
   const enemies = (death.nearbyEnemyChampionNames ?? []).slice(0, 4).join(", ");
-  const location = death.lane ?? death.positionLabel ?? death.location ?? "";
+  const location = moment.locationZone?.userRelativeZoneLabel ?? death.lane ?? death.positionLabel ?? death.location ?? "";
   if (moment.fightShape?.bucket) facts.push(`Fight shape: ${moment.fightShape.bucket}`);
   if (location) facts.push(location);
   if (allies) facts.push(`Nearby allies: ${allies}`);
@@ -2172,8 +2579,9 @@ function deathContextFacts(moment) {
   if (Number(death?.summonerSpellFlashCooldownSeconds ?? death?.flashCooldownSeconds ?? 0) > 0) {
     facts.push("Flash unavailable");
   }
-  if (Number(death?.victimLevel ?? 0) > 0 && Number(death?.killerLevel ?? 0) > 0) {
-    facts.push(`Levels: ${death.victimLevel} vs ${death.killerLevel}`);
+  const levelEvidence = shownLevelEvidence(death);
+  if (levelEvidence) {
+    facts.push(levelEvidence);
   }
   if (death.shutdownGold || death.goldSwing) {
     facts.push(death.shutdownGold ? `Shutdown: ${death.shutdownGold}g` : `Gold swing: ${death.goldSwing}g`);
@@ -2198,22 +2606,25 @@ function renderDeathReviewList(plan, review) {
       <section class="death-review-list">
         ${plan.reviewMoments.map((moment) => {
           const facts = moment.evidenceFacts?.length ? moment.evidenceFacts : ["No clear pattern yet - review this death manually."];
-          const selectedCandidate = moment.factorOptions.find((option) => option.id === moment.defaultFactorId) ?? moment.factorOptions[0];
+          const reviewedMoment = reviewedMomentForUiMoment(moment, reviewedMoments);
+          const statusUi = reviewStatusUi(reviewedMoment);
+          const selectedFactor = selectedPatternIdForMoment(moment, reviewedMoment);
+          const selectedCandidate = moment.factorOptions.find((option) => option.id === selectedFactor) ?? moment.factorOptions[0];
           const reasons = selectedCandidate?.interpretationReasons?.length
             ? selectedCandidate.interpretationReasons
             : [moment.whyReview || "No clear pattern yet - review this death manually."];
           const contextFacts = deathContextFacts(moment);
-          const complete = uiMomentIsComplete(moment, reviewedMoments);
-          const selectedFactor = moment.defaultFactorId;
+          const locationLabel = moment.locationZone?.userRelativeZoneLabel || "";
           return `
-            <article class="death-review-item" data-death-review-item>
+            <article class="death-review-item ${reviewedMoment ? "is-reviewed" : "is-unreviewed"}" data-death-review-item>
               <div class="death-review-head">
                 <div>
                   <p class="eyebrow">Death ${escapeHtml(String(moment.deathIndex))} · ${escapeHtml(moment.time)}</p>
                   <h4>${escapeHtml(moment.primaryLabel === "No clear deterministic cause" ? "No clear pattern yet" : moment.primaryLabel)}</h4>
                 </div>
-                <span class="context-badge">${escapeHtml(complete ? "Reviewed" : moment.statusLabel)}</span>
+                <span class="${escapeHtml(statusUi.badgeClass)}">${escapeHtml(statusUi.label)}</span>
               </div>
+              ${locationLabel ? `<p class="death-location-line">Location: ${escapeHtml(locationLabel)}</p>` : ""}
               ${contextFacts.length > 0 ? `
                 <div class="death-context-row">
                   ${contextFacts.map((fact) => `<span>${escapeHtml(fact)}</span>`).join("")}
@@ -2234,14 +2645,14 @@ function renderDeathReviewList(plan, review) {
               <div class="review-factor-grid">
                 ${moment.factorOptions.map((factor, factorIndex) => `
                   <label class="review-factor-option">
-                    <input type="checkbox" name="review-factor-${escapeHtml(String(moment.deathIndex))}" value="${escapeHtml(factor.id)}" data-cause-category="${escapeHtml(factor.causeCategory ?? "other")}"${factor.id === selectedFactor || factorIndex === 0 ? " checked" : ""} />
+                    <input type="radio" name="review-factor-${escapeHtml(String(moment.deathIndex))}" value="${escapeHtml(factor.id)}" data-cause-category="${escapeHtml(factor.causeCategory ?? "other")}"${factor.id === selectedFactor || !selectedFactor && factorIndex === 0 ? " checked" : ""} />
                     <span>${escapeHtml(factor.label === "No clear deterministic cause" ? "Needs manual review" : factor.label)}</span>
                   </label>
                 `).join("")}
               </div>
               <div class="action-row">
-                <button class="button secondary" type="button" data-review-moment-action="reviewed" data-death-index="${escapeHtml(String(moment.deathIndex))}" data-death-timestamp-seconds="${escapeHtml(String(Number(moment.death?.timestampSeconds ?? 0)))}" data-signal-id="${escapeHtml(moment.primarySignal)}">Mark reviewed</button>
-                <button class="button secondary" type="button" data-review-moment-action="skipped" data-death-index="${escapeHtml(String(moment.deathIndex))}" data-death-timestamp-seconds="${escapeHtml(String(Number(moment.death?.timestampSeconds ?? 0)))}" data-signal-id="${escapeHtml(moment.primarySignal)}">Needs review</button>
+                <button class="${escapeHtml(statusUi.reviewedClass)}" type="button" aria-pressed="${escapeHtml(statusUi.reviewedPressed)}" data-review-moment-action="reviewed" data-death-index="${escapeHtml(String(moment.deathIndex))}" data-death-timestamp-seconds="${escapeHtml(String(Number(moment.death?.timestampSeconds ?? 0)))}" data-signal-id="${escapeHtml(moment.primarySignal)}">Mark reviewed</button>
+                <button class="${escapeHtml(statusUi.needsReviewClass)}" type="button" aria-pressed="${escapeHtml(statusUi.needsReviewPressed)}" data-review-moment-action="skipped" data-death-index="${escapeHtml(String(moment.deathIndex))}" data-death-timestamp-seconds="${escapeHtml(String(Number(moment.death?.timestampSeconds ?? 0)))}" data-signal-id="${escapeHtml(moment.primarySignal)}">Needs review</button>
               </div>
             </article>
           `;
@@ -2392,14 +2803,8 @@ function bindReviewMomentControls(root, review) {
   root.dataset.reviewControlsBound = review.matchId;
 
   root.addEventListener("click", async (event) => {
-    const factorInput = event.target.closest('[data-death-review-item] input[type="checkbox"]');
+    const factorInput = event.target.closest('[data-death-review-item] input[type="radio"]');
     if (factorInput) {
-      const deathItem = factorInput.closest("[data-death-review-item]");
-      if (factorInput.checked) {
-        deathItem.querySelectorAll('input[type="checkbox"]').forEach((input) => {
-          if (input !== factorInput) input.checked = false;
-        });
-      }
       return;
     }
 
@@ -2417,7 +2822,7 @@ function bindReviewMomentControls(root, review) {
     const momentActionButton = event.target.closest("[data-review-moment-action]");
     if (momentActionButton) {
       const deathItem = momentActionButton.closest("[data-death-review-item]");
-      const selectedInputs = [...(deathItem ?? root).querySelectorAll('input[type="checkbox"]:checked')];
+      const selectedInputs = [...(deathItem ?? root).querySelectorAll('input[type="radio"]:checked')];
       const selectedInput = selectedInputs[0] ?? null;
       const selectedFactor = selectedInput?.value || momentActionButton.dataset.signalId;
       const selectedCauseCategory = selectedInput?.dataset?.causeCategory || null;
@@ -2426,6 +2831,7 @@ function bindReviewMomentControls(root, review) {
         deathIndex: Number(momentActionButton.dataset.deathIndex),
         deathTimestampSeconds: momentActionButton.dataset.deathTimestampSeconds ? Number(momentActionButton.dataset.deathTimestampSeconds) : null,
         signalId: momentActionButton.dataset.signalId,
+        selectedPatternId: selectedFactor,
         status: momentActionButton.dataset.reviewMomentAction === "skipped" || selectedOtherPattern ? "unsure" : "confirmed",
         causeCategory: selectedCauseCategory || "other"
       };
@@ -2441,7 +2847,7 @@ function bindReviewMomentControls(root, review) {
           ...(review.reviewedMoments ?? []).filter((moment) =>
             !(Number(moment.deathIndex) === body.deathIndex && moment.signalId === body.signalId)
           ),
-          result.reviewedMoment ?? body
+          { ...body, ...(result.reviewedMoment ?? {}) }
         ];
         const nextPlan = buildMatchReviewPlan(review);
         const current = currentReviewMomentIndex(nextPlan, review.reviewedMoments, review.matchId);

@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { buildMatchReviewPlan, renderApp } from "../../public/app/app.js";
+import { buildMatchReviewPlan, mapDeathPositionToZone, renderApp } from "../../public/app/app.js";
 
 function mockJsonResponse(body) {
   return {
@@ -981,7 +981,7 @@ describe("public app routes", () => {
     expect(document.querySelectorAll("[data-death-review-item]")).toHaveLength(2);
     expect(document.querySelectorAll("[data-death-review-item] .review-factor-option").length).toBeGreaterThan(0);
     expect(document.querySelector(".review-factor-grid")).toBeTruthy();
-    expect(document.querySelector(".review-factor-option input")?.type).toBe("checkbox");
+    expect(document.querySelector(".review-factor-option input")?.type).toBe("radio");
     expect(document.querySelector(".technical-evidence")?.hasAttribute("open")).toBe(false);
     expect(document.body.textContent).not.toContain("Detected Signals");
     expect(document.body.textContent).not.toContain("Observed pattern");
@@ -1079,7 +1079,7 @@ describe("public app routes", () => {
     expect(document.querySelectorAll("[data-main-review]")).toHaveLength(1);
     expect(document.querySelectorAll("[data-death-review-item]")).toHaveLength(4);
     expect(document.body.textContent).toContain("Death 4 · 20:00");
-    expect(document.body.textContent).toContain("Needs manual review");
+    expect(document.body.textContent).toContain("Unreviewed");
     expect(document.body.textContent).not.toContain("Multiple enemies");
     expect(document.querySelectorAll("[data-observed-pattern-item]").length).toBeGreaterThanOrEqual(2);
     document.querySelectorAll("[data-observed-pattern-item]").forEach((item) => {
@@ -1109,7 +1109,9 @@ describe("public app routes", () => {
           deathIndex: 1,
           timestampSeconds: 100,
           tags: ["objective_setup_death_candidate", "multi_enemy_collapse_candidate"],
-          nearbyEnemyCount: 3
+          nearbyEnemyCount: 3,
+          objectiveName: "dragon",
+          objectiveSpawnSecondsAfterDeath: 42
         },
         {
           deathIndex: 2,
@@ -1133,7 +1135,7 @@ describe("public app routes", () => {
     expect(byDeath.get(2).detectedSignals.map((signal) => signal.id)).toEqual(["solo_death_candidate"]);
     expect(byDeath.get(3).detectedSignals.map((signal) => signal.label)).toEqual(["Enemy ultimate timing"]);
     expect(byDeath.get(1).progressLabel).toBe("Death 1 of 3");
-    expect(byDeath.get(1).reviewQuestion).toBe("Were you early, grouped, or late to the objective setup?");
+    expect(byDeath.get(1).reviewQuestion).toBe("Were you early, grouped, or late to dragon setup?");
     expect(byDeath.get(2).reviewQuestion).toBe("Who was close enough to cover you when you walked forward?");
     expect(byDeath.get(3).reviewQuestion).toBe("Did the enemy hit the level breakpoint before you committed?");
   });
@@ -1228,6 +1230,96 @@ describe("public app routes", () => {
     expect(repeated.patterns.map((pattern) => pattern.label)).toContain("Repeatedly killed by Annie + Brand");
   });
 
+  it("keeps equal fights neutral and only marks true count disadvantages as outnumbered", () => {
+    const equal = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1 },
+      deathEvents: [{
+        deathIndex: 1,
+        timestampSeconds: 100,
+        nearbyEnemyCount: 3,
+        nearbyEnemyChampionNames: ["A", "B", "C"],
+        nearbyAllyChampionNames: ["D", "E"]
+      }]
+    });
+    const advantaged = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1, solo_death_candidate: 1 },
+      deathEvents: [{
+        deathIndex: 1,
+        timestampSeconds: 100,
+        tags: ["solo_death_candidate"],
+        nearbyEnemyCount: 1,
+        nearbyAllyChampionNames: ["D", "E"]
+      }]
+    });
+    const collapsed = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1 },
+      deathEvents: [{
+        deathIndex: 1,
+        timestampSeconds: 100,
+        nearbyEnemyCount: 3
+      }]
+    });
+
+    expect(equal.reviewMoments[0].fightShape.label).toBe("3v3 skirmish");
+    expect(equal.reviewMoments[0].fightShape.label).not.toContain("Outnumbered");
+    expect(advantaged.reviewMoments[0].evidenceFacts.join(" ")).not.toContain("allied cover was not close enough");
+    expect(collapsed.reviewMoments[0].fightShape.label).toContain("Collapsed");
+  });
+
+  it("maps death coordinates into reusable absolute and relative zones", () => {
+    expect(mapDeathPositionToZone({ x: 9600, y: 2600, playerSide: "blue" }).userRelativeZoneLabel).toContain("allied bot outer area");
+    expect(mapDeathPositionToZone({ x: 12100, y: 5000, playerSide: "blue" }).userRelativeZoneLabel).toContain("enemy bot outer area");
+    expect(mapDeathPositionToZone({ x: 10400, y: 3000, playerSide: "blue" }).laneRegion).toBe("bot outer area");
+    expect(mapDeathPositionToZone({ x: 11200, y: 5000, playerSide: "blue" }).laneRegion).toBe("bot lane center");
+    expect(mapDeathPositionToZone({ x: 4200, y: 5200 }).jungleQuadrant).toContain("blue-side blue quadrant");
+    expect(mapDeathPositionToZone({ x: 6000, y: 4300 }).jungleQuadrant).toContain("blue-side red quadrant");
+    expect(mapDeathPositionToZone({ x: 11500, y: 7600 }).jungleQuadrant).toContain("red-side blue quadrant");
+    expect(mapDeathPositionToZone({ x: 8200, y: 10500 }).jungleQuadrant).toContain("red-side red quadrant");
+    expect(mapDeathPositionToZone({ x: 9866, y: 4414 }).broadRegion).toBe("objective");
+    expect(mapDeathPositionToZone({ x: 9866, y: 4414 }).absoluteZoneLabel).toBe("dragon pit");
+  });
+
+  it("uses location and matchup context in review candidates", () => {
+    const river = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      matchSummary: { role: "ADC", teamSide: "blue" },
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1 },
+      deathEvents: [{
+        deathIndex: 1,
+        timestampSeconds: 700,
+        x: 9300,
+        y: 5200,
+        enemyRolesInvolved: ["jungle", "support"],
+        killerChampionName: "Lee Sin"
+      }]
+    });
+    const lane = buildMatchReviewPlan({
+      activeGoalName: "Trading",
+      matchSummary: { role: "ADC", teamSide: "blue" },
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1 },
+      deathEvents: [{
+        deathIndex: 1,
+        timestampSeconds: 300,
+        x: 11200,
+        y: 5000,
+        enemyRolesInvolved: ["bot"],
+        killerChampionName: "Jinx"
+      }]
+    });
+
+    expect(river.reviewMoments[0].locationZone.userRelativeZoneLabel).toContain("bot river");
+    expect(river.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("River skirmish with jungle involved");
+    expect(lane.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Lane fight against matchup opponent");
+  });
+
   it("does not promote weak 2v2, post-6 level timing, or post-death facts as primary causes", () => {
     const plan = buildMatchReviewPlan({
       activeGoalName: "Die Less",
@@ -1296,8 +1388,78 @@ describe("public app routes", () => {
     });
 
     expect(unsupported.reviewMoments[0].factorOptions.map((option) => option.label)).not.toContain("Died before objective setup completed");
-    expect(supported.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Died before objective setup completed");
+    expect(supported.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Died before dragon setup completed");
     expect(supported.reviewMoments[0].evidenceFacts.join(" ")).toContain("dragon spawned 35s after the death");
+    expect(supported.reviewMoments[0].reviewQuestion).toBe("Were you early, grouped, or late to dragon setup?");
+    expect(supported.reviewMoments[0].whyReview).toContain("dragon");
+    expect(unsupported.reviewMoments[0].factorOptions.map((option) => option.label).join(" ")).not.toContain("objective setup/window");
+  });
+
+  it("shows level evidence only when it changes interpretation", () => {
+    const plan = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      evaluationSummary: { deathCount: 3 },
+      deterministicTagCounts: { death_count: 3, level_up_all_in_candidate: 2 },
+      deathEvents: [
+        { deathIndex: 1, timestampSeconds: 100, killerLevel: 11, victimLevel: 10 },
+        { deathIndex: 2, timestampSeconds: 200, killerLevel: 3, victimLevel: 2, tags: ["level_up_all_in_candidate"], enemyLevelUpsBeforeDeath: [{ level: 3 }] },
+        { deathIndex: 3, timestampSeconds: 300, killerLevel: 12, victimLevel: 10 }
+      ]
+    });
+
+    const byDeath = new Map(plan.reviewMoments.map((moment) => [moment.deathIndex, moment]));
+    expect(byDeath.get(1).evidenceFacts.join(" ")).not.toContain("Enemy level lead");
+    expect(byDeath.get(2).evidenceFacts.join(" ")).toContain("Enemy level 3 timing");
+    expect(byDeath.get(3).evidenceFacts.join(" ")).toContain("Enemy level lead: 10 vs 12");
+  });
+
+  it("uses participant-specific wording instead of lane-pair overreach", () => {
+    const supportJungle = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      matchSummary: { role: "ADC" },
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1 },
+      deathEvents: [{
+        deathIndex: 1,
+        timestampSeconds: 300,
+        nearbyEnemyCount: 2,
+        enemyRolesInvolved: ["support", "jungle"],
+        killerChampionName: "Nautilus"
+      }]
+    });
+    const botPair = buildMatchReviewPlan({
+      activeGoalName: "Trading",
+      matchSummary: { role: "ADC" },
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1 },
+      deathEvents: [{
+        deathIndex: 1,
+        timestampSeconds: 300,
+        nearbyEnemyCount: 2,
+        nearbyAllyChampionNames: ["Lulu"],
+        enemyRolesInvolved: ["bot", "support"],
+        killerChampionName: "Jinx"
+      }]
+    });
+    const topGank = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      matchSummary: { role: "TOP" },
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1 },
+      deathEvents: [{
+        deathIndex: 1,
+        timestampSeconds: 300,
+        nearbyEnemyCount: 2,
+        enemyRolesInvolved: ["top", "jungle"],
+        killerChampionName: "Renekton"
+      }]
+    });
+
+    expect(supportJungle.reviewMoments[0].factorOptions.map((option) => option.label)).not.toContain("2v1 lane death");
+    expect(supportJungle.reviewMoments[0].evidenceFacts.join(" ")).toContain("Enemy support + jungle were involved");
+    expect(botPair.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("2v2 lane death");
+    expect(botPair.reviewMoments[0].factorOptions[0].interpretationReasons.join(" ")).toContain("bot carry + support");
+    expect(topGank.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Lane gank/collapse");
   });
 
   it("uses neutral review moment language for unknown or non-death goal types", () => {
@@ -1385,6 +1547,7 @@ describe("public app routes", () => {
           deathIndex: 1,
           deathTimestampSeconds: 494,
           signalId: "solo_death_candidate",
+          selectedPatternId: "solo_death_candidate",
           status: "confirmed",
           causeCategory: "walked_without_cover"
         });
@@ -1392,6 +1555,7 @@ describe("public app routes", () => {
           reviewedMoment: {
             deathIndex: 1,
             signalId: "solo_death_candidate",
+            selectedPatternId: "solo_death_candidate",
             status: "confirmed",
             causeCategory: "walked_without_cover"
           }
@@ -1456,6 +1620,7 @@ describe("public app routes", () => {
         expect(JSON.parse(options.body)).toMatchObject({
           deathIndex: 1,
           signalId: "solo_death_candidate",
+          selectedPatternId: "manual_other_pattern",
           status: "unsure",
           causeCategory: "other"
         });
@@ -1463,6 +1628,7 @@ describe("public app routes", () => {
           reviewedMoment: {
             deathIndex: 1,
             signalId: "solo_death_candidate",
+            selectedPatternId: "manual_other_pattern",
             status: "unsure",
             causeCategory: "other"
           }
@@ -1483,6 +1649,79 @@ describe("public app routes", () => {
       "/api/matches/NA1_other/reviewed-moments",
       expect.objectContaining({ method: "PUT" })
     );
+    expect(document.querySelector('input[value="manual_other_pattern"]')?.checked).toBe(true);
+  });
+
+  it("preserves a non-default selected pattern when marking reviewed or needs review", async () => {
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/matches/NA1_select/evaluation") {
+        return mockJsonResponse({
+          matchId: "NA1_select",
+          activeGoalName: "Die Less",
+          evaluationStatus: "current",
+          matchSummary: { championName: "Jhin", queueLabel: "Ranked Solo/Duo", result: "Loss", role: "ADC" },
+          evaluationSummary: { deathCount: 2 },
+          deathEvents: [
+            {
+              deathIndex: 1,
+              timestampSeconds: 494,
+              nearbyEnemyCount: 2,
+              killerChampionName: "LeBlanc",
+              assistingChampionNames: ["Briar"],
+              tags: ["solo_death_candidate"]
+            },
+            {
+              deathIndex: 2,
+              timestampSeconds: 600,
+              nearbyEnemyCount: 2,
+              killerChampionName: "LeBlanc",
+              assistingChampionNames: ["Briar"],
+              tags: ["solo_death_candidate"]
+            }
+          ],
+          deterministicTagCounts: { death_count: 2, solo_death_candidate: 2 },
+          reviewedMoments: []
+        });
+      }
+
+      if (url === "/api/matches/NA1_select/reviewed-moments" && options.method === "PUT") {
+        const body = JSON.parse(options.body);
+        expect(body.selectedPatternId).toBe("solo_death_candidate");
+        return mockJsonResponse({ reviewedMoment: body });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/review?matchId=NA1_select");
+
+    await renderApp(document.querySelector("#app"));
+    const firstCard = document.querySelectorAll("[data-death-review-item]")[0];
+    firstCard.querySelector('input[value="solo_death_candidate"]').click();
+    firstCard.querySelector('[data-review-moment-action="reviewed"]').click();
+    await flushAsyncWork();
+
+    expect(document.querySelector('input[name="review-factor-1"][value="solo_death_candidate"]')?.checked).toBe(true);
+    expect(document.body.textContent).toContain("Reviewed");
+
+    const secondCard = document.querySelectorAll("[data-death-review-item]")[1];
+    secondCard.querySelector('input[value="solo_death_candidate"]').click();
+    secondCard.querySelector('[data-review-moment-action="skipped"]').click();
+    await flushAsyncWork();
+
+    expect(document.querySelector('input[name="review-factor-2"][value="solo_death_candidate"]')?.checked).toBe(true);
+    expect(document.body.textContent).toContain("Needs manual review");
   });
 
   it("reload preserves reviewed moment state on the review page", async () => {
@@ -1532,6 +1771,7 @@ describe("public app routes", () => {
             {
               deathIndex: 1,
               signalId: "solo_death_candidate",
+              selectedPatternId: "manual_other_pattern",
               status: "dismissed"
             }
           ]
@@ -1546,6 +1786,10 @@ describe("public app routes", () => {
     await renderApp(document.querySelector("#app"));
 
     expect(document.body.textContent).toContain("Review complete");
+    expect(document.body.textContent).toContain("Needs manual review");
+    expect(document.querySelector('input[value="manual_other_pattern"]')?.checked).toBe(true);
+    expect(document.querySelector('[data-review-moment-action="skipped"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelector('[data-review-moment-action="reviewed"]')?.getAttribute("aria-pressed")).toBe("false");
     expect(document.body.textContent).toContain("Detected signals: Walked forward without reliable cover");
     expect(document.body.textContent).not.toContain("Review status:");
   });

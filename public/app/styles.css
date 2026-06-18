@@ -350,6 +350,16 @@ p {
   border-color: var(--border);
 }
 
+.button.warning {
+  background: rgba(255, 143, 143, 0.12);
+  border-color: rgba(255, 143, 143, 0.38);
+}
+
+.button.is-selected {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 1px rgba(255, 209, 102, 0.22) inset;
+}
+
 .button.danger {
   border-color: rgba(255, 143, 143, 0.4);
   color: #fff1f1;
@@ -634,6 +644,18 @@ p {
   background: rgba(255, 255, 255, 0.05);
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+.review-status-badge.is-reviewed {
+  border-color: rgba(125, 214, 149, 0.45);
+  background: rgba(125, 214, 149, 0.12);
+  color: #d8ffe0;
+}
+
+.review-status-badge.is-needs-review {
+  border-color: rgba(255, 143, 143, 0.45);
+  background: rgba(255, 143, 143, 0.12);
+  color: #ffe1e1;
 }
 
 .goal-dashboard-stack,
@@ -1037,6 +1059,12 @@ p {
   gap: 8px;
 }
 
+.death-location-line {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .death-context-row span {
   padding: 4px 8px;
   border: 1px solid var(--border);
@@ -1104,6 +1132,7 @@ p {
   width: 16px;
   height: 16px;
   accent-color: var(--accent);
+  transform: none;
 }
 
 .review-factor-option:has(input:checked) {
