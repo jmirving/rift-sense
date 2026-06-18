@@ -871,7 +871,7 @@ function tagLabel(value) {
     enemy_level_up_recently_candidate: "Enemy level-up timing",
     level_up_all_in_candidate: "Enemy level-up timing",
     multi_enemy_collapse_candidate: "Walked forward with missing enemies",
-    objective_window_candidate: "Stayed during objective setup",
+    objective_window_candidate: "Objective timing signal",
     objective_setup_death_candidate: "Collapsed on before objective",
     objective_exit_death_candidate: "Stayed after objective window ended",
     isolated_forward_death_candidate: "Walked forward without reliable cover",
@@ -1196,6 +1196,15 @@ function reviewCandidateCard(riotEvidence, goal, context = {}) {
   `;
 }
 
+function nextReviewableGame(riotEvidence) {
+  if (riotEvidence?.reviewCandidate?.matchId) {
+    return riotEvidence.reviewCandidate;
+  }
+  return (riotEvidence?.recentGames ?? riotEvidence?.candidateGames ?? []).find((game) =>
+    game?.matchId && recentGameState(game).canReview
+  ) ?? null;
+}
+
 function shouldPrepareRecentEvaluations(riotEvidence, context = getRouteContext()) {
   if (context.demoMode || !getSessionState().authenticated) {
     return false;
@@ -1376,7 +1385,141 @@ function reviewMomentProgressLabel({ goalKind, index, total }) {
   return `Moment ${index} of ${total}`;
 }
 
-function reviewMomentFactorOptions(death, goalKind) {
+function compactChampionList(names) {
+  return [...new Set((names ?? []).map((name) => String(name ?? "").trim()).filter(Boolean))];
+}
+
+function deathEnemyParticipants(death) {
+  return compactChampionList([
+    death?.killerChampionName,
+    ...(death?.assistingChampionNames ?? []),
+    ...(death?.nearbyEnemyChampionNames ?? [])
+  ]);
+}
+
+function deathKillParticipants(death) {
+  return compactChampionList([
+    death?.killerChampionName,
+    ...(death?.assistingChampionNames ?? [])
+  ]);
+}
+
+function deathAllyParticipants(death) {
+  return compactChampionList([
+    ...(death?.nearbyAllyChampionNames ?? []),
+    ...(death?.alliedChampionNames ?? [])
+  ]);
+}
+
+function roleIsBotLane(role) {
+  const normalized = String(role ?? "").toLowerCase();
+  return ["adc", "bottom", "bot", "support", "utility"].some((value) => normalized.includes(value));
+}
+
+function enemyParticipantCount(death) {
+  return Math.max(
+    Number(death?.nearbyEnemyCount ?? 0),
+    deathEnemyParticipants(death).length,
+    deathKillParticipants(death).length
+  );
+}
+
+function alliedParticipantCount(death) {
+  return 1 + Math.max(Number(death?.nearbyAllyCount ?? 0), deathAllyParticipants(death).length);
+}
+
+function inferFightShape(death, context = {}) {
+  const enemyCount = enemyParticipantCount(death);
+  const allyCount = alliedParticipantCount(death);
+  const allyNames = deathAllyParticipants(death);
+  const botLane = roleIsBotLane(context.role ?? death?.role ?? death?.participantRole);
+  const lanePartnerPresent = Boolean(death?.alliedLanePartnerPresent) || allyNames.length > 0;
+  const lanePairFight = botLane && enemyCount === 2;
+
+  if (enemyCount >= 3) {
+    return {
+      id: "outnumbered_fight",
+      label: enemyCount >= allyCount + 2 ? "Collapsed on by multiple enemies" : "Outnumbered fight",
+      bucket: `${enemyCount}v${allyCount}`,
+      enemyCount,
+      allyCount,
+      category: "fight_shape"
+    };
+  }
+  if (lanePairFight && lanePartnerPresent) {
+    return {
+      id: "lane_2v2_death",
+      label: "2v2 lane death",
+      bucket: "2v2",
+      enemyCount,
+      allyCount,
+      category: "fight_shape"
+    };
+  }
+  if (lanePairFight && !lanePartnerPresent) {
+    return {
+      id: "lane_2v1_death",
+      label: "2v1 lane death",
+      bucket: "2v1",
+      enemyCount,
+      allyCount,
+      category: "fight_shape"
+    };
+  }
+  if (enemyCount === 1 && allyCount === 1) {
+    return { id: "isolated_duel", label: "1v1 death", bucket: "1v1", enemyCount, allyCount, category: "fight_shape" };
+  }
+  return { id: "fight_context", label: `${enemyCount || "?"}v${allyCount || "?"} fight`, bucket: `${enemyCount || "?"}v${allyCount || "?"}`, enemyCount, allyCount, category: "fight_shape" };
+}
+
+function objectiveEvidence(death) {
+  const objectiveName = death?.objectiveName ?? death?.objective?.name ?? "objective";
+  const beforeSpawn = Number(death?.objectiveSpawnSecondsAfterDeath ?? death?.objectiveSecondsUntilSpawn ?? NaN);
+  const takenAfter = Number(death?.objectiveTakenSecondsAfterDeath ?? death?.objective?.takenSecondsAfterDeath ?? NaN);
+  const facts = [];
+  const reasons = [];
+  if (Number.isFinite(beforeSpawn) && beforeSpawn >= 0) {
+    facts.push(`${objectiveName} spawned ${Math.round(beforeSpawn)}s after the death`);
+    reasons.push("the death happened before vision or position could be finished");
+  }
+  if (Number.isFinite(takenAfter) && takenAfter >= 0) {
+    facts.push(`Enemy took ${objectiveName} ${Math.round(takenAfter)}s after the death`);
+    reasons.push("the death likely changed the objective fight or trade");
+  }
+  return { facts, reasons };
+}
+
+function repeatedEnemySignature(death) {
+  const participants = deathKillParticipants(death).sort((left, right) => left.localeCompare(right));
+  return participants.length > 0 ? participants.join(" + ") : "";
+}
+
+function candidateCauseCategory(id) {
+  if (id === "solo_death_candidate" || id === "isolated_forward_death_candidate") return "walked_without_cover";
+  if (id.includes("cover") || id === "lane_2v1_death") return "walked_without_cover";
+  if (id.includes("outnumbered") || id.includes("collapse")) return "outnumbered_fight";
+  if (id.includes("objective")) return "objective_setup_mistake";
+  if (id.includes("stayed")) return "stayed_too_long";
+  if (id === "no_flash_punish") return "not_preventable";
+  return "other";
+}
+
+function candidateFrom({ id, label, category, confidence = "Low", facts = [], reasons = [], affectedDeathIds = [], sourceSignals = [], causeCategory }) {
+  return {
+    id,
+    label,
+    category,
+    confidence,
+    supportingFacts: [...new Set(facts)].filter(Boolean),
+    interpretationReasons: [...new Set(reasons)].filter(Boolean),
+    affectedDeathIds,
+    sourceSignals,
+    causeCategory: causeCategory ?? candidateCauseCategory(id),
+    nextGameRule: nextGameRuleForLabel(label)
+  };
+}
+
+function reviewMomentFactorOptions(death, goalKind, context = {}) {
   const invalidLabels = new Set([
     "death_count",
     "observed_pattern",
@@ -1386,7 +1529,9 @@ function reviewMomentFactorOptions(death, goalKind) {
   ]);
   const factors = [];
   const seenLabels = new Set();
-  const addFactor = (id, label) => {
+  const addFactor = (candidate) => {
+    const id = candidate?.id;
+    const label = candidate?.label;
     const normalizedId = String(id ?? "").toLowerCase();
     const normalizedLabel = String(label ?? "").trim();
     if (!normalizedLabel || invalidLabels.has(normalizedId) || normalizedId.includes("candidate") && !tagLabelForDeath(id, death)) {
@@ -1403,30 +1548,129 @@ function reviewMomentFactorOptions(death, goalKind) {
       return;
     }
     seenLabels.add(normalizedLabel.toLowerCase());
-    factors.push({ id, label: normalizedLabel });
+    factors.push({ ...candidate, label: normalizedLabel });
   };
+
+  const deathIndex = Number(death?.deathIndex ?? 0);
+  const fightShape = inferFightShape(death, context);
+  if (fightShape.id === "lane_2v2_death" || fightShape.id === "lane_2v1_death" || fightShape.id === "outnumbered_fight") {
+    addFactor(candidateFrom({
+      id: fightShape.id,
+      label: fightShape.label,
+      category: "fight_shape",
+      confidence: fightShape.id === "outnumbered_fight" ? "High" : "Medium",
+      facts: [
+        `Fight shape: ${fightShape.bucket}`,
+        `Enemy participants: ${deathEnemyParticipants(death).join(", ") || fightShape.enemyCount}`,
+        `Allied support nearby: ${deathAllyParticipants(death).join(", ") || (fightShape.allyCount > 1 ? "yes" : "not detected")}`
+      ],
+      reasons: fightShape.id === "lane_2v2_death"
+        ? ["this looks like a lane-pair fight, not a generic multi-enemy collapse"]
+        : fightShape.id === "lane_2v1_death"
+          ? ["enemy lane pair was involved while allied lane cover was not detected"]
+          : ["three or more enemy participants were close enough to influence the death"],
+      affectedDeathIds: deathIndex ? [deathIndex] : [],
+      sourceSignals: death?.tags ?? []
+    }));
+  }
 
   for (const tag of death?.tags ?? []) {
     if (tag === "multi_enemy_collapse_candidate" && Number(death?.nearbyEnemyCount ?? 3) < 3) {
       continue;
     }
     if ((tag === "enemy_level_up_recently_candidate" || tag === "level_up_all_in_candidate") &&
-      !(death?.enemyLevelUpsBeforeDeath ?? []).some((event) => [2, 3, 6].includes(Number(event?.level)))) {
+      !(death?.enemyLevelUpsBeforeDeath ?? []).some((event) => [2, 3].includes(Number(event?.level)))) {
       continue;
     }
-    addFactor(tag, tagLabelForDeath(tag, death));
+    if (tag === "objective_setup_death_candidate" || tag === "objective_window_candidate" || tag === "objective_exit_death_candidate") {
+      const objective = objectiveEvidence(death);
+      if (objective.facts.length === 0) {
+        continue;
+      }
+      addFactor(candidateFrom({
+        id: tag,
+        label: tag === "objective_exit_death_candidate" ? "Died after objective window ended" : "Died before objective setup completed",
+        category: "objective_timing",
+        confidence: "Medium",
+        facts: objective.facts,
+        reasons: objective.reasons,
+        affectedDeathIds: deathIndex ? [deathIndex] : [],
+        sourceSignals: [tag]
+      }));
+      continue;
+    }
+    addFactor(candidateFrom({
+      id: tag,
+      label: tagLabelForDeath(tag, death),
+      category: "signal",
+      confidence: "Low",
+      facts: reviewMomentEvidenceFacts(death, goalKind).slice(0, 3),
+      reasons: reviewMomentReasons(death, context.tagCounts ?? {}) ? [reviewMomentReasons(death, context.tagCounts ?? {})] : [],
+      affectedDeathIds: deathIndex ? [deathIndex] : [],
+      sourceSignals: [tag]
+    }));
+  }
+
+  const repeatedSignature = repeatedEnemySignature(death);
+  const repeatedCount = Number(context.repeatedEnemySignatures?.get(repeatedSignature) ?? 0);
+  if (repeatedSignature && repeatedCount > 1) {
+    addFactor(candidateFrom({
+      id: `repeated_enemy_${repeatedSignature.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`,
+      label: `Repeatedly killed by ${repeatedSignature}`,
+      category: "repeated_enemy",
+      confidence: repeatedCount >= 3 ? "High" : "Medium",
+      facts: [`${repeatedCount} deaths involved ${repeatedSignature}`],
+      reasons: ["the same enemy involvement repeated across multiple deaths"],
+      affectedDeathIds: context.deathsByRepeatedSignature?.get(repeatedSignature) ?? [],
+      causeCategory: "other",
+      sourceSignals: ["killer_assist_signature"]
+    }));
   }
 
   if (Number(death?.summonerSpellFlashCooldownSeconds ?? death?.flashCooldownSeconds ?? 0) > 0) {
-    addFactor("died_with_no_flash", "Died with no flash");
+    addFactor(candidateFrom({
+      id: "no_flash_punish",
+      label: "Died while flash was unavailable",
+      category: "summoner_spell",
+      confidence: "Medium",
+      facts: ["Flash was unavailable during the death window"],
+      reasons: ["escape options were reduced before the fight started"],
+      affectedDeathIds: deathIndex ? [deathIndex] : []
+    }));
   }
 
-  return factors.length > 0 ? factors : [{ id: "no_clear_deterministic_cause", label: "No clear deterministic cause" }];
+  factors.push(candidateFrom({
+    id: "manual_other_pattern",
+    label: "Other pattern not listed",
+    category: "manual_override",
+    confidence: "Manual",
+    facts: ["Generated candidates did not explain this death"],
+    reasons: ["use this when the replay shows a different cause"],
+    affectedDeathIds: deathIndex ? [deathIndex] : [],
+    causeCategory: "other"
+  }));
+
+  return factors.length > 1
+    ? factors
+    : [
+        candidateFrom({
+          id: "no_clear_deterministic_cause",
+          label: "No clear pattern yet",
+          category: "uncertain",
+          confidence: "Low",
+          facts: reviewMomentEvidenceFacts(death, goalKind),
+          reasons: ["review this death manually before confirming a pattern"],
+          affectedDeathIds: deathIndex ? [deathIndex] : [],
+          causeCategory: "other"
+        }),
+        factors[0]
+      ];
 }
 
 function reviewMomentEvidenceFacts(death, goalKind) {
   const facts = [];
   const tags = new Set(death?.tags ?? []);
+  const fightShape = inferFightShape(death, { role: death?.role ?? death?.participantRole });
   const killer = death?.killerChampionName ? `Killed by ${death.killerChampionName}` : "";
   const assists = (death?.assistingChampionNames ?? []).length
     ? `Assisted by ${(death.assistingChampionNames ?? []).join(", ")}`
@@ -1437,11 +1681,21 @@ function reviewMomentEvidenceFacts(death, goalKind) {
 
   if (killer) facts.push(killer);
   if (assists) facts.push(assists);
+  facts.push(`Fight shape: ${fightShape.bucket}`);
+  facts.push(`Enemy participants: ${deathEnemyParticipants(death).join(", ") || fightShape.enemyCount}`);
+  const allies = deathAllyParticipants(death).join(", ");
+  facts.push(`Allied participants nearby: ${allies || "not detected"}`);
   if (tags.has("objective_setup_death_candidate") || tags.has("objective_window_candidate")) {
-    facts.push("Near objective setup window");
+    const objective = objectiveEvidence(death);
+    if (objective.facts.length > 0) {
+      facts.push(...objective.facts);
+    }
   }
   if (tags.has("objective_exit_death_candidate")) {
-    facts.push("After objective window ended");
+    const objective = objectiveEvidence(death);
+    if (objective.facts.length > 0) {
+      facts.push(...objective.facts);
+    }
   }
   if (tags.has("solo_death_candidate") || tags.has("isolated_forward_death_candidate")) {
     facts.push("Away from reliable allied cover");
@@ -1453,9 +1707,9 @@ function reviewMomentEvidenceFacts(death, goalKind) {
   if (tags.has("enemy_level_up_recently_candidate") || tags.has("level_up_all_in_candidate")) {
     const levelsHit = (death?.enemyLevelUpsBeforeDeath ?? [])
       .map((event) => Number(event?.level))
-      .filter((level) => [2, 3, 6].includes(level));
+      .filter((level) => [2, 3].includes(level));
     if (levelsHit.length > 0) {
-      facts.push(levelsHit.includes(6) ? "Enemy ultimate timing" : `Enemy level ${levelsHit[0]} timing`);
+      facts.push(`Enemy level ${levelsHit[0]} timing`);
     }
   }
   if (levels) {
@@ -1609,6 +1863,15 @@ function confidenceLabel(count, total) {
 
 function nextGameRuleForLabel(label) {
   const normalized = String(label ?? "").toLowerCase();
+  if (normalized.includes("2v2 lane")) {
+    return "Next game: review whether you and lane partner committed to the same trade.";
+  }
+  if (normalized.includes("2v1 lane")) {
+    return "Next game: do not contest the lane pair until your partner can cover the wave.";
+  }
+  if (normalized.includes("repeatedly killed")) {
+    return "Next game: mark the repeated enemy threat before walking into their range.";
+  }
   if (normalized.includes("cover")) {
     return "Next game: stop at the wave line when nearby allies cannot cover you.";
   }
@@ -1630,17 +1893,19 @@ function nextGameRuleForLabel(label) {
 function buildPatternSummaries(moments) {
   const byLabel = new Map();
   for (const moment of moments) {
-    const factor = moment.factorOptions.find((option) => option.id !== "no_clear_deterministic_cause");
-    if (!factor) continue;
-    const entry = byLabel.get(factor.label) ?? {
-      id: factor.id,
-      label: factor.label,
-      count: 0,
-      times: []
-    };
-    entry.count += 1;
-    entry.times.push(moment.time);
-    byLabel.set(factor.label, entry);
+    for (const factor of moment.factorOptions.filter((option) =>
+      !["no_clear_deterministic_cause", "manual_other_pattern"].includes(option.id)
+    )) {
+      const entry = byLabel.get(factor.label) ?? {
+        id: factor.id,
+        label: factor.label,
+        count: 0,
+        times: []
+      };
+      entry.count += 1;
+      entry.times.push(moment.time);
+      byLabel.set(factor.label, entry);
+    }
   }
   return [...byLabel.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
 }
@@ -1683,6 +1948,10 @@ export function buildMatchReviewPlan(review) {
   const tagCounts = review?.deterministicTagCounts ?? {};
   const goalName = activeGoalName(review);
   const goalKind = activeGoalKind(goalName);
+  const reviewContext = {
+    role: review?.matchSummary?.role ?? review?.matchSummary?.lane ?? review?.role,
+    tagCounts
+  };
   if (!review?.evaluationSummary || deaths.length === 0) {
     return {
       activeGoalName: goalName,
@@ -1704,17 +1973,36 @@ export function buildMatchReviewPlan(review) {
     .filter(([tag, count]) => tag !== "death_count" && Number(count) > 1)
     .sort((left, right) => Number(right[1]) - Number(left[1]) || left[0].localeCompare(right[0]))[0] ?? null;
   const primaryDeaths = primaryTag ? deaths.filter((death) => (death.tags ?? []).includes(primaryTag[0])) : rankedDeaths.map((entry) => entry.death);
+  const repeatedEnemySignatures = new Map();
+  const deathsByRepeatedSignature = new Map();
+  deaths.forEach((death, index) => {
+    const signature = repeatedEnemySignature(death);
+    if (!signature) return;
+    repeatedEnemySignatures.set(signature, (repeatedEnemySignatures.get(signature) ?? 0) + 1);
+    deathsByRepeatedSignature.set(signature, [
+      ...(deathsByRepeatedSignature.get(signature) ?? []),
+      Number(death.deathIndex ?? index + 1)
+    ]);
+  });
 
   const reviewMoments = rankedDeaths
     .sort((left, right) => Number(left.death.timestampSeconds ?? 0) - Number(right.death.timestampSeconds ?? 0))
     .map(({ death, priority }, index) => {
       const deathIndex = Number(death.deathIndex ?? index + 1);
       const primarySignal = primarySignalForDeath(death);
-      const factorOptions = reviewMomentFactorOptions(death, goalKind);
-      const primaryFactor = factorOptions.find((option) => option.id !== "no_clear_deterministic_cause") ?? factorOptions[0];
+      const deathWithIndex = { ...death, deathIndex, role: reviewContext.role };
+      const fightShape = inferFightShape(deathWithIndex, reviewContext);
+      const factorOptions = reviewMomentFactorOptions(deathWithIndex, goalKind, {
+        ...reviewContext,
+        repeatedEnemySignatures,
+        deathsByRepeatedSignature
+      });
+      const primaryFactor = factorOptions.find((option) =>
+        !["no_clear_deterministic_cause", "manual_other_pattern"].includes(option.id)
+      ) ?? factorOptions[0];
       return {
         id: reviewMomentKey(deathIndex, primarySignal),
-        death,
+        death: deathWithIndex,
         deathIndex,
         time: formatDeathTimestamp(death),
         timeWindow: formatDeathTimestamp(death),
@@ -1722,15 +2010,16 @@ export function buildMatchReviewPlan(review) {
         primarySignal,
         primaryLabel: primaryFactor?.label ?? "No clear pattern yet",
         statusLabel: primaryFactor?.id === "no_clear_deterministic_cause" ? "Needs manual review" : "Pattern detected",
+        fightShape,
         headline: reviewMomentTitle({ goalKind, death, primarySignal, index: index + 1 }),
         progressLabel: reviewMomentProgressLabel({ goalKind, index: index + 1, total: deaths.length }),
-        detectedSignals: reviewMomentSignals(death),
-        eventSummary: reviewMomentEventSummary(death, goalKind),
-        evidenceFacts: reviewMomentEvidenceFacts(death, goalKind),
+        detectedSignals: reviewMomentSignals(deathWithIndex),
+        eventSummary: reviewMomentEventSummary(deathWithIndex, goalKind),
+        evidenceFacts: reviewMomentEvidenceFacts(deathWithIndex, goalKind),
         factorOptions,
         defaultFactorId: factorOptions[0]?.id ?? primarySignal,
-        whyReview: reviewMomentReasons(death, tagCounts),
-        reviewQuestion: reviewQuestionForDeath(death),
+        whyReview: primaryFactor?.interpretationReasons?.[0] ?? reviewMomentReasons(deathWithIndex, tagCounts),
+        reviewQuestion: reviewQuestionForDeath(deathWithIndex),
         deterministicLesson: Number(death?.killerLevel ?? 0) > Number(death?.victimLevel ?? 0)
           ? "Enemy level lead before contesting space."
           : undefined
@@ -1876,6 +2165,7 @@ function deathContextFacts(moment) {
   const allies = (death.nearbyAllyChampionNames ?? []).slice(0, 4).join(", ");
   const enemies = (death.nearbyEnemyChampionNames ?? []).slice(0, 4).join(", ");
   const location = death.lane ?? death.positionLabel ?? death.location ?? "";
+  if (moment.fightShape?.bucket) facts.push(`Fight shape: ${moment.fightShape.bucket}`);
   if (location) facts.push(location);
   if (allies) facts.push(`Nearby allies: ${allies}`);
   if (enemies) facts.push(`Nearby enemies: ${enemies}`);
@@ -1908,6 +2198,10 @@ function renderDeathReviewList(plan, review) {
       <section class="death-review-list">
         ${plan.reviewMoments.map((moment) => {
           const facts = moment.evidenceFacts?.length ? moment.evidenceFacts : ["No clear pattern yet - review this death manually."];
+          const selectedCandidate = moment.factorOptions.find((option) => option.id === moment.defaultFactorId) ?? moment.factorOptions[0];
+          const reasons = selectedCandidate?.interpretationReasons?.length
+            ? selectedCandidate.interpretationReasons
+            : [moment.whyReview || "No clear pattern yet - review this death manually."];
           const contextFacts = deathContextFacts(moment);
           const complete = uiMomentIsComplete(moment, reviewedMoments);
           const selectedFactor = moment.defaultFactorId;
@@ -1926,16 +2220,21 @@ function renderDeathReviewList(plan, review) {
                 </div>
               ` : ""}
               <div class="review-evidence-facts">
-                <p class="eyebrow">Evidence</p>
+                <p class="eyebrow">Facts</p>
                 <ul>
                   ${facts.map((fact) => `<li>${escapeHtml(fact)}</li>`).join("")}
                 </ul>
               </div>
-              <p class="muted">${escapeHtml(moment.whyReview || "No clear pattern yet - review this death manually.")}</p>
+              <div class="review-evidence-facts">
+                <p class="eyebrow">Why it matters</p>
+                <ul>
+                  ${reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}
+                </ul>
+              </div>
               <div class="review-factor-grid">
                 ${moment.factorOptions.map((factor, factorIndex) => `
                   <label class="review-factor-option">
-                    <input type="checkbox" name="review-factor-${escapeHtml(String(moment.deathIndex))}" value="${escapeHtml(factor.id)}"${factor.id === selectedFactor || factorIndex === 0 ? " checked" : ""} />
+                    <input type="checkbox" name="review-factor-${escapeHtml(String(moment.deathIndex))}" value="${escapeHtml(factor.id)}" data-cause-category="${escapeHtml(factor.causeCategory ?? "other")}"${factor.id === selectedFactor || factorIndex === 0 ? " checked" : ""} />
                     <span>${escapeHtml(factor.label === "No clear deterministic cause" ? "Needs manual review" : factor.label)}</span>
                   </label>
                 `).join("")}
@@ -2093,6 +2392,17 @@ function bindReviewMomentControls(root, review) {
   root.dataset.reviewControlsBound = review.matchId;
 
   root.addEventListener("click", async (event) => {
+    const factorInput = event.target.closest('[data-death-review-item] input[type="checkbox"]');
+    if (factorInput) {
+      const deathItem = factorInput.closest("[data-death-review-item]");
+      if (factorInput.checked) {
+        deathItem.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+          if (input !== factorInput) input.checked = false;
+        });
+      }
+      return;
+    }
+
     const navButton = event.target.closest("[data-review-nav]");
     if (navButton) {
       const plan = buildMatchReviewPlan(review);
@@ -2107,14 +2417,17 @@ function bindReviewMomentControls(root, review) {
     const momentActionButton = event.target.closest("[data-review-moment-action]");
     if (momentActionButton) {
       const deathItem = momentActionButton.closest("[data-death-review-item]");
-      const selectedFactors = [...(deathItem ?? root).querySelectorAll('input[type="checkbox"]:checked')].map((input) => input.value);
-      const selectedFactor = selectedFactors[0] || momentActionButton.dataset.signalId;
+      const selectedInputs = [...(deathItem ?? root).querySelectorAll('input[type="checkbox"]:checked')];
+      const selectedInput = selectedInputs[0] ?? null;
+      const selectedFactor = selectedInput?.value || momentActionButton.dataset.signalId;
+      const selectedCauseCategory = selectedInput?.dataset?.causeCategory || null;
+      const selectedOtherPattern = selectedFactor === "manual_other_pattern";
       const body = {
         deathIndex: Number(momentActionButton.dataset.deathIndex),
         deathTimestampSeconds: momentActionButton.dataset.deathTimestampSeconds ? Number(momentActionButton.dataset.deathTimestampSeconds) : null,
         signalId: momentActionButton.dataset.signalId,
-        status: momentActionButton.dataset.reviewMomentAction === "skipped" ? "unsure" : "confirmed",
-        causeCategory: selectedFactor || null
+        status: momentActionButton.dataset.reviewMomentAction === "skipped" || selectedOtherPattern ? "unsure" : "confirmed",
+        causeCategory: selectedCauseCategory || "other"
       };
 
       momentActionButton.disabled = true;
@@ -2436,9 +2749,11 @@ async function renderHome(root, context = getRouteContext()) {
     const weeklyTargets = reviewedEvidenceReady ? (goal.weeklyTargets ?? []) : [];
     const goalSignals = reviewedEvidenceReady ? (goal.signals ?? []) : [];
     const insights = reviewedEvidenceReady ? recentInsights : [];
-    const reviewHref = toAppHref("/review", context) ?? "#";
+    const nextReviewGame = nextReviewableGame(riotEvidence);
+    const reviewHref = nextReviewGame ? reviewHrefForGame(nextReviewGame, context) : (toAppHref("/review", context) ?? "#");
     const goalsHref = toAppHref("/goals", context) ?? "#";
-    const actionHref = toAppHref(action.href ?? "/review", context) ?? reviewHref;
+    const actionHref = nextReviewGame ? reviewHref : (toAppHref(action.href ?? "/review", context) ?? reviewHref);
+    const actionIsDeadReviewLink = !nextReviewGame && (action.href ?? "/review") === "/review";
     const teamHref = toAppHref("/team", context) ?? "#";
     const teamActionHref = toAppHref(teamFocus.nextTeamAction?.href ?? "/team", context) ?? teamHref;
     const focusTagline = `${goal.role ?? profile.primaryRole ?? "Player"} · ${goal.scope ?? "Personal"}`;
@@ -2480,7 +2795,9 @@ async function renderHome(root, context = getRouteContext()) {
             <div class="hero-next-action">
               <p class="eyebrow">Next action</p>
               <h3>${escapeHtml(action.title ?? "No action configured yet")}</h3>
-              <a class="button" href="${escapeHtml(actionHref)}">${escapeHtml(action.ctaLabel ?? "Start review")}</a>
+              ${actionIsDeadReviewLink
+                ? `<span class="button is-disabled" aria-disabled="true">${escapeHtml(action.ctaLabel ?? "Preparing review")}</span>`
+                : `<a class="button" href="${escapeHtml(actionHref)}">${escapeHtml(action.ctaLabel ?? "Start review")}</a>`}
             </div>
             ${evidenceMeta(
               goalEvidenceSource.summary,

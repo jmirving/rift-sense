@@ -364,7 +364,10 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Review preparation: none");
     expect(document.body.textContent).not.toContain("SECRET_TIMELINE_EVENT");
     expect(document.body.textContent).not.toContain("SECRET_MATCH_JSON");
-    expect(document.querySelector('a[href="/review?matchId=NA1_1"]')?.textContent).toContain("Review");
+    expect(document.querySelector(".hero-next-action a.button")?.getAttribute("href")).toBe("/review?matchId=NA1_1");
+    expect([...document.querySelectorAll('a[href="/review?matchId=NA1_1"]')].some((link) =>
+      link.textContent.includes("Review this game")
+    )).toBe(true);
   });
 
   it("refreshes recent games and renders no-new-games feedback", async () => {
@@ -561,7 +564,9 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Match summaries are ready. Evaluations are pending.");
     expect(document.body.textContent).not.toContain("10 games ready");
     expect(document.body.textContent).not.toContain("Review this game");
-    expect(document.querySelector('a[href="/review?matchId=NA1_pending"]')?.textContent).toContain("Open summary");
+    expect([...document.querySelectorAll('a[href="/review?matchId=NA1_pending"]')].some((link) =>
+      link.textContent.includes("Open summary")
+    )).toBe(true);
 
     await flushAsyncWork();
 
@@ -750,7 +755,9 @@ describe("public app routes", () => {
 
     expect(document.body.textContent).toContain("Next Review");
     expect(document.body.textContent).not.toContain("Selected for evaluation ready");
-    expect(document.querySelector('a[href="/review?matchId=NA1_review_candidate"]')?.textContent).toContain("Review this game");
+    expect([...document.querySelectorAll('a[href="/review?matchId=NA1_review_candidate"]')].some((link) =>
+      link.textContent.includes("Review this game")
+    )).toBe(true);
     expect(document.body.textContent).toContain("Recent Games");
     expect(document.body.textContent).toContain("Kai'Sa · Preparing");
     expect(document.body.textContent).toContain("Caitlyn · Ranked Solo/Duo · Loss");
@@ -862,7 +869,9 @@ describe("public app routes", () => {
     await renderApp(document.querySelector("#app"));
 
     expect(document.body.textContent).toContain("Next Review");
-    expect(document.querySelector('a[href="/demo/review?matchId=NA1_demo"]')?.textContent).toContain("Review");
+    expect([...document.querySelectorAll('a[href="/demo/review?matchId=NA1_demo"]')].some((link) =>
+      link.textContent.includes("Review this game")
+    )).toBe(true);
   });
 
   it("renders a review landing state without matchId", async () => {
@@ -1143,11 +1152,80 @@ describe("public app routes", () => {
       ]
     });
 
-    expect(plan.reviewMoments[0].factorOptions).toEqual([
-      { id: "no_clear_deterministic_cause", label: "No clear deterministic cause" }
+    expect(plan.reviewMoments[0].factorOptions.map((option) => option.label)).toEqual([
+      "No clear pattern yet",
+      "Other pattern not listed"
     ]);
     expect(plan.reviewMoments[0].factorOptions.map((option) => option.label).join(" ")).not.toContain("Observed pattern");
     expect(plan.reviewMoments[0].factorOptions.map((option) => option.label).join(" ")).not.toContain("candidate");
+  });
+
+  it("builds reusable fight-shape and repeated-enemy candidates", () => {
+    const lane2v2 = buildMatchReviewPlan({
+      activeGoalName: "Trading",
+      matchSummary: { role: "ADC" },
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1 },
+      deathEvents: [
+        {
+          deathIndex: 1,
+          timestampSeconds: 100,
+          killerChampionName: "Bard",
+          assistingChampionNames: ["Brand"],
+          nearbyAllyChampionNames: ["Lulu"],
+          nearbyEnemyChampionNames: ["Bard", "Brand"],
+          nearbyEnemyCount: 2
+        }
+      ]
+    });
+    const lane2v1 = buildMatchReviewPlan({
+      activeGoalName: "Trading",
+      matchSummary: { role: "ADC" },
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1 },
+      deathEvents: [
+        {
+          deathIndex: 1,
+          timestampSeconds: 100,
+          killerChampionName: "Bard",
+          assistingChampionNames: ["Brand"],
+          nearbyEnemyChampionNames: ["Bard", "Brand"],
+          nearbyEnemyCount: 2
+        }
+      ]
+    });
+    const collapse = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      matchSummary: { role: "ADC" },
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1 },
+      deathEvents: [
+        {
+          deathIndex: 1,
+          timestampSeconds: 100,
+          killerChampionName: "Bard",
+          assistingChampionNames: ["Brand", "Lee Sin"],
+          nearbyEnemyChampionNames: ["Bard", "Brand", "Lee Sin"],
+          nearbyEnemyCount: 3
+        }
+      ]
+    });
+    const repeated = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      matchSummary: { role: "ADC" },
+      evaluationSummary: { deathCount: 2 },
+      deterministicTagCounts: { death_count: 2 },
+      deathEvents: [
+        { deathIndex: 1, timestampSeconds: 100, killerChampionName: "Annie", assistingChampionNames: ["Brand"] },
+        { deathIndex: 2, timestampSeconds: 200, killerChampionName: "Annie", assistingChampionNames: ["Brand"] }
+      ]
+    });
+
+    expect(lane2v2.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("2v2 lane death");
+    expect(lane2v2.reviewMoments[0].fightShape.bucket).toBe("2v2");
+    expect(lane2v1.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("2v1 lane death");
+    expect(collapse.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Collapsed on by multiple enemies");
+    expect(repeated.patterns.map((pattern) => pattern.label)).toContain("Repeatedly killed by Annie + Brand");
   });
 
   it("does not promote weak 2v2, post-6 level timing, or post-death facts as primary causes", () => {
@@ -1184,12 +1262,42 @@ describe("public app routes", () => {
     });
 
     const byDeath = new Map(plan.reviewMoments.map((moment) => [moment.deathIndex, moment]));
-    expect(byDeath.get(1).primaryLabel).toBe("No clear deterministic cause");
+    expect(byDeath.get(1).primaryLabel).toBe("No clear pattern yet");
     expect(byDeath.get(1).factorOptions.map((option) => option.label)).not.toContain("Walked forward with missing enemies");
-    expect(byDeath.get(2).primaryLabel).toBe("No clear deterministic cause");
+    expect(byDeath.get(2).primaryLabel).toBe("No clear pattern yet");
     expect(byDeath.get(2).factorOptions.map((option) => option.label)).not.toContain("Enemy level-up timing");
     expect(byDeath.get(3).evidenceFacts.join(" ")).not.toContain("dragon");
     expect(new Set(plan.reviewMoments.map((moment) => moment.reviewQuestion)).size).toBeGreaterThan(1);
+  });
+
+  it("only promotes objective review candidates when objective timing facts exist", () => {
+    const unsupported = buildMatchReviewPlan({
+      activeGoalName: "Objective Setup",
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { objective_window_candidate: 1 },
+      deathEvents: [
+        { deathIndex: 1, timestampSeconds: 100, tags: ["objective_window_candidate"] }
+      ]
+    });
+    const supported = buildMatchReviewPlan({
+      activeGoalName: "Objective Setup",
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { objective_window_candidate: 1 },
+      deathEvents: [
+        {
+          deathIndex: 1,
+          timestampSeconds: 100,
+          tags: ["objective_window_candidate"],
+          objectiveName: "dragon",
+          objectiveSpawnSecondsAfterDeath: 35,
+          objectiveTakenSecondsAfterDeath: 80
+        }
+      ]
+    });
+
+    expect(unsupported.reviewMoments[0].factorOptions.map((option) => option.label)).not.toContain("Died before objective setup completed");
+    expect(supported.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Died before objective setup completed");
+    expect(supported.reviewMoments[0].evidenceFacts.join(" ")).toContain("dragon spawned 35s after the death");
   });
 
   it("uses neutral review moment language for unknown or non-death goal types", () => {
@@ -1277,13 +1385,15 @@ describe("public app routes", () => {
           deathIndex: 1,
           deathTimestampSeconds: 494,
           signalId: "solo_death_candidate",
-          status: "confirmed"
+          status: "confirmed",
+          causeCategory: "walked_without_cover"
         });
         return mockJsonResponse({
           reviewedMoment: {
             deathIndex: 1,
             signalId: "solo_death_candidate",
-            status: "confirmed"
+            status: "confirmed",
+            causeCategory: "walked_without_cover"
           }
         });
       }
@@ -1299,6 +1409,80 @@ describe("public app routes", () => {
 
     expect(document.body.textContent).toContain("Review complete");
     expect(document.body.textContent).toContain("Next-game focus");
+  });
+
+  it("persists other pattern selection as manual review", async () => {
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/matches/NA1_other/evaluation") {
+        return mockJsonResponse({
+          matchId: "NA1_other",
+          activeGoalName: "Die Less",
+          evaluationStatus: "current",
+          evaluationVersion: "deterministic-v2",
+          matchSummary: {
+            championName: "Jhin",
+            queueLabel: "Ranked Solo/Duo",
+            result: "Loss",
+            kills: 1,
+            deaths: 1,
+            assists: 1
+          },
+          evaluationSummary: { deathCount: 1 },
+          deathEvents: [
+            {
+              deathIndex: 1,
+              timestampSeconds: 494,
+              killerChampionName: "LeBlanc",
+              tags: ["solo_death_candidate"]
+            }
+          ],
+          deterministicTagCounts: { death_count: 1, solo_death_candidate: 1 },
+          reviewedMoments: []
+        });
+      }
+
+      if (url === "/api/matches/NA1_other/reviewed-moments" && options.method === "PUT") {
+        expect(JSON.parse(options.body)).toMatchObject({
+          deathIndex: 1,
+          signalId: "solo_death_candidate",
+          status: "unsure",
+          causeCategory: "other"
+        });
+        return mockJsonResponse({
+          reviewedMoment: {
+            deathIndex: 1,
+            signalId: "solo_death_candidate",
+            status: "unsure",
+            causeCategory: "other"
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/review?matchId=NA1_other");
+
+    await renderApp(document.querySelector("#app"));
+    document.querySelector('input[value="manual_other_pattern"]').click();
+    document.querySelector('[data-review-moment-action="reviewed"]').click();
+    await flushAsyncWork();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/matches/NA1_other/reviewed-moments",
+      expect.objectContaining({ method: "PUT" })
+    );
   });
 
   it("reload preserves reviewed moment state on the review page", async () => {

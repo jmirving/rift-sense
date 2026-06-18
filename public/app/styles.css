@@ -355,6 +355,12 @@ p {
   color: #fff1f1;
 }
 
+.button.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.05);
+}
+
 .hero-copy,
 .panel,
 .content-card,
@@ -1072,28 +1078,37 @@ p {
 
 .review-factor-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 10px;
+  grid-template-columns: 1fr;
+  gap: 8px;
 }
 
 .review-factor-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  min-height: 58px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  min-height: 0;
   height: 100%;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
   color: var(--text);
   cursor: pointer;
   line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .review-factor-option input {
   margin: 2px 0 0;
-  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.review-factor-option:has(input:checked) {
+  border-color: var(--accent);
+  background: rgba(255, 209, 102, 0.08);
 }
 
 .review-secondary-stack {
