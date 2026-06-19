@@ -480,15 +480,21 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("3 match summaries ready");
     expect(document.body.textContent).toContain("2 evaluations ready");
     expect(document.body.textContent).toContain("1 evaluation pending");
-    expect(document.body.textContent).toContain("Next Review");
-    expect(document.body.textContent).toContain("Review this game");
+    expect(document.body.textContent).toContain("Review your latest game");
+    expect(document.body.textContent).toContain("Review latest game");
+    expect(document.body.textContent).toContain("Waiting for review");
     expect(document.body.textContent).toContain("Refresh recent games");
     expect(document.body.textContent).toContain("No reviewed games yet");
-    expect(document.body.textContent).toContain("Review a game to establish weekly targets.");
-    expect(document.body.textContent).toContain("Insights will appear after you review games.");
-    expect(document.body.textContent).toContain("Seeded from onboarding. Not updated from reviewed games yet.");
+    expect(document.body.textContent).toContain("Evidence progress");
+    expect(document.body.textContent).toContain("0 games reviewed");
+    expect(document.body.textContent).toContain("Weekly targets not ready yet");
+    expect(document.body.textContent).toContain("Not ready yet");
+    expect(document.body.textContent).toContain("Waiting for reviewed evidence");
+    expect(document.body.textContent).not.toContain("Insights will appear after you review games.");
+    expect(document.body.textContent).not.toContain("Seeded from onboarding. Not updated from reviewed games yet.");
     expect(document.body.textContent).not.toContain("On track");
-    expect(document.body.textContent).toContain("Active goal: Die Less · ADC");
+    expect(document.body.textContent).toContain("Active Goal");
+    expect(document.body.textContent).toContain("Die Less");
     expect(document.body.textContent).toContain("Jhin · Ranked Solo/Duo · Loss");
     expect(document.body.textContent).toContain("5 review moments ready");
     expect(document.body.textContent).not.toContain("candidate");
@@ -499,10 +505,68 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Review preparation: none");
     expect(document.body.textContent).not.toContain("SECRET_TIMELINE_EVENT");
     expect(document.body.textContent).not.toContain("SECRET_MATCH_JSON");
-    expect(document.querySelector(".hero-next-action a.button")?.getAttribute("href")).toBe("/review?matchId=NA1_1");
+    expect(document.querySelector(".primary-action-panel a.button")?.getAttribute("href")).toBe("/review?matchId=NA1_1");
     expect([...document.querySelectorAll('a[href="/review?matchId=NA1_1"]')].some((link) =>
-      link.textContent.includes("Review this game")
+      link.textContent.includes("Review")
     )).toBe(true);
+    expect(document.querySelectorAll(".review-candidate-panel")).toHaveLength(0);
+    expect(document.querySelector("#nav-drawer")).not.toBeNull();
+  });
+
+  it("activates evidence progress and weekly targets only when reviewed evidence exists", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "Bot" } },
+            goalDashboard: {
+              reviewedGameCount: 2,
+              activePersonalGoal: {
+                title: "Die Less",
+                scope: "personal",
+                role: "Bot",
+                goalStatus: "Evidence started",
+                goalStatusTrend: "positive",
+                reviewedGameCount: 2,
+                weeklyTargets: [
+                  { label: "Review lane deaths", currentValue: 1, targetValue: 3, statusLabel: "In progress", trend: "watch" }
+                ],
+                signals: [{ label: "Lane deaths", value: 2, trend: "watch" }],
+                riotEvidence: { candidateGames: [] }
+              },
+              todaysAction: {},
+              activeTeamFocus: { title: "Dragon Setup", assignment: "Review wave before dragon." },
+              recentInsights: [{ title: "Lane deaths before recall", summary: "Two reviewed games matched this pattern." }],
+              suggestedNextSteps: []
+            }
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("2 games reviewed");
+    expect(document.body.textContent).toContain("Weekly targets ready");
+    expect(document.body.textContent).toContain("Review lane deaths");
+    expect(document.body.textContent).toContain("Lane deaths before recall");
+    expect(document.body.textContent).not.toContain("Weekly targets unlock after your first reviewed game.");
+    expect(document.body.textContent).not.toContain("reviewed_moment_events");
   });
 
   it("refreshes recent games and renders no-new-games feedback", async () => {
@@ -692,11 +756,11 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Preparing review");
+    expect(document.body.textContent).toContain("No review ready");
     expect(document.body.textContent).toContain("1 match summary ready");
     expect(document.body.textContent).toContain("0 evaluations ready");
     expect(document.body.textContent).toContain("1 evaluation pending");
-    expect(document.body.textContent).toContain("Match summaries are ready. Evaluations are pending.");
+    expect(document.body.textContent).toContain("Recent games are still being prepared.");
     expect(document.body.textContent).not.toContain("10 games ready");
     expect(document.body.textContent).not.toContain("Review this game");
     expect([...document.querySelectorAll('a[href="/review?matchId=NA1_pending"]')].some((link) =>
@@ -712,7 +776,7 @@ describe("public app routes", () => {
     expect(homeRequests).toBe(2);
     expect(document.body.textContent).toContain("1 evaluation ready");
     expect(document.body.textContent).toContain("0 evaluations pending");
-    expect(document.body.textContent).toContain("Review this game");
+    expect(document.body.textContent).toContain("Review latest game");
     expect(document.body.textContent).toContain("3 review moments ready");
   });
 
@@ -888,10 +952,10 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Next Review");
+    expect(document.body.textContent).toContain("Review your latest game");
     expect(document.body.textContent).not.toContain("Selected for evaluation ready");
     expect([...document.querySelectorAll('a[href="/review?matchId=NA1_review_candidate"]')].some((link) =>
-      link.textContent.includes("Review this game")
+      link.textContent.includes("Review")
     )).toBe(true);
     expect(document.body.textContent).toContain("Recent Games");
     expect(document.body.textContent).toContain("Kai'Sa · Preparing");
@@ -1003,9 +1067,9 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Next Review");
+    expect(document.body.textContent).toContain("Review your latest game");
     expect([...document.querySelectorAll('a[href="/demo/review?matchId=NA1_demo"]')].some((link) =>
-      link.textContent.includes("Review this game")
+      link.textContent.includes("Review")
     )).toBe(true);
   });
 
