@@ -207,9 +207,20 @@ p {
   cursor: default;
 }
 
+.side-nav-link.is-muted {
+  border-color: rgba(255, 255, 255, 0.04);
+  color: rgba(194, 202, 213, 0.66);
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.side-nav-link.is-muted:hover {
+  color: rgba(247, 242, 232, 0.82);
+}
+
 .side-nav-status {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   padding: 3px 8px;
@@ -485,6 +496,7 @@ p {
 .session-panel {
   position: relative;
   z-index: 1;
+  min-width: 0;
 }
 
 .session-panel details {
@@ -498,6 +510,69 @@ p {
   cursor: pointer;
   font-weight: 600;
   color: var(--text);
+}
+
+.session-footer {
+  display: grid;
+  gap: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  min-width: 0;
+}
+
+.session-footer .eyebrow {
+  font-size: 0.66rem;
+}
+
+.session-footer-name,
+.session-footer-email {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0;
+}
+
+.session-footer-name {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.session-footer-email {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.session-footer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.session-footer-button,
+.session-footer-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.session-footer-button:hover,
+.session-footer-link:hover {
+  color: var(--text);
+}
+
+.session-footer-link::before {
+  content: "·";
+  margin-right: 8px;
+  color: rgba(194, 202, 213, 0.55);
 }
 
 body.auth-page,

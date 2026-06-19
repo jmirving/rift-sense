@@ -103,13 +103,16 @@ function toAppHref(href, context = getRouteContext()) {
     return `/demo${suffix}`;
   }
   if (pathname === "/goals") {
-    return `/demo/goals${suffix}`;
+    return `/demo/setup${suffix}`;
+  }
+  if (pathname === "/setup") {
+    return `/demo/setup${suffix}`;
   }
   if (pathname === "/review") {
     return `/demo/review${suffix}`;
   }
   if (pathname === "/onboarding") {
-    return `/demo/onboarding${suffix}`;
+    return `/demo/setup${suffix}`;
   }
   if (pathname === "/training" || pathname === "/drills" || pathname === "/test") {
     return `/demo/training${suffix}`;
@@ -117,8 +120,11 @@ function toAppHref(href, context = getRouteContext()) {
   if (pathname === "/team") {
     return `/demo/team${suffix}`;
   }
+  if (pathname === "/library") {
+    return `/library${suffix}`;
+  }
   if (pathname === "/focus/today" || pathname === "/focus/week" || pathname === "/focus/month") {
-    return `/demo/goals${suffix}`;
+    return `/demo/setup${suffix}`;
   }
 
   return null;
@@ -241,7 +247,7 @@ function renderDeveloperTokenTools(session) {
 function renderSessionPanel() {
   const session = getSessionState();
   const accountLink = session.accountUrl
-    ? `<a class="button secondary" href="${escapeHtml(session.accountUrl)}">Open Nexus</a>`
+    ? `<a class="session-footer-link" href="${escapeHtml(session.accountUrl)}">Open Nexus</a>`
     : "";
 
   if (session.demoMode) {
@@ -274,12 +280,12 @@ function renderSessionPanel() {
 
     return `
       <section class="session-panel">
-        <div class="panel panel-slim session-card">
-          <p class="eyebrow">Signed In</p>
-          <h2>${escapeHtml(displayName)}</h2>
-          ${email ? `<p class="muted">${escapeHtml(email)}</p>` : ""}
-          <div class="action-row">
-            <button class="button secondary" type="button" id="session-logout-button">Sign Out</button>
+        <div class="session-card session-footer">
+          <p class="eyebrow">Signed in</p>
+          <p class="session-footer-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</p>
+          ${email ? `<p class="session-footer-email" title="${escapeHtml(email)}">${escapeHtml(email)}</p>` : ""}
+          <div class="session-footer-actions">
+            <button class="session-footer-button" type="button" id="session-logout-button">Sign out</button>
             ${accountLink}
           </div>
           ${renderDeveloperTokenTools(session)}
@@ -394,7 +400,7 @@ function appShell(content, hero = {}) {
   const heroHidden = hero.hidden === true;
   const heroTitle = hero.title ?? "RiftSense";
   const heroEyebrow = hero.eyebrow ?? "Dashboard";
-  const heroText = hero.text ?? "Open goals, reviews, team focus, onboarding, or the content library.";
+  const heroText = hero.text ?? "Open dashboard, review, setup, team focus, library, or training.";
   const heroPills = Array.isArray(hero.pills) ? hero.pills : [];
   const heroCompact = hero.compact !== false;
 
@@ -411,20 +417,19 @@ function appShell(content, hero = {}) {
         : demoMode
         ? [
             { href: "/demo", label: "Dashboard", active: pathname === "/demo" },
-            { href: "/demo/goals", label: "Goals", active: pathname === "/demo/goals" },
             { href: "/demo/review", label: "Review", active: pathname === "/demo/review" },
-            { href: "/demo/training", label: "Training", active: pathname === "/demo/training" },
-            { href: "/demo/team", label: "Team", active: pathname === "/demo/team" },
-            { href: "/demo/onboarding", label: "Onboarding", active: pathname === "/demo/onboarding" }
+            { href: "/demo/setup", label: "Setup", active: pathname === "/demo/setup" || pathname === "/demo/goals" || pathname === "/demo/onboarding" },
+            { href: "/demo/team", label: "Team Focus", active: pathname === "/demo/team", muted: true, status: "Waiting" },
+            { href: "/library", label: "Library", active: pathname === "/library", muted: true, status: "After reviews" },
+            { href: "/demo/training", label: "Training", active: pathname === "/demo/training", muted: true, status: "Not ready yet" }
           ]
         : [
             { href: "/", label: "Dashboard", active: pathname === "/" },
-            { href: "/goals", label: "Goals", active: pathname === "/goals" || pathname.startsWith("/focus/") },
             { href: "/review", label: "Review", active: pathname === "/review" },
-            { href: "/training", label: "Training", active: pathname === "/training" || pathname === "/drills" || pathname === "/test" },
-            { href: "/team", label: "Team", active: pathname === "/team" },
-            { href: "/onboarding", label: "Onboarding", active: pathname === "/onboarding" },
-            { href: "/library", label: "Library", active: pathname === "/library" || (pathname.startsWith("/content/") && !isCuratorDetail) }
+            { href: "/setup", label: "Setup", active: pathname === "/setup" || pathname === "/goals" || pathname === "/onboarding" || pathname.startsWith("/focus/") },
+            { href: "/team", label: "Team Focus", active: pathname === "/team", muted: true, status: "Waiting" },
+            { href: "/library", label: "Library", active: pathname === "/library" || (pathname.startsWith("/content/") && !isCuratorDetail), muted: true, status: "After reviews" },
+            { href: "/training", label: "Training", active: pathname === "/training" || pathname === "/drills" || pathname === "/test", muted: true, status: "Not ready yet" }
           ]
     }
   ];
@@ -452,7 +457,7 @@ function appShell(content, hero = {}) {
               title="${navCollapsed ? "Expand sidebar" : "Collapse sidebar"}"
             >${navCollapsed ? "▶" : "◀"}</button>
           </div>
-          <p class="nav-meta">${escapeHtml(publicMode ? "Open the public home, About page, or demo." : "Open dashboard, review, training, team, or library.")}</p>
+          <p class="nav-meta">${escapeHtml(publicMode ? "Open the public home, About page, or demo." : "Open dashboard, review, setup, team focus, or library.")}</p>
           <div class="side-nav-sections">
             ${navSections.map((section) => `
               <details
@@ -468,7 +473,10 @@ function appShell(content, hero = {}) {
                         return `<span class="side-nav-link is-upcoming" aria-disabled="true"><span>${escapeHtml(item.label)}</span><span class="side-nav-status">Soon</span></span>`;
                       }
 
-                      return `<a class="side-nav-link${item.active ? " is-active" : ""}" href="${item.href}">${escapeHtml(item.label)}</a>`;
+                      return `<a class="side-nav-link${item.active ? " is-active" : ""}${item.muted ? " is-muted" : ""}" href="${item.href}">
+                        <span>${escapeHtml(item.label)}</span>
+                        ${item.status ? `<span class="side-nav-status">${escapeHtml(item.status)}</span>` : ""}
+                      </a>`;
                     })
                     .join("")}
                 </div>
@@ -746,46 +754,6 @@ function targetChipGrid(items, emptyText) {
 function hasReviewedEvidence(goal = {}, dashboard = {}) {
   const reviewedCount = Number(goal.reviewedGameCount ?? goal.reviewedGamesCount ?? dashboard.reviewedGameCount ?? 0);
   return Number.isFinite(reviewedCount) && reviewedCount > 0;
-}
-
-function compactTargetRow(target) {
-  const label = typeof target === "string" ? target : target.label;
-  const statusLabel = typeof target === "string" ? "Needs review" : target.statusLabel;
-  const trend = typeof target === "string" ? "unknown" : target.trend;
-  return `
-    <article class="compact-row">
-      <span>${escapeHtml(label ?? "Target")}</span>
-      ${statusBadge(statusLabel ?? "Needs review", trend)}
-    </article>
-  `;
-}
-
-function goalSignalRow(signal) {
-  return `
-    <article class="compact-row">
-      <span>${escapeHtml(signal.label)}</span>
-      <span class="compact-row-value">${escapeHtml(signal.value)} · ${escapeHtml(trendLabel(signal.trend))}</span>
-    </article>
-  `;
-}
-
-function reviewTagButton(signal) {
-  return `
-    <button class="review-tag-button" type="button">
-      <strong>${escapeHtml(signal.label)}</strong>
-      <span>${escapeHtml(signal.value)} logged</span>
-    </button>
-  `;
-}
-
-function targetList(items, emptyText) {
-  return `
-    <ul class="target-list">
-      ${(items ?? []).length > 0
-        ? items.map((item) => `<li>${escapeHtml(typeof item === "string" ? item : item.label)}</li>`).join("")
-        : `<li>${escapeHtml(emptyText)}</li>`}
-    </ul>
-  `;
 }
 
 function signalCard(signal) {
@@ -1294,7 +1262,7 @@ function primaryDashboardAction({ state: dashboardView, action = {}, context = {
       primaryLabel: "Review recommended game",
       primaryHref: reviewHrefForGame(recommended, context),
       secondaryLabel: "View review queue",
-      secondaryHref: "#review-queue"
+      secondaryHref: toAppHref("/review", context) ?? "/review"
     };
   }
 
@@ -1373,7 +1341,7 @@ function evidenceProgressCard(dashboardView) {
           <span>${dashboardView.hasWeeklyTargets ? "Weekly targets ready" : "Weekly targets not ready yet"}</span>
         </div>
         ${latestPattern ? `<p class="muted">Latest pattern: ${escapeHtml(latestPattern.title ?? latestPattern.label ?? "Pattern found")}</p>` : ""}
-        <a class="button secondary" href="${escapeHtml(toAppHref("/goals", getRouteContext()) ?? "/goals")}">View evidence</a>
+        <a class="button secondary" href="${escapeHtml(toAppHref("/library", getRouteContext()) ?? "/library")}">View evidence</a>
       </section>
     `;
   }
@@ -1404,6 +1372,10 @@ function inactiveDashboardSection({ title, status, body, href, cta }) {
       ${href ? `<a class="button secondary" href="${escapeHtml(href)}">${escapeHtml(cta ?? "Open")}</a>` : ""}
     </section>
   `;
+}
+
+function canonicalSetupHref(context = getRouteContext()) {
+  return toAppHref("/setup", context) ?? "/setup";
 }
 
 function shouldPrepareRecentEvaluations(riotEvidence, context = getRouteContext()) {
@@ -3232,21 +3204,73 @@ function renderReviewPriority(priority) {
   `;
 }
 
-function renderReviewLanding(root, context = getRouteContext()) {
+async function renderReviewLanding(root, context = getRouteContext()) {
+  if (!context.demoMode && !getSessionState().authenticated) {
+    renderAuthRequiredPage(root, "Sign in to open review", "The review queue uses your authenticated Riot identity.");
+    return;
+  }
+
+  const { home } = await requestJson(context.homeApiUrl, context.requestOptions);
+  const goal = home?.goalDashboard?.activePersonalGoal ?? {};
+  const riotEvidence = goal.riotEvidence ?? {};
+  const queue = reviewQueueGames(riotEvidence, 12);
+  const recentGames = (riotEvidence.recentGames ?? riotEvidence.candidateGames ?? [])
+    .filter((game) => game?.matchId && !queue.some((queued) => queued.matchId === game.matchId))
+    .slice(0, 6);
+
   root.innerHTML = appShell(`
     <section class="goal-dashboard-stack">
       <section class="panel active-goal-panel">
         <p class="eyebrow">Review</p>
-        <h2>Choose a recent game from the dashboard to review.</h2>
+        <h2>Review queue</h2>
+        <p class="muted">Pick a prepared game and review its moments against ${escapeHtml(goal.title ?? "your active goal")}.</p>
         <div class="action-row">
-          <a class="button" href="${escapeHtml(toAppHref("/", context) ?? "/")}">Open dashboard</a>
+          <a class="button secondary" href="${escapeHtml(canonicalSetupHref(context))}">Edit setup</a>
         </div>
+      </section>
+      <section class="panel review-run-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Ready</p>
+            <h3>Games ready for review</h3>
+          </div>
+          ${statusBadge(`${queue.length} ready`, queue.length > 0 ? "positive" : "unknown")}
+        </div>
+        <section class="compact-list">
+          ${queue.length > 0
+            ? queue.map((game) => `
+              <article class="compact-row dashboard-queue-row">
+                <div>
+                  <span class="compact-row-main">${escapeHtml(game.champion ?? game.championName ?? "Unknown champion")} · ${escapeHtml(game.result ?? "Result unknown")}</span>
+                  <span class="compact-row-value">${escapeHtml(game.queueLabel ?? "Queue unknown")} · ${escapeHtml(reviewMomentLabel(game))}</span>
+                </div>
+                <a class="button secondary compact-row-action" href="${escapeHtml(reviewHrefForGame(game, context))}">Review</a>
+              </article>
+            `).join("")
+            : '<p class="muted">No review-ready games yet. Recent games are still being prepared.</p>'}
+        </section>
+      </section>
+      <section class="panel dashboard-compact-panel">
+        <p class="eyebrow">Preparing or complete</p>
+        <h3>Recent games</h3>
+        <section class="compact-list">
+          ${recentGames.length > 0
+            ? recentGames.map((game) => `
+              <article class="compact-row">
+                <div>
+                  <span class="compact-row-main">${escapeHtml(game.champion ?? game.championName ?? "Unknown champion")} · ${escapeHtml(reviewStateForGame(game).label)}</span>
+                  <span class="compact-row-value">${escapeHtml(game.queueLabel ?? "Queue unknown")}</span>
+                </div>
+              </article>
+            `).join("")
+            : '<p class="muted">Reviewed games and pending summaries will appear here.</p>'}
+        </section>
       </section>
     </section>
   `, {
     eyebrow: "Review",
-    title: "Review",
-    text: "Choose a recent game from the dashboard.",
+    title: "Review queue",
+    text: "Pick a game and review it.",
     compact: true
   });
 }
@@ -3470,7 +3494,7 @@ async function renderReviewPage(root, context = getRouteContext()) {
   const matchId = url.searchParams.get("matchId");
 
   if (!matchId) {
-    renderReviewLanding(root, context);
+    await renderReviewLanding(root, context);
     return;
   }
 
@@ -3533,16 +3557,6 @@ function insightCard(insight) {
         ? `<p class="signal-detail"><strong>Based on:</strong> ${escapeHtml(insight.basedOn.join(" + "))}</p>`
         : ""}
     </article>
-  `;
-}
-
-function actionStepList(steps) {
-  return `
-    <ol class="action-step-list">
-      ${(steps ?? []).length > 0
-        ? steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")
-        : "<li>Choose one review moment and write the next action.</li>"}
-    </ol>
   `;
 }
 
@@ -3689,8 +3703,10 @@ async function renderHome(root, context = getRouteContext()) {
     const dashboardView = dashboardState({ dashboard, goal, riotEvidence });
     const activeReviewStatus = dashboardView.hasReviewedGames ? (goal.goalStatus ?? "Evidence started") : "No reviewed games yet";
     const primaryAction = primaryDashboardAction({ state: dashboardView, action, context });
-    const goalsHref = toAppHref("/goals", context) ?? "#";
+    const setupHref = canonicalSetupHref(context);
     const teamHref = toAppHref("/team", context) ?? "#";
+    const reviewHref = toAppHref("/review", context) ?? "#";
+    const libraryHref = toAppHref("/library", context) ?? "#";
     const focusTagline = `${goal.role ?? profile.primaryRole ?? "Player"} · ${goal.scope ?? "Personal"}`;
     const teamStatus = dashboardView.hasActionableTeamFocus && dashboardView.hasReviewedGames
       ? "Updated from reviewed evidence"
@@ -3729,7 +3745,7 @@ async function renderHome(root, context = getRouteContext()) {
               ${statusBadge(activeReviewStatus, dashboardView.hasReviewedGames ? (goal.goalStatusTrend ?? "unknown") : "unknown")}
             </div>
           </div>
-          <a class="button secondary" href="${escapeHtml(goalsHref)}">View Goals</a>
+          <a class="button secondary" href="${escapeHtml(setupHref)}">Edit setup</a>
         </div>
       </section>
 
@@ -3766,7 +3782,9 @@ async function renderHome(root, context = getRouteContext()) {
           : inactiveDashboardSection({
             title: "Latest pattern",
             status: "Waiting for reviewed evidence",
-            body: "RiftSense needs reviewed games before it can identify patterns."
+            body: "RiftSense needs reviewed games before it can identify patterns.",
+            href: libraryHref,
+            cta: "Open library"
           })}
         <section class="panel dashboard-inactive-panel team-focus-panel">
           <div class="panel-header">
@@ -3802,7 +3820,11 @@ async function renderHome(root, context = getRouteContext()) {
                 href: toAppHref(step.href, context)
               }))
               .join("")
-            : '<p class="muted">No next steps yet. Add a goal or team focus to generate suggestions.</p>'}
+            : `
+              ${nextStepCard({ title: "Review queue", summary: "Pick a prepared game and review its moments.", href: reviewHref, label: "Open review" })}
+              ${nextStepCard({ title: "Setup", summary: "Update your active goal, role, and team focus.", href: setupHref, label: "Edit setup" })}
+              ${nextStepCard({ title: "Library", summary: "Library fills as you review games.", href: libraryHref, label: "Open library" })}
+            `}
         </section>
       </section>
     </section>
@@ -3909,138 +3931,39 @@ async function renderGoalDashboardPage(root, page, context = getRouteContext()) 
 
   const dashboard = home.goalDashboard ?? {};
   const goal = dashboard.activePersonalGoal ?? {};
-  const action = dashboard.todaysAction ?? {};
   const teamFocus = dashboard.activeTeamFocus ?? {};
-  const recentInsights = dashboard.recentInsights ?? [];
 
   const pages = {
-    goals: {
-      eyebrow: "Goals",
-      title: "Goal Settings",
-      text: "Targets, signals, and linked work.",
-      content: `
-        <section class="goal-management-layout">
-          <article class="panel goal-roster-panel">
-            <p class="eyebrow">Active</p>
-            <h3>${escapeHtml(goal.title ?? "No active goal yet")}</h3>
-            <div class="badge-row">
-              ${statusBadge(goal.goalStatus ?? "No data yet", goal.goalStatusTrend ?? "unknown")}
-              <span class="context-badge">${escapeHtml(goal.role ?? "Player")} · ${escapeHtml(goal.scope ?? "Personal")}</span>
-            </div>
-          </article>
-          <article class="panel">
-            <p class="eyebrow">Weekly Targets</p>
-            <section class="compact-list">
-              ${(goal.weeklyTargets ?? []).length > 0
-                ? goal.weeklyTargets.map(compactTargetRow).join("")
-                : '<p class="muted">No weekly targets configured yet.</p>'}
-            </section>
-          </article>
-          <article class="panel">
-            <p class="eyebrow">Monthly Targets</p>
-            ${targetList(goal.monthlyTargets, "No monthly targets configured yet.")}
-          </article>
-          <article class="panel">
-            <p class="eyebrow">Tracked Signals</p>
-            <section class="compact-list">
-              ${(goal.signals ?? []).length > 0
-                ? goal.signals.map(goalSignalRow).join("")
-                : '<p class="muted">No signals configured yet.</p>'}
-            </section>
-          </article>
-          <article class="panel">
-            <p class="eyebrow">Linked Action</p>
-            <h3>${escapeHtml(action.title ?? "No action configured")}</h3>
-            <p class="action-time">${escapeHtml(action.estimatedMinutes ?? 0)} minutes</p>
-            <a class="button secondary" href="${escapeHtml(toAppHref(action.href ?? "/review", context) ?? "#")}">Open Action</a>
-          </article>
-          <article class="panel">
-            <p class="eyebrow">Team Link</p>
-            <h3>${escapeHtml(teamFocus.title ?? "No team focus configured")}</h3>
-            <p class="muted">${escapeHtml(teamFocus.practiceTopic ?? "No practice topic configured.")}</p>
-          </article>
-        </section>
-      `
-    },
-    review: {
-      eyebrow: "Review",
-      title: action.title ?? "Review",
-      text: "Checklist and tags for the next review.",
-      content: `
-        <section class="review-workspace-layout">
-          <article class="panel review-run-panel">
-            <div class="panel-header">
-              <div>
-                <p class="eyebrow">Review Block</p>
-                <h3>${escapeHtml(action.title ?? "No review action configured")}</h3>
-              </div>
-              <p class="action-time">${escapeHtml(action.estimatedMinutes ?? 0)} minutes</p>
-            </div>
-            ${actionStepList(action.steps)}
-          </article>
-          <article class="panel review-tags-panel">
-            <p class="eyebrow">Tag Against</p>
-            <h3>${escapeHtml(goal.title ?? "Active goal")}</h3>
-            <section class="review-tag-grid">
-              ${(goal.signals ?? []).length > 0
-                ? goal.signals.map(reviewTagButton).join("")
-                : '<p class="muted">No signals configured yet.</p>'}
-            </section>
-          </article>
-          <article class="panel">
-            <p class="eyebrow">Recent Read</p>
-            <section class="compact-list">
-              ${recentInsights.length > 0
-                ? recentInsights.map((insight) => `
-                  <article class="compact-row">
-                    <span>${escapeHtml(insight.title)}</span>
-                  </article>
-                `).join("")
-                : '<p class="muted">No insights yet.</p>'}
-            </section>
-          </article>
-          <article class="panel">
-            <p class="eyebrow">Targets</p>
-            <section class="compact-list">
-              ${(goal.weeklyTargets ?? []).length > 0
-                ? goal.weeklyTargets.map(compactTargetRow).join("")
-                : '<p class="muted">No weekly targets configured yet.</p>'}
-            </section>
-          </article>
-        </section>
-      `
-    },
     training: {
       eyebrow: "Training",
-      title: "Practice Blocks",
-      text: "Decision tree and pre-game reminder.",
+      title: "Training - Not ready yet",
+      text: "Training unlocks after confirmed patterns.",
       content: `
-        <section class="panel">
-          <p class="eyebrow">Decision Tree</p>
-          <h3>ADC trading check</h3>
-          <ul class="team-checklist">
-            <li>Do we win this matchup before level 6?</li>
-            <li>Is the wave state supporting the trade?</li>
-            <li>Are key cooldowns or summoners missing?</li>
-            <li>Can jungle or support punish if I extend?</li>
-          </ul>
-        </section>
-        <section class="panel">
-          <p class="eyebrow">Pre-game Reminder</p>
-          <h3>${escapeHtml(goal.title ?? "Active goal")}</h3>
+        <section class="panel dashboard-inactive-panel">
+          <p class="eyebrow">Not ready yet</p>
+          <h3>Training uses confirmed patterns</h3>
+          <p class="muted">Review games first. Drills and practice blocks unlock after RiftSense has confirmed patterns from your reviewed evidence.</p>
+          <div class="action-row">
+            <a class="button secondary" href="${escapeHtml(toAppHref("/review", context) ?? "/review")}">Open review</a>
+            <a class="button secondary" href="${escapeHtml(toAppHref("/library", context) ?? "/library")}">Open library</a>
+          </div>
         </section>
       `
     },
     team: {
-      eyebrow: "Team",
+      eyebrow: "Team Focus",
       title: teamFocus.title ?? "Team Focus",
-      text: "Practice topic, review item, checklist, and signals.",
+      text: "Current team-oriented focus. Setup owns editing.",
       content: `
         <section class="panel team-focus-panel">
-          <p class="eyebrow">Practice Topic</p>
+          <p class="eyebrow">Current team focus</p>
           <h3>${escapeHtml(teamFocus.practiceTopic ?? "No practice topic configured")}</h3>
           <p><strong>Assigned review:</strong> ${escapeHtml(teamFocus.assignedReview ?? "Not set")}</p>
+          <p class="muted">Team Focus is seeded from setup until reviewed game evidence updates it.</p>
           ${teamChecklist(teamFocus.checklist)}
+          <div class="action-row">
+            <a class="button secondary" href="${escapeHtml(canonicalSetupHref(context))}">Edit setup</a>
+          </div>
         </section>
         <section class="panel recent-signals-panel">
           <p class="eyebrow">Team Signals</p>
@@ -4048,7 +3971,7 @@ async function renderGoalDashboardPage(root, page, context = getRouteContext()) 
           <section class="signal-grid">
             ${(teamFocus.signals ?? []).length > 0
               ? teamFocus.signals.map(signalCard).join("")
-              : '<p class="muted">No team signals configured yet.</p>'}
+              : '<p class="muted">Waiting for reviewed evidence.</p>'}
           </section>
         </section>
       `
@@ -4153,7 +4076,7 @@ function onboardingPreview({ state, templates }) {
 
 async function renderOnboarding(root, context = getRouteContext()) {
   if (!context.demoMode && !getSessionState().authenticated) {
-    renderAuthRequiredPage(root, "Sign in to start setup", "RiftSense setup is saved to your authenticated account.");
+    renderAuthRequiredPage(root, "Sign in to edit setup", "RiftSense setup is saved to your authenticated account.");
     return;
   }
 
@@ -4234,10 +4157,10 @@ async function renderOnboarding(root, context = getRouteContext()) {
     root.innerHTML = appShell(`
       <section class="section-heading">
         <div>
-          <p class="eyebrow">${context.demoMode ? "Demo Onboarding" : "Onboarding"}</p>
-          <h2>Onboarding</h2>
+          <p class="eyebrow">${context.demoMode ? "Demo Setup" : "Setup"}</p>
+          <h2>Setup</h2>
         </div>
-        <p class="section-copy">Select context, role, goal, signals, targets, first action, and optional team focus.</p>
+        <p class="section-copy">Edit your role, active personal goal, review signals, weekly targets, first action, and team focus in one place.</p>
       </section>
       <form class="onboarding-flow" id="onboarding-form">
         <section class="panel onboarding-step">
@@ -4321,8 +4244,8 @@ async function renderOnboarding(root, context = getRouteContext()) {
         <section class="panel panel-slim onboarding-submit">
           <div>
             <p class="eyebrow">Finish</p>
-            <h3>${context.demoMode ? "Preview demo setup" : "Save onboarding setup"}</h3>
-            <p class="muted" id="onboarding-status" aria-live="polite">${context.demoMode ? "Demo onboarding does not write server state." : "Saving will update your active dashboard state."}</p>
+            <h3>${context.demoMode ? "Preview demo setup" : "Save setup"}</h3>
+            <p class="muted" id="onboarding-status" aria-live="polite">${context.demoMode ? "Demo setup does not write server state." : "Saving will update your dashboard, goal, and team focus."}</p>
           </div>
           <div class="action-row">
             <button class="button" type="submit">${context.demoMode ? "Preview Setup" : "Save Setup"}</button>
@@ -4331,8 +4254,8 @@ async function renderOnboarding(root, context = getRouteContext()) {
         </section>
       </form>
     `, {
-      eyebrow: context.demoMode ? "Demo Onboarding" : "Onboarding",
-      title: "Onboarding",
+      eyebrow: context.demoMode ? "Demo Setup" : "Setup",
+      title: "Setup",
       text: "Save active goal and team focus setup.",
       compact: true
     });
@@ -4357,7 +4280,7 @@ async function renderOnboarding(root, context = getRouteContext()) {
       const payload = payloadFromForm(form);
 
       if (context.demoMode) {
-        status.textContent = "Demo preview is ready. The selected template state matches what the dashboard save would create.";
+        status.textContent = "Demo preview is ready. The selected setup matches what the dashboard save would create.";
         return;
       }
 
@@ -4373,7 +4296,7 @@ async function renderOnboarding(root, context = getRouteContext()) {
         });
         window.location.href = "/";
       } catch (error) {
-        status.textContent = error instanceof Error ? error.message : "Onboarding save failed.";
+        status.textContent = error instanceof Error ? error.message : "Setup save failed.";
       }
     });
   }
@@ -4387,62 +4310,32 @@ async function renderFocusPage(root, scope, context = getRouteContext()) {
     week: "Focus This Week",
     month: "Focus This Month"
   }[scope];
-  const goalsHref = context.demoMode ? "/demo/goals" : "/goals";
+  const setupHref = canonicalSetupHref(context);
 
   root.innerHTML = appShell(`
     <section class="section-heading">
       <div>
-        <p class="eyebrow">Goals</p>
+        <p class="eyebrow">Setup</p>
         <h2>${escapeHtml(label)}</h2>
       </div>
-      <p class="section-copy">This view moved to Goals.</p>
+      <p class="section-copy">This setup view moved.</p>
     </section>
     <section class="panel panel-slim">
-      <p class="muted">Use Goals for active goal details, weekly targets, and linked signals.</p>
+      <p class="muted">Use Setup for active goal details, weekly targets, linked signals, and team focus.</p>
       <div class="action-row">
-        <a class="button" href="${escapeHtml(goalsHref)}">Open Goals</a>
+        <a class="button" href="${escapeHtml(setupHref)}">Open setup</a>
       </div>
     </section>
   `, {
-    eyebrow: "Goals",
+    eyebrow: "Setup",
     title: label,
-    text: "This view moved to Goals.",
-    compact: true
-  });
-}
-
-async function renderLearnPlaceholder(root, page) {
-  const pages = {
-    drills: {
-      title: "Drills",
-      text: "Practice-oriented work will land here."
-    },
-    test: {
-      title: "Test",
-      text: "Quizzes and knowledge checks will land here."
-    },
-    review: {
-      title: "Review",
-      text: "Review workflows will land here."
-    }
-  };
-  const config = pages[page];
-
-  root.innerHTML = appShell(`
-    <section class="panel">
-      <p class="eyebrow">Learn</p>
-      <h3>${escapeHtml(config.title)}</h3>
-      <p>${escapeHtml(config.text)}</p>
-    </section>
-  `, {
-    eyebrow: "Learn",
-    title: config.title,
-    text: config.text,
+    text: "This view moved to Setup.",
     compact: true
   });
 }
 
 async function renderLibrary(root) {
+  const context = getRouteContext();
   const url = new URL(window.location.href);
   const params = new URLSearchParams();
   params.set("status", "published");
@@ -4462,13 +4355,38 @@ async function renderLibrary(root) {
     params.set("topic", url.searchParams.get("topic"));
   }
 
-  const { items } = await requestJson(`/api/content-items?${params.toString()}`);
+  const [{ items }, homeResult] = await Promise.all([
+    requestJson(`/api/content-items?${params.toString()}`),
+    getSessionState().authenticated
+      ? requestJson(context.homeApiUrl, context.requestOptions).catch(() => null)
+      : Promise.resolve(null)
+  ]);
+  const dashboard = homeResult?.home?.goalDashboard ?? {};
+  const goal = dashboard.activePersonalGoal ?? {};
+  const dashboardView = dashboardState({ dashboard, goal, riotEvidence: goal.riotEvidence ?? {} });
 
   root.innerHTML = appShell(`
+    <section class="panel ${dashboardView.hasReviewedGames ? "evidence-progress-panel" : "dashboard-inactive-panel"}">
+      <p class="eyebrow">Evidence history</p>
+      <h2>Library</h2>
+      ${dashboardView.hasReviewedGames
+        ? `
+          <p class="muted">${escapeHtml(dashboardView.goalReviewedCount)} ${dashboardView.goalReviewedCount === 1 ? "game" : "games"} reviewed. Confirmed patterns and saved review outputs appear here as they are created.</p>
+          <div class="progress-checklist">
+            <span>${escapeHtml(dashboardView.goalReviewedCount)} ${dashboardView.goalReviewedCount === 1 ? "game" : "games"} reviewed</span>
+            <span>${escapeHtml(dashboardView.patterns.length || dashboardView.goalSignals.length)} ${(dashboardView.patterns.length || dashboardView.goalSignals.length) === 1 ? "pattern" : "patterns"} found</span>
+          </div>
+        `
+        : `
+          ${statusBadge("After reviews", "unknown")}
+          <p class="muted">Library fills as you review games. Reviewed games, confirmed patterns, and saved outputs will appear here.</p>
+          <a class="button secondary" href="${escapeHtml(toAppHref("/review", context) ?? "/review")}">Open review</a>
+        `}
+    </section>
     <section class="panel panel-slim library-toolbar">
       <div class="library-toolbar-head">
         <div>
-          <p class="eyebrow">Learning Library</p>
+          <p class="eyebrow">Reference content</p>
           <h2>${escapeHtml(viewModeLabel)}</h2>
         </div>
         <p class="muted">${items.length} ${items.length === 1 ? "item" : "items"}</p>
@@ -4501,9 +4419,9 @@ async function renderLibrary(root) {
       ${items.length > 0 ? items.map((item) => contentCard(item)).join("") : '<p class="muted">No published content matches these filters yet.</p>'}
     </section>
   `, {
-    eyebrow: "Learning Library",
-    title: "Learning Library",
-    text: "Filter published content by type, topic, or view.",
+    eyebrow: "Library",
+    title: "Library",
+    text: "Evidence history and reference content.",
     pills: [],
     compact: true
   });
@@ -4978,11 +4896,8 @@ export async function renderApp(root) {
       return;
     }
 
-    if (pathname === "/goals" || pathname === "/demo/goals") {
-      await renderGoalDashboardPage(root, "goals", context);
-      bindNavControls(root);
-      bindNavSectionControls(root);
-      bindSessionControls(root);
+    if (pathname === "/setup" || pathname === "/demo/setup" || pathname === "/goals" || pathname === "/demo/goals" || pathname === "/onboarding" || pathname === "/demo/onboarding") {
+      await renderOnboarding(root, context);
       return;
     }
 
@@ -5018,16 +4933,8 @@ export async function renderApp(root) {
       return;
     }
 
-    if (pathname === "/drills") {
-      await renderLearnPlaceholder(root, "drills");
-      bindNavControls(root);
-      bindNavSectionControls(root);
-      bindSessionControls(root);
-      return;
-    }
-
-    if (pathname === "/test") {
-      await renderLearnPlaceholder(root, "test");
+    if (pathname === "/drills" || pathname === "/test") {
+      await renderGoalDashboardPage(root, "training", context);
       bindNavControls(root);
       bindNavSectionControls(root);
       bindSessionControls(root);
@@ -5055,11 +4962,6 @@ export async function renderApp(root) {
       bindNavControls(root);
       bindNavSectionControls(root);
       bindSessionControls(root);
-      return;
-    }
-
-    if (pathname === "/onboarding" || pathname === "/demo/onboarding") {
-      await renderOnboarding(root, context);
       return;
     }
 

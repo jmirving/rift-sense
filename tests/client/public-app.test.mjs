@@ -24,6 +24,29 @@ function mockJsonError(message, status = 401) {
   };
 }
 
+function setupOptionsFixture() {
+  return {
+    templates: {
+      goalTemplates: [{
+        id: "die-less",
+        title: "Die Less",
+        description: "Reduce avoidable deaths.",
+        defaultSignalIds: ["solo-death"],
+        suggestedWeeklyTargets: [{ signalId: "solo-death", targetValue: 2, label: "Review solo deaths" }],
+        defaultActionIds: ["review-deaths"]
+      }],
+      signalTemplates: [{ id: "solo-death", title: "Solo deaths", description: "Deaths without reliable cover." }],
+      actionTemplates: [{ id: "review-deaths", title: "Review deaths", linkedGoalTemplateIds: ["die-less"] }],
+      teamFocusTemplates: [{
+        id: "dragon-setup",
+        title: "Dragon setup",
+        description: "Coordinate setup before dragon.",
+        defaultChecklist: ["Group before spawn"]
+      }]
+    }
+  };
+}
+
 async function flushAsyncWork() {
   await new Promise((resolve) => setTimeout(resolve, 0));
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -335,6 +358,195 @@ describe("public app routes", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/home", expect.any(Object));
   });
 
+  it("shows consolidated authenticated navigation and compact account footer", async () => {
+    const longName = "3nderWiggin#NA1-with-a-very-long-visible-riot-id";
+    const longEmail = "jirving0311+very-long-test-account@example.com";
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1", displayName: longName, email: longEmail },
+          accountUrl: "/account",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
+            goalDashboard: { activePersonalGoal: { title: "Die Less", riotEvidence: {} }, activeTeamFocus: {}, suggestedNextSteps: [] }
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/");
+
+    await renderApp(document.querySelector("#app"));
+
+    const navText = document.querySelector("#nav-drawer")?.textContent ?? "";
+    expect(navText).toContain("Dashboard");
+    expect(navText).toContain("Review");
+    expect(navText).toContain("Setup");
+    expect(navText).toContain("Team Focus");
+    expect(navText).toContain("Library");
+    expect(navText).toContain("Training");
+    expect(navText).toContain("Not ready yet");
+    expect(navText).not.toContain("Goals");
+    expect(navText).not.toContain("Onboarding");
+    expect(document.querySelector('.side-nav-link[href="/training"].is-muted')).not.toBeNull();
+    expect(document.querySelector(".session-footer")).not.toBeNull();
+    expect(document.querySelector(".session-footer-name")?.textContent).toBe(longName);
+    expect(document.querySelector(".session-footer-email")?.textContent).toBe(longEmail);
+    expect(document.querySelector(".session-card.panel")).toBeNull();
+    expect(document.querySelector("#session-logout-button")?.textContent).toBe("Sign out");
+    expect(document.querySelector('.session-footer-link[href="/account"]')?.textContent).toBe("Open Nexus");
+  });
+
+  it("routes old Goals and Onboarding surfaces to canonical Setup", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1", displayName: "Nexus Player" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/onboarding/options") {
+        return mockJsonResponse(setupOptionsFixture());
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    window.history.pushState({}, "", "/goals");
+    await renderApp(document.querySelector("#app"));
+    expect(document.body.textContent).toContain("Setup");
+    expect(document.body.textContent).toContain("Personal goal");
+    expect(document.body.textContent).toContain("Choose team focus");
+    expect(document.body.textContent).toContain("Save setup");
+    expect(document.body.textContent).not.toContain("Goal Settings");
+
+    document.body.innerHTML = '<div id="app"></div>';
+    window.history.pushState({}, "", "/onboarding");
+    await renderApp(document.querySelector("#app"));
+    expect(document.body.textContent).toContain("Setup");
+    expect(document.body.textContent).toContain("Save setup");
+  });
+
+  it("renders Review as the canonical queue instead of a placeholder", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Die Less",
+                riotEvidence: {
+                  candidateGames: [{
+                    matchId: "NA1_ready",
+                    championName: "Jhin",
+                    queueLabel: "Ranked Solo/Duo",
+                    result: "Loss",
+                    kda: "1/5/3",
+                    evaluationStatus: "current",
+                    evaluationSummary: { deathCount: 5, reviewSignals: ["5 deaths"] }
+                  }]
+                }
+              }
+            }
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/review");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("Review queue");
+    expect(document.body.textContent).toContain("Games ready for review");
+    expect(document.body.textContent).toContain("Jhin · Loss");
+    expect(document.querySelector('a[href="/review?matchId=NA1_ready"]')?.textContent).toContain("Review");
+    expect(document.body.textContent).not.toContain("Choose a recent game from the dashboard");
+    expect(document.body.textContent).not.toContain("Review workflows will land here");
+  });
+
+  it("marks Training, Team Focus, and Library as immature without making them look complete", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
+            goalDashboard: { activePersonalGoal: { title: "Die Less", riotEvidence: {} }, activeTeamFocus: { title: "Dragon setup" }, recentInsights: [] }
+          }
+        });
+      }
+
+      if (url.startsWith("/api/content-items?")) {
+        return mockJsonResponse({ items: [] });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    window.history.pushState({}, "", "/training");
+    await renderApp(document.querySelector("#app"));
+    expect(document.body.textContent).toContain("Training - Not ready yet");
+    expect(document.body.textContent).toContain("Training uses confirmed patterns");
+    expect(document.body.textContent).not.toContain("ADC trading check");
+
+    document.body.innerHTML = '<div id="app"></div>';
+    window.history.pushState({}, "", "/team");
+    await renderApp(document.querySelector("#app"));
+    expect(document.body.textContent).toContain("Team Focus");
+    expect(document.body.textContent).toContain("Team Focus is seeded from setup until reviewed game evidence updates it.");
+    expect(document.querySelector('.team-focus-panel a[href="/setup"]')?.textContent).toContain("Edit setup");
+
+    document.body.innerHTML = '<div id="app"></div>';
+    window.history.pushState({}, "", "/library");
+    await renderApp(document.querySelector("#app"));
+    expect(document.body.textContent).toContain("Evidence history");
+    expect(document.body.textContent).toContain("Library fills as you review games.");
+    expect(document.body.textContent).toContain("After reviews");
+  });
+
   it("renders partial Riot parser readiness without hiding ready games", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
@@ -465,6 +677,15 @@ describe("public app routes", () => {
               recentInsights: [],
               suggestedNextSteps: []
             }
+          }
+        });
+      }
+
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
+            goalDashboard: { activePersonalGoal: { title: "Die Less", riotEvidence: {} } }
           }
         });
       }
@@ -1086,6 +1307,15 @@ describe("public app routes", () => {
         });
       }
 
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
+            goalDashboard: { activePersonalGoal: { title: "Die Less", riotEvidence: {} } }
+          }
+        });
+      }
+
       throw new Error(`Unexpected fetch: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -1093,8 +1323,9 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Choose a recent game from the dashboard to review.");
-    expect(document.querySelector('.button[href="/"]')?.textContent).toContain("Open dashboard");
+    expect(document.body.textContent).toContain("Review queue");
+    expect(document.body.textContent).toContain("No review-ready games yet");
+    expect(document.querySelector('.button[href="/setup"]')?.textContent).toContain("Edit setup");
   });
 
   it("renders a review priority and death facts for a multi-death evaluated match", async () => {
