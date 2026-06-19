@@ -114,7 +114,7 @@ function buildPublicHomePayload() {
     publicEntry: {
       title: "RiftSense",
       summary: "Review goals, recent games, and team focus from a Nexus-authenticated League workflow.",
-      signInHref: "/#session-login-form",
+      signInHref: "/login",
       signInLabel: "Continue with Nexus",
       aboutHref: "/about",
       demoHref: "/demo"

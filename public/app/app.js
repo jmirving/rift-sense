@@ -80,7 +80,7 @@ function getRouteContext() {
 }
 
 function isPublicPath(pathname) {
-  return pathname === "/" || pathname === "/about";
+  return pathname === "/" || pathname === "/about" || pathname === "/login";
 }
 
 function toAppHref(href, context = getRouteContext()) {
@@ -298,25 +298,86 @@ function renderSessionPanel() {
         <p class="eyebrow">Sign In</p>
         <h2>Continue in RiftSense</h2>
         <p class="muted">${escapeHtml(intro)}</p>
-        <form id="session-login-form" class="session-form">
-          <label>
-            Email
-            <input type="email" name="email" autocomplete="email" required />
-          </label>
-          <label>
-            Password
-            <input type="password" name="password" autocomplete="current-password" required />
-          </label>
-          <div class="action-row">
-            <button class="button" type="submit">Sign In</button>
-            ${accountLink}
-          </div>
-          <p class="muted session-status" id="session-login-status" aria-live="polite"></p>
-        </form>
+        ${renderLoginForm(session)}
+        <div class="action-row">${accountLink}</div>
         ${renderDeveloperTokenTools(session)}
       </div>
     </section>
   `;
+}
+
+function renderLoginForm(session, { fullWidth = false } = {}) {
+  const submitLabel = fullWidth ? "Sign in to RiftSense" : "Sign In";
+
+  return `
+    <form id="session-login-form" class="session-form${fullWidth ? " auth-form" : ""}">
+      <label>
+        NEXUS EMAIL
+        <input type="email" name="email" autocomplete="email" required />
+      </label>
+      <label>
+        NEXUS PASSWORD
+        <input type="password" name="password" autocomplete="current-password" required />
+      </label>
+      <button class="button${fullWidth ? " auth-submit" : ""}" type="submit" data-submit-label="${escapeHtml(submitLabel)}">${escapeHtml(submitLabel)}</button>
+      <p class="muted session-status" id="session-login-status" aria-live="polite">${session.unavailable ? escapeHtml(session.error || "Session is unavailable right now.") : ""}</p>
+    </form>
+  `;
+}
+
+function authShell(session) {
+  const accountHref = session.accountUrl || session.portalBaseUrl || "/about";
+
+  return `
+    <main class="auth-page-shell">
+      <section class="auth-card" aria-label="RiftSense sign in">
+        <section class="auth-info-panel">
+          <div class="brand-lockup">
+            <img class="brand-mark" src="/riftsense.png" alt="RiftSense" />
+            <div class="brand-copy">
+              <p class="eyebrow">RIFTSENSE</p>
+              <a class="wordmark" href="/">RiftSense</a>
+            </div>
+          </div>
+          <div class="auth-info-copy">
+            <p class="eyebrow">RIFTSENSE</p>
+            <h1>Sign in to review.</h1>
+            <p class="muted">Use your Nexus account to open recent games, active goals, and review work.</p>
+          </div>
+          <dl class="auth-context-list">
+            <div>
+              <dt>Account</dt>
+              <dd>Nexus</dd>
+            </div>
+            <div>
+              <dt>Session</dt>
+              <dd>RiftSense</dd>
+            </div>
+            <div>
+              <dt>Profile</dt>
+              <dd>Shared Nexus profile</dd>
+            </div>
+          </dl>
+        </section>
+        <section class="auth-signin-panel">
+          <p class="eyebrow">SIGN IN</p>
+          <h2>RiftSense</h2>
+          <p class="muted">Continue with your Nexus credentials.</p>
+          ${renderLoginForm(session, { fullWidth: true })}
+          <div class="auth-help-links">
+            <a href="${escapeHtml(accountHref)}">Need account help? Open Nexus account access</a>
+            <a href="/about">New here? What is RiftSense?</a>
+            <a href="/demo">Want the guided path first? Open demo flow</a>
+          </div>
+          ${renderDeveloperTokenTools(session)}
+        </section>
+      </section>
+    </main>
+  `;
+}
+
+function renderLoginPage(root) {
+  root.innerHTML = authShell(getSessionState());
 }
 
 function appShell(content, hero = {}) {
@@ -3491,7 +3552,7 @@ async function renderHome(root, context = getRouteContext()) {
             <h2>${escapeHtml(home.publicEntry?.title ?? "RiftSense")}</h2>
             <p class="muted">${escapeHtml(home.publicEntry?.summary ?? "")}</p>
             <div class="action-row">
-              <a class="button" href="${escapeHtml(home.publicEntry?.signInHref ?? "/#session-login-form")}">${escapeHtml(home.publicEntry?.signInLabel ?? "Continue with Nexus")}</a>
+              <a class="button" href="${escapeHtml(home.publicEntry?.signInHref ?? "/login")}">${escapeHtml(home.publicEntry?.signInLabel ?? "Continue with Nexus")}</a>
               <a class="button secondary" href="${escapeHtml(home.publicEntry?.aboutHref ?? "/about")}">About</a>
               <a class="button secondary" href="${escapeHtml(home.publicEntry?.demoHref ?? "/demo")}">Demo</a>
             </div>
@@ -3710,7 +3771,7 @@ function renderPublicAbout(root) {
         <h2>RiftSense is a goal-driven League review workspace</h2>
         <p class="muted">It uses Nexus-authenticated identity, shared Riot profile fields, and RiftSense-owned recent-game evidence to help players focus review work against active goals.</p>
         <div class="action-row">
-          <a class="button" href="/#session-login-form">Continue with Nexus</a>
+          <a class="button" href="/login">Continue with Nexus</a>
           <a class="button secondary" href="/demo">View Demo</a>
         </div>
       </section>
@@ -3742,7 +3803,7 @@ function renderAuthRequiredPage(root, title, summary) {
         <h2>${escapeHtml(title)}</h2>
         <p class="muted">${escapeHtml(summary)}</p>
         <div class="action-row">
-          <a class="button" href="/#session-login-form">Continue with Nexus</a>
+          <a class="button" href="/login">Continue with Nexus</a>
           <a class="button secondary" href="/demo">View Demo</a>
           <a class="button secondary" href="/about">About</a>
         </div>
@@ -4668,7 +4729,7 @@ function bindSessionControls(root) {
     } finally {
       if (submitButton instanceof HTMLButtonElement) {
         submitButton.disabled = false;
-        submitButton.textContent = "Sign In";
+        submitButton.textContent = submitButton.dataset.submitLabel || "Sign In";
       }
     }
   });
@@ -4804,8 +4865,28 @@ export async function renderApp(root) {
   const pathname = context.pathname;
 
   await loadSession();
+  const showingAuthPage = pathname === "/login" && !getSessionState().authenticated;
+  document.body.classList.toggle("auth-page", showingAuthPage);
+  if (showingAuthPage) {
+    document.body.classList.remove("nav-open", "nav-collapsed");
+  }
 
   try {
+    if (pathname === "/login") {
+      if (getSessionState().authenticated) {
+        window.history.replaceState({}, "", "/");
+        await renderHome(root, getRouteContext());
+        bindNavControls(root);
+        bindNavSectionControls(root);
+        bindSessionControls(root);
+        return;
+      }
+
+      renderLoginPage(root);
+      bindSessionControls(root);
+      return;
+    }
+
     if (pathname === "/about") {
       renderPublicAbout(root);
       bindNavControls(root);

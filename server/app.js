@@ -15,6 +15,7 @@ import { ApiError, badRequest, formatErrorResponse } from "./errors.js";
 
 const clientRoutes = [
   "/",
+  "/login",
   "/about",
   "/demo",
   "/demo/adc",

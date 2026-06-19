@@ -14,6 +14,16 @@ function mockJsonResponse(body) {
   };
 }
 
+function mockJsonError(message, status = 401) {
+  return {
+    ok: false,
+    status,
+    async json() {
+      return { error: { message } };
+    }
+  };
+}
+
 async function flushAsyncWork() {
   await new Promise((resolve) => setTimeout(resolve, 0));
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -22,6 +32,7 @@ async function flushAsyncWork() {
 describe("public app routes", () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="app"></div>';
+    document.body.className = "";
     window.localStorage.clear();
     window.matchMedia = vi.fn().mockImplementation(() => ({
       matches: false,
@@ -55,7 +66,7 @@ describe("public app routes", () => {
             publicEntry: {
               title: "RiftSense",
               summary: "Review goals, recent games, and team focus from a Nexus-authenticated League workflow.",
-              signInHref: "/#session-login-form",
+              signInHref: "/login",
               signInLabel: "Continue with Nexus",
               aboutHref: "/about",
               demoHref: "/demo"
@@ -103,7 +114,7 @@ describe("public app routes", () => {
             publicEntry: {
               title: "RiftSense",
               summary: "",
-              signInHref: "/#session-login-form",
+              signInHref: "/login",
               signInLabel: "Continue with Nexus",
               aboutHref: "/about",
               demoHref: "/demo"
@@ -149,7 +160,7 @@ describe("public app routes", () => {
             publicEntry: {
               title: "RiftSense",
               summary: "",
-              signInHref: "/#session-login-form",
+              signInHref: "/login",
               signInLabel: "Continue with Nexus",
               aboutHref: "/about",
               demoHref: "/demo"
@@ -198,6 +209,153 @@ describe("public app routes", () => {
     expect(document.querySelector('a[href="/demo"]')).not.toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith("/api/session", expect.any(Object));
+  });
+
+  it("renders the unauthenticated sign-in route in a dedicated auth shell", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: false,
+          user: null,
+          accountUrl: "/account",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/login");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.querySelector(".auth-page-shell")).not.toBeNull();
+    expect(document.querySelector("#nav-drawer")).toBeNull();
+    expect(document.querySelector(".session-card")).toBeNull();
+    expect(document.body.textContent).toContain("Sign in to review.");
+    expect(document.body.textContent).toContain("Use your Nexus account to open recent games, active goals, and review work.");
+    expect(document.body.textContent).toContain("Account");
+    expect(document.body.textContent).toContain("Shared Nexus profile");
+    expect(document.body.textContent).toContain("Continue with your Nexus credentials.");
+    expect(document.body.textContent).toContain("Need account help? Open Nexus account access");
+    expect(document.body.textContent).toContain("New here? What is RiftSense?");
+    expect(document.body.textContent).toContain("Want the guided path first? Open demo flow");
+    expect(document.querySelector('input[name="email"]')).not.toBeNull();
+    expect(document.querySelector('input[name="password"]')).not.toBeNull();
+    expect(document.querySelector('button[type="submit"]')?.textContent).toBe("Sign in to RiftSense");
+    expect(document.body.textContent).not.toContain("Continue in RiftSense");
+  });
+
+  it("submits Nexus credentials from the dedicated auth shell and preserves loading and error states", async () => {
+    let resolveLogin;
+    const loginResponse = new Promise((resolve) => {
+      resolveLogin = resolve;
+    });
+    const fetchMock = vi.fn((url, options) => {
+      if (url === "/api/session") {
+        return Promise.resolve(mockJsonResponse({
+          authEnabled: true,
+          authenticated: false,
+          user: null,
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        }));
+      }
+
+      if (url === "/auth/login") {
+        return loginResponse;
+      }
+
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/login");
+
+    await renderApp(document.querySelector("#app"));
+
+    document.querySelector('input[name="email"]').value = "player@nexus.test";
+    document.querySelector('input[name="password"]').value = "secret";
+    document.querySelector("#session-login-form").dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+    await flushAsyncWork();
+
+    const submitButton = document.querySelector('button[type="submit"]');
+    expect(submitButton.disabled).toBe(true);
+    expect(submitButton.textContent).toBe("Signing In...");
+    expect(fetchMock).toHaveBeenCalledWith("/auth/login", expect.objectContaining({
+      method: "POST",
+      skipStoredToken: true,
+      body: JSON.stringify({ email: "player@nexus.test", password: "secret" })
+    }));
+
+    resolveLogin(mockJsonError("Invalid Nexus credentials."));
+    await flushAsyncWork();
+
+    expect(submitButton.disabled).toBe(false);
+    expect(submitButton.textContent).toBe("Sign in to RiftSense");
+    expect(document.querySelector("#session-login-status").textContent).toBe("Invalid Nexus credentials.");
+  });
+
+  it("keeps public home, about, and demo routes reachable from the auth shell", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: false,
+          user: null,
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/login");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.querySelector('.wordmark[href="/"]')).not.toBeNull();
+    expect(document.querySelector('.auth-help-links a[href="/about"]')).not.toBeNull();
+    expect(document.querySelector('.auth-help-links a[href="/demo"]')).not.toBeNull();
+  });
+
+  it("routes signed-in users away from login into the authenticated app shell", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1", displayName: "Nexus Player" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
+            goalDashboard: {}
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/login");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(window.location.pathname).toBe("/");
+    expect(document.querySelector(".auth-page-shell")).toBeNull();
+    expect(document.querySelector("#nav-drawer")).not.toBeNull();
+    expect(document.body.textContent).toContain("Dashboard");
   });
 
   it("renders partial Riot parser readiness without hiding ready games", async () => {
