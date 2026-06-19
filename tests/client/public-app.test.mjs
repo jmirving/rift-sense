@@ -377,7 +377,16 @@ describe("public app routes", () => {
         return mockJsonResponse({
           home: {
             user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
-            goalDashboard: { activePersonalGoal: { title: "Die Less", riotEvidence: {} }, activeTeamFocus: {}, suggestedNextSteps: [] }
+            setupGuide: { status: "setup-needed", title: "Setup needed", summary: "Choose a goal.", href: "/goals", label: "View Goals" },
+            goalDashboard: {
+              activePersonalGoal: { title: "Die Less", riotEvidence: {} },
+              activeTeamFocus: {},
+              suggestedNextSteps: [
+                { title: "Goal setup", summary: "Pick a goal.", href: "/onboarding", label: "Start onboarding" },
+                { title: "Team Focus", summary: "Team seed.", href: "/team", label: "Open team focus" },
+                { title: "Library", summary: "Evidence history.", href: "/library", label: "Open library" }
+              ]
+            }
           }
         });
       }
@@ -396,19 +405,43 @@ describe("public app routes", () => {
     expect(navText).toContain("Team Focus");
     expect(navText).toContain("Library");
     expect(navText).toContain("Training");
-    expect(navText).toContain("Not ready yet");
+    expect(navText).toContain("Under construction");
     expect(navText).not.toContain("Goals");
     expect(navText).not.toContain("Onboarding");
-    expect(document.querySelector('.side-nav-link[href="/training"].is-muted')).not.toBeNull();
+    expect(document.querySelector('.side-nav-link[href="/"]')?.textContent).toContain("Dashboard");
+    expect(document.querySelector('.side-nav-link[href="/review"]')?.textContent).toContain("Review");
+    expect(document.querySelector('.side-nav-link[href="/setup"]')?.textContent).toContain("Setup");
+    expect(document.querySelectorAll('.side-nav-link[href="/goals"], .side-nav-link[href="/onboarding"]')).toHaveLength(0);
+    expect(document.querySelectorAll('.side-nav-link[href="/team"], .side-nav-link[href="/team-focus"], .side-nav-link[href="/library"], .side-nav-link[href="/training"]')).toHaveLength(0);
+    expect(document.querySelector('.panel-slim a[href="/setup"]')?.textContent).toBe("Open setup");
+    expect([...document.querySelectorAll('a[href="/setup"]')].some((link) => link.textContent.includes("Edit setup") || link.textContent.includes("Open setup"))).toBe(true);
+    expect(document.querySelectorAll('a[href="/goals"], a[href="/onboarding"], a[href="/team"], a[href="/team-focus"], a[href="/library"], a[href="/training"]')).toHaveLength(0);
+    expect(document.body.textContent).not.toContain("View Goals");
+    expect(document.body.textContent).not.toContain("Start onboarding");
+    expect(document.body.textContent).not.toContain("Open team focus");
+    expect(document.body.textContent).not.toContain("Open library");
+    for (const label of ["Team Focus", "Library", "Training"]) {
+      const item = [...document.querySelectorAll(".side-nav-link.is-disabled")].find((entry) => entry.textContent.includes(label));
+      expect(item).toBeTruthy();
+      expect(item.getAttribute("aria-disabled")).toBe("true");
+      expect(item.getAttribute("href")).toBeNull();
+      expect(item.textContent).toContain("Under construction");
+      const beforePath = window.location.pathname;
+      item.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      item.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      expect(window.location.pathname).toBe(beforePath);
+    }
     expect(document.querySelector(".session-footer")).not.toBeNull();
     expect(document.querySelector(".session-footer-name")?.textContent).toBe(longName);
     expect(document.querySelector(".session-footer-email")?.textContent).toBe(longEmail);
+    expect(document.querySelector(".session-footer-name")?.classList.contains("session-footer-name")).toBe(true);
+    expect(document.querySelector(".session-footer-email")?.classList.contains("session-footer-email")).toBe(true);
     expect(document.querySelector(".session-card.panel")).toBeNull();
     expect(document.querySelector("#session-logout-button")?.textContent).toBe("Sign out");
     expect(document.querySelector('.session-footer-link[href="/account"]')?.textContent).toBe("Open Nexus");
   });
 
-  it("routes old Goals and Onboarding surfaces to canonical Setup", async () => {
+  it("renders Setup as the canonical configuration page", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
         return mockJsonResponse({
@@ -425,23 +458,105 @@ describe("public app routes", () => {
         return mockJsonResponse(setupOptionsFixture());
       }
 
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: {
+              id: "usr_1",
+              source: "authenticated",
+              profile: {
+                primaryRole: "Bot",
+                riotGameName: "3nderWiggin",
+                riotTagline: "NA1",
+                riotPuuid: "puuid_1"
+              }
+            },
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Die Less",
+                role: "Bot",
+                scope: "personal",
+                riotEvidence: {
+                  discoveredCount: 3,
+                  evaluationReadyCount: 2,
+                  candidateGames: [{ matchId: "NA1_ready" }]
+                }
+              },
+              activeTeamFocus: {
+                title: "Dragon setup",
+                assignment: "Should bot wave be dropped before dragon?"
+              }
+            }
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    window.history.pushState({}, "", "/setup");
+    await renderApp(document.querySelector("#app"));
+    expect(window.location.pathname).toBe("/setup");
+    expect(document.body.textContent).toContain("Setup");
+    expect(document.body.textContent).toContain("Personal focus");
+    expect(document.body.textContent).toContain("Die Less");
+    expect(document.body.textContent).toContain("Bot · personal");
+    expect(document.body.textContent).toContain("Review setup");
+    expect(document.body.textContent).toContain("Nexus/Riot identity: 3nderWiggin#NA1");
+    expect(document.body.textContent).toContain("Recent games: 3 available");
+    expect(document.body.textContent).toContain("Review-ready games: 2 available");
+    expect(document.querySelector('.action-row a[href="/review"]')?.textContent).toContain("Go to Review");
+    expect(document.body.textContent).toContain("Team focus seed");
+    expect(document.body.textContent).toContain("Dragon setup");
+    expect(document.body.textContent).toContain("Should bot wave be dropped before dragon?");
+    expect(document.body.textContent).toContain("Team Focus is under construction; this setup value is saved as a seed for later team workflows.");
+    expect(document.body.textContent).toContain("Save setup");
+    expect(document.body.textContent).not.toContain("Goal Settings");
+    expect(document.body.textContent).not.toContain("Dashboard Preview");
+    expect(document.body.textContent).not.toContain("Choose team focus");
+  });
+
+  it("keeps old Goals and Onboarding URLs as Setup compatibility only", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1", displayName: "Nexus Player" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/onboarding/options") {
+        return mockJsonResponse(setupOptionsFixture());
+      }
+
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "Bot" } },
+            goalDashboard: { activePersonalGoal: { title: "Die Less", role: "Bot", scope: "personal", riotEvidence: {} }, activeTeamFocus: { title: "Dragon setup" } }
+          }
+        });
+      }
+
       throw new Error(`Unexpected fetch: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
 
     window.history.pushState({}, "", "/goals");
     await renderApp(document.querySelector("#app"));
-    expect(document.body.textContent).toContain("Setup");
-    expect(document.body.textContent).toContain("Personal goal");
-    expect(document.body.textContent).toContain("Choose team focus");
-    expect(document.body.textContent).toContain("Save setup");
-    expect(document.body.textContent).not.toContain("Goal Settings");
+    expect(document.body.textContent).toContain("Personal focus");
+    expect(document.querySelectorAll('a[href="/goals"], a[href="/onboarding"]')).toHaveLength(0);
 
     document.body.innerHTML = '<div id="app"></div>';
     window.history.pushState({}, "", "/onboarding");
     await renderApp(document.querySelector("#app"));
-    expect(document.body.textContent).toContain("Setup");
-    expect(document.body.textContent).toContain("Save setup");
+    expect(document.body.textContent).toContain("Personal focus");
+    expect(document.querySelectorAll('a[href="/goals"], a[href="/onboarding"]')).toHaveLength(0);
   });
 
   it("renders Review as the canonical queue instead of a placeholder", async () => {
@@ -528,7 +643,7 @@ describe("public app routes", () => {
 
     window.history.pushState({}, "", "/training");
     await renderApp(document.querySelector("#app"));
-    expect(document.body.textContent).toContain("Training - Not ready yet");
+    expect(document.body.textContent).toContain("Training - Under construction");
     expect(document.body.textContent).toContain("Training uses confirmed patterns");
     expect(document.body.textContent).not.toContain("ADC trading check");
 
@@ -544,7 +659,7 @@ describe("public app routes", () => {
     await renderApp(document.querySelector("#app"));
     expect(document.body.textContent).toContain("Evidence history");
     expect(document.body.textContent).toContain("Library fills as you review games.");
-    expect(document.body.textContent).toContain("After reviews");
+    expect(document.body.textContent).toContain("Under construction");
   });
 
   it("renders partial Riot parser readiness without hiding ready games", async () => {
@@ -709,7 +824,7 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Evidence progress");
     expect(document.body.textContent).toContain("0 games reviewed");
     expect(document.body.textContent).toContain("Weekly targets not ready yet");
-    expect(document.body.textContent).toContain("Not ready yet");
+    expect(document.body.textContent).toContain("Under construction");
     expect(document.body.textContent).toContain("Waiting for reviewed evidence");
     expect(document.body.textContent).not.toContain("Insights will appear after you review games.");
     expect(document.body.textContent).not.toContain("Seeded from onboarding. Not updated from reviewed games yet.");
