@@ -80,7 +80,7 @@ function getRouteContext() {
 }
 
 function isPublicPath(pathname) {
-  return pathname === "/" || pathname === "/about" || pathname === "/login";
+  return pathname === "/about" || pathname === "/login";
 }
 
 function toAppHref(href, context = getRouteContext()) {
@@ -298,8 +298,10 @@ function renderSessionPanel() {
         <p class="eyebrow">Sign In</p>
         <h2>Continue in RiftSense</h2>
         <p class="muted">${escapeHtml(intro)}</p>
-        ${renderLoginForm(session)}
-        <div class="action-row">${accountLink}</div>
+        <div class="action-row">
+          <a class="button" href="/login">Continue with Nexus</a>
+          ${accountLink}
+        </div>
         ${renderDeveloperTokenTools(session)}
       </div>
     </section>
@@ -3544,40 +3546,6 @@ async function renderHome(root, context = getRouteContext()) {
     ({ home } = await requestJson(context.homeApiUrl, context.requestOptions));
     source = home.user?.source ?? "unknown";
 
-    if (home.user?.source === "public") {
-      root.innerHTML = appShell(`
-        <section class="goal-dashboard-stack">
-          <section class="panel active-goal-panel">
-            <p class="eyebrow">RiftSense</p>
-            <h2>${escapeHtml(home.publicEntry?.title ?? "RiftSense")}</h2>
-            <p class="muted">${escapeHtml(home.publicEntry?.summary ?? "")}</p>
-            <div class="action-row">
-              <a class="button" href="${escapeHtml(home.publicEntry?.signInHref ?? "/login")}">${escapeHtml(home.publicEntry?.signInLabel ?? "Continue with Nexus")}</a>
-              <a class="button secondary" href="${escapeHtml(home.publicEntry?.aboutHref ?? "/about")}">About</a>
-              <a class="button secondary" href="${escapeHtml(home.publicEntry?.demoHref ?? "/demo")}">Demo</a>
-            </div>
-          </section>
-          <section class="dashboard-two-column">
-            <section class="panel">
-              <p class="eyebrow">What It Does</p>
-              <h2>Turn recent games into goal-linked review work</h2>
-              <p class="muted">RiftSense uses Nexus identity, Riot account data, and active goals to surface reviews and next actions.</p>
-            </section>
-            <section class="panel">
-              <p class="eyebrow">Start Here</p>
-              <h2>Sign in or open the seeded demo</h2>
-              <p class="muted">Use Nexus sign-in for your own setup, or open the demo to inspect the current ADC evidence flow.</p>
-            </section>
-          </section>
-        </section>
-      `, {
-        eyebrow: "Public Home",
-        title: "RiftSense",
-        text: "Review goals, recent games, and team focus from a Nexus-authenticated workflow."
-      });
-      return;
-    }
-
     const profile = home.user.profile ?? {};
     const dashboard = home.goalDashboard ?? {};
     const goal = dashboard.activePersonalGoal ?? {};
@@ -4865,16 +4833,31 @@ export async function renderApp(root) {
   const pathname = context.pathname;
 
   await loadSession();
-  const showingAuthPage = pathname === "/login" && !getSessionState().authenticated;
-  document.body.classList.toggle("auth-page", showingAuthPage);
-  if (showingAuthPage) {
+  function setAuthPageMode(enabled) {
+    document.body.classList.toggle("auth-page", enabled);
+    if (enabled) {
+      document.body.classList.remove("nav-open", "nav-collapsed");
+    }
+  }
+
+  setAuthPageMode(pathname === "/login" && !getSessionState().authenticated);
+  if (document.body.classList.contains("auth-page")) {
     document.body.classList.remove("nav-open", "nav-collapsed");
   }
 
   try {
+    if (pathname === "/" && !getSessionState().authenticated) {
+      window.history.replaceState({}, "", "/login");
+      setAuthPageMode(true);
+      renderLoginPage(root);
+      bindSessionControls(root);
+      return;
+    }
+
     if (pathname === "/login") {
       if (getSessionState().authenticated) {
         window.history.replaceState({}, "", "/");
+        setAuthPageMode(false);
         await renderHome(root, getRouteContext());
         bindNavControls(root);
         bindNavSectionControls(root);

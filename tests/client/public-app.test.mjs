@@ -42,7 +42,7 @@ describe("public app routes", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders the public landing state on the unauthenticated root route", async () => {
+  it("routes unauthenticated root visits to the dedicated auth shell", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
         return mockJsonResponse({
@@ -55,27 +55,6 @@ describe("public app routes", () => {
         });
       }
 
-      if (url === "/api/home") {
-        return mockJsonResponse({
-          home: {
-            user: {
-              id: null,
-              source: "public",
-              profile: {}
-            },
-            publicEntry: {
-              title: "RiftSense",
-              summary: "Review goals, recent games, and team focus from a Nexus-authenticated League workflow.",
-              signInHref: "/login",
-              signInLabel: "Continue with Nexus",
-              aboutHref: "/about",
-              demoHref: "/demo"
-            },
-            goalDashboard: null
-          }
-        });
-      }
-
       throw new Error(`Unexpected fetch: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -83,10 +62,14 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Continue with Nexus");
-    expect(document.body.textContent).toContain("Turn recent games into goal-linked review work");
-    expect(document.querySelector('a[href="/about"]')).not.toBeNull();
-    expect(document.querySelector('a[href="/demo"]')).not.toBeNull();
+    expect(window.location.pathname).toBe("/login");
+    expect(document.querySelector(".auth-page-shell")).not.toBeNull();
+    expect(document.querySelector("#nav-drawer")).toBeNull();
+    expect(document.querySelectorAll("#session-login-form")).toHaveLength(1);
+    expect(document.body.textContent).toContain("Sign in to review.");
+    expect(document.body.textContent).not.toContain("Turn recent games into goal-linked review work");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("/api/session", expect.any(Object));
   });
 
   it("does not emit client perf logs by default", async () => {
@@ -100,27 +83,6 @@ describe("public app routes", () => {
           accountUrl: "",
           portalBaseUrl: "",
           manualTokenEntryAvailable: false
-        });
-      }
-
-      if (url === "/api/home") {
-        return mockJsonResponse({
-          home: {
-            user: {
-              id: null,
-              source: "public",
-              profile: {}
-            },
-            publicEntry: {
-              title: "RiftSense",
-              summary: "",
-              signInHref: "/login",
-              signInLabel: "Continue with Nexus",
-              aboutHref: "/about",
-              demoHref: "/demo"
-            },
-            goalDashboard: null
-          }
         });
       }
 
@@ -146,27 +108,6 @@ describe("public app routes", () => {
           accountUrl: "",
           portalBaseUrl: "",
           manualTokenEntryAvailable: false
-        });
-      }
-
-      if (url === "/api/home") {
-        return mockJsonResponse({
-          home: {
-            user: {
-              id: null,
-              source: "public",
-              profile: {}
-            },
-            publicEntry: {
-              title: "RiftSense",
-              summary: "",
-              signInHref: "/login",
-              signInLabel: "Continue with Nexus",
-              aboutHref: "/about",
-              demoHref: "/demo"
-            },
-            goalDashboard: null
-          }
         });
       }
 
@@ -298,7 +239,7 @@ describe("public app routes", () => {
     expect(document.querySelector("#session-login-status").textContent).toBe("Invalid Nexus credentials.");
   });
 
-  it("keeps public home, about, and demo routes reachable from the auth shell", async () => {
+  it("keeps root, about, and demo links reachable from the auth shell", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
         return mockJsonResponse({
@@ -356,6 +297,42 @@ describe("public app routes", () => {
     expect(document.querySelector(".auth-page-shell")).toBeNull();
     expect(document.querySelector("#nav-drawer")).not.toBeNull();
     expect(document.body.textContent).toContain("Dashboard");
+  });
+
+  it("keeps authenticated root visits on the dashboard", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1", displayName: "Nexus Player" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
+            goalDashboard: {}
+          }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(window.location.pathname).toBe("/");
+    expect(document.querySelector(".auth-page-shell")).toBeNull();
+    expect(document.querySelector("#nav-drawer")).not.toBeNull();
+    expect(document.body.textContent).toContain("Dashboard");
+    expect(fetchMock).toHaveBeenCalledWith("/api/home", expect.any(Object));
   });
 
   it("renders partial Riot parser readiness without hiding ready games", async () => {

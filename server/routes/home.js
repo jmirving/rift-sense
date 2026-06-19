@@ -1,6 +1,7 @@
 import express from "express";
 
 import { buildSharedProfileIdentity, resolveSharedProfile } from "../auth/shared-profile.js";
+import { unauthorized } from "../errors.js";
 import { createTimingContext } from "../observability/timing.js";
 import { buildHomePayload } from "./home-response.js";
 
@@ -95,34 +96,6 @@ function normalizeString(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function buildPublicHomePayload() {
-  return {
-    user: {
-      id: null,
-      source: "public",
-      profile: {
-        primaryRole: null,
-        secondaryRoles: [],
-        riotGameName: null,
-        riotTagline: null,
-        riotPuuid: null,
-        preferredTeamId: null,
-        activeTeamId: null
-      },
-      riot: null
-    },
-    publicEntry: {
-      title: "RiftSense",
-      summary: "Review goals, recent games, and team focus from a Nexus-authenticated League workflow.",
-      signInHref: "/login",
-      signInLabel: "Continue with Nexus",
-      aboutHref: "/about",
-      demoHref: "/demo"
-    },
-    goalDashboard: null
-  };
-}
-
 async function resolveAuthenticatedHomeRecord({ request, userHomesRepository, timing }) {
   const resolvedUserId = request.identity.id;
   const matchedHome = await (timing
@@ -179,11 +152,7 @@ export function createHomeRouter({
     try {
       if (!request.identity?.id) {
         timing.log("resolve_authenticated_identity", "skipped", { reason: "public_user" });
-        response.json({
-          home: buildPublicHomePayload()
-        });
-        timing.log("route", "success", { durationMs: routeTimer.elapsedMs() });
-        return;
+        throw unauthorized("Authentication required.");
       }
 
       const { effectiveUserId, home, identity } = await resolveHomeContext(request, timing);

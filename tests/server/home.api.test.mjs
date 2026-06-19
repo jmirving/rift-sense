@@ -121,19 +121,16 @@ describe("home API", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns a public home payload when no user is authenticated", async () => {
+  it("requires authentication for the home payload when no user is authenticated", async () => {
     const app = await createTestApp();
 
     const response = await request(app).get("/api/home");
 
-    expect(response.status).toBe(200);
-    expect(response.body.home.user.id).toBeNull();
-    expect(response.body.home.user.source).toBe("public");
-    expect(response.body.home.publicEntry).toMatchObject({
-      aboutHref: "/about",
-      demoHref: "/demo"
+    expect(response.status).toBe(401);
+    expect(response.body.error).toMatchObject({
+      code: "UNAUTHORIZED",
+      message: "Authentication required."
     });
-    expect(response.body.home.goalDashboard).toBeNull();
   });
 
   it("does not emit server perf logs for /api/home by default", async () => {
@@ -142,8 +139,7 @@ describe("home API", () => {
 
     const response = await request(app).get("/api/home");
 
-    expect(response.status).toBe(200);
-    expect(response.body.home.user.source).toBe("public");
+    expect(response.status).toBe(401);
     expect(info).not.toHaveBeenCalled();
   });
 
@@ -153,14 +149,13 @@ describe("home API", () => {
 
     const response = await request(app).get("/api/home");
 
-    expect(response.status).toBe(200);
-    expect(response.body.home.user.source).toBe("public");
+    expect(response.status).toBe(401);
     expect(info).toHaveBeenCalled();
     expect(info.mock.calls.map((call) => JSON.parse(call[0]))).toContainEqual(expect.objectContaining({
       event: "perf_timing",
       route: "home",
       step: "route",
-      outcome: "success",
+      outcome: "failure",
       durationMs: expect.any(Number)
     }));
   });
@@ -988,9 +983,8 @@ describe("home API", () => {
     expect(saveResponse.status).toBe(201);
     expect(saveResponse.body.goalDashboard.activePersonalGoal.templateId).toBe("goal-template-adc-die-less");
 
-    const homeResponse = await request(app).get("/api/home");
-    expect(homeResponse.status).toBe(200);
-    expect(homeResponse.body.home.user.source).toBe("public");
+    const savedHome = await app.locals.testRepositories.userHomesRepository.getUserHome("usr_demo_home");
+    expect(savedHome.goalDashboard.activeGoalInstances[0].templateId).toBe("goal-template-adc-die-less");
   });
 
   it("saves onboarding to the authenticated user when auth is enabled", async () => {
