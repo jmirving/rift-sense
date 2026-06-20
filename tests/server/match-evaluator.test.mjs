@@ -115,8 +115,8 @@ it("extracts death events and conservative deterministic tags", () => {
     }
   });
 
-  expect(result.deathsJson).toEqual([
-    {
+  expect(result.deathsJson).toHaveLength(1);
+  expect(result.deathsJson[0]).toMatchObject({
       deathIndex: 1,
       timestampMs: 120_000,
       timestampSeconds: 120,
@@ -146,8 +146,24 @@ it("extracts death events and conservative deterministic tags", () => {
         "enemy_level_up_recently_candidate",
         "level_up_all_in_candidate"
       ]
-    }
-  ]);
+  });
+  expect(result.deathsJson[0].fightShape).toMatchObject({
+    enemyCount: 2,
+    alliedCount: 1,
+    notation: "2v1",
+    helperText: "Enemy 2 / Allied 1 near the death"
+  });
+  expect(result.deathsJson[0].gamePhase).toBe("lane_phase");
+  expect(result.deathsJson[0].objectiveFacts[0]).toMatchObject({
+    name: "dragon",
+    secondsFromDeath: -8,
+    timing: "killed_before_death"
+  });
+  expect(result.summaryJson).toMatchObject({
+    teamId: 100,
+    teamSide: "blue",
+    teamSideLabel: "You were blue side"
+  });
   expect(result.tagsJson.counts).toMatchObject({
     death_count: 1,
     solo_death_candidate: 0,
@@ -478,7 +494,54 @@ it("does not tag normal bot/support versus bot/support deaths as multi-enemy col
       info: {
         frames: [
           {
-            ...frame(120_000, { 1: 4, 6: 4, 7: 4 }),
+            ...frame(120_000, {
+              1: { level: 4, position: { x: 10_000, y: 4_000 } },
+              2: { level: 4, position: { x: 10_300, y: 4_000 } },
+              6: { level: 4, position: { x: 10_100, y: 4_100 } },
+              7: { level: 4, position: { x: 10_200, y: 4_200 } }
+            }),
+            events: [
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 120_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: [7],
+                position: { x: 10_000, y: 4_000 }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  });
+
+  expect(result.deathsJson[0].tags).not.toContain("multi_enemy_collapse_candidate");
+  expect(result.deathsJson[0].tags).toContain("bot_lane_2v2_death");
+  expect(result.deathsJson[0].laneDeathContext).toBe("bot_lane_2v2_death");
+});
+
+it("tags bot 2v1 punish when allied lane partner is not detected", () => {
+  const result = evaluate({
+    summaryJson: summary([
+      participant({ puuid: "target_puuid", participantId: 1, championName: "Ashe", teamId: 100, teamPosition: "BOTTOM", individualPosition: "BOTTOM", lane: "BOTTOM" }),
+      participant({ participantId: 2, championName: "Leona", teamId: 100, teamPosition: "UTILITY", individualPosition: "UTILITY", lane: "BOTTOM" }),
+      participant({ participantId: 6, championName: "Jinx", teamId: 200, teamPosition: "BOTTOM", individualPosition: "BOTTOM", lane: "BOTTOM" }),
+      participant({ participantId: 7, championName: "Nautilus", teamId: 200, teamPosition: "UTILITY", individualPosition: "UTILITY", lane: "BOTTOM" })
+    ]),
+    perspectiveRecord: {
+      matchId: "NA1_050",
+      puuid: "target_puuid",
+      participantId: 1,
+      championName: "Ashe",
+      teamId: 100,
+      teamPosition: "BOTTOM"
+    },
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(120_000, { 1: 4, 2: 4, 6: 4, 7: 4 }),
             events: [
               {
                 type: "CHAMPION_KILL",
@@ -494,10 +557,11 @@ it("does not tag normal bot/support versus bot/support deaths as multi-enemy col
     }
   });
 
+  expect(result.deathsJson[0].tags).toContain("bot_lane_2v1_punish");
   expect(result.deathsJson[0].tags).not.toContain("multi_enemy_collapse_candidate");
 });
 
-it("tags bot 3v2 deaths when a jungler joins", () => {
+it("tags bot 3v2 deaths as ganks when a jungler joins", () => {
   const result = evaluate({
     summaryJson: summary([
       participant({ puuid: "target_puuid", participantId: 1, championName: "Ashe", teamId: 100, teamPosition: "BOTTOM", individualPosition: "BOTTOM", lane: "BOTTOM" }),
@@ -526,27 +590,30 @@ it("tags bot 3v2 deaths when a jungler joins", () => {
   });
 
   expect(result.deathsJson[0].tags).toContain("multi_enemy_collapse_candidate");
+  expect(result.deathsJson[0].tags).toContain("bot_lane_gank");
+  expect(result.deathsJson[0].laneDeathContext).toBe("bot_lane_gank");
 });
 
-it("tags bot deaths when a mid roam joins", () => {
+it("tags bot deaths as roams when a non-lane role joins", () => {
   const result = evaluate({
     summaryJson: summary([
       participant({ puuid: "target_puuid", participantId: 1, championName: "Ashe", teamId: 100, teamPosition: "BOTTOM", individualPosition: "BOTTOM", lane: "BOTTOM" }),
       participant({ participantId: 6, championName: "Jinx", teamId: 200, teamPosition: "BOTTOM", individualPosition: "BOTTOM", lane: "BOTTOM" }),
+      participant({ participantId: 7, championName: "Nautilus", teamId: 200, teamPosition: "UTILITY", individualPosition: "UTILITY", lane: "BOTTOM" }),
       participant({ participantId: 8, championName: "Ahri", teamId: 200, teamPosition: "MIDDLE", individualPosition: "MIDDLE", lane: "MIDDLE" })
     ]),
     timelineJson: {
       info: {
         frames: [
           {
-            ...frame(120_000, { 1: 5, 6: 5, 8: 6 }),
+            ...frame(120_000, { 1: 5, 6: 5, 7: 5, 8: 6 }),
             events: [
               {
                 type: "CHAMPION_KILL",
                 timestamp: 120_000,
                 victimId: 1,
                 killerId: 6,
-                assistingParticipantIds: [8]
+                assistingParticipantIds: [7, 8]
               }
             ]
           }
@@ -556,6 +623,8 @@ it("tags bot deaths when a mid roam joins", () => {
   });
 
   expect(result.deathsJson[0].tags).toContain("multi_enemy_collapse_candidate");
+  expect(result.deathsJson[0].tags).toContain("bot_lane_roam");
+  expect(result.deathsJson[0].laneDeathContext).toBe("bot_lane_roam");
 });
 
 it("tags late-game deaths with three nearby enemies as possible collapse", () => {

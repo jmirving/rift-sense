@@ -421,6 +421,7 @@ function appShell(content, hero = {}) {
             { href: "/", label: "Dashboard", active: pathname === "/" || pathname === "/dashboard" },
             { href: "/review", label: "Review", active: pathname === "/review" },
             { href: "/setup", label: "Setup", active: pathname === "/setup" || pathname === "/goals" || pathname === "/onboarding" || pathname.startsWith("/focus/") },
+            { href: "/system-inventory", label: "System inventory", active: pathname === "/system-inventory", muted: true },
             { label: "Team Focus", disabled: true, status: "Under construction" },
             { label: "Library", disabled: true, status: "Under construction" },
             { label: "Training", disabled: true, status: "Under construction" }
@@ -906,6 +907,13 @@ function tagLabel(value) {
     enemy_level_up_recently_candidate: "Enemy level-up timing",
     level_up_all_in_candidate: "Enemy level-up timing",
     multi_enemy_collapse_candidate: "Walked forward with missing enemies",
+    bot_lane_2v2_death: "Bot lane 2v2 death",
+    bot_lane_2v1_punish: "Bot lane 2v1 punish",
+    bot_lane_gank: "Bot lane gank",
+    bot_lane_roam: "Bot lane roam",
+    bot_lane_collapse_unknown: "Bot lane collapse",
+    lane_gank_death: "Lane gank",
+    outnumbered_known_enemy: "Outnumbered with known nearby enemy",
     objective_window_candidate: "Objective timing signal",
     objective_setup_death_candidate: "Collapsed on before objective",
     objective_exit_death_candidate: "Stayed after objective window ended",
@@ -1857,6 +1865,19 @@ function matchupContextForDeath(death, context = {}) {
 }
 
 function inferFightShape(death, context = {}) {
+  if (death?.fightShape?.enemyCount || death?.fightShape?.notation) {
+    return {
+      id: death.laneDeathContext ?? "fight_context",
+      label: death.fightShape.label ?? `Fight shape: ${death.fightShape.notation} against you`,
+      bucket: death.fightShape.notation ?? `${death.fightShape.enemyCount ?? "?"}v${death.fightShape.alliedCount ?? "?"}`,
+      numericFightShape: death.fightShape.notation ?? `${death.fightShape.enemyCount ?? "?"}v${death.fightShape.alliedCount ?? "?"}`,
+      fightInterpretation: death.fightShape.helperText ?? "enemy first, allied second",
+      enemyCount: Number(death.fightShape.enemyCount ?? 0),
+      allyCount: Number(death.fightShape.alliedCount ?? 0),
+      helperText: death.fightShape.helperText ?? "",
+      category: "fight_shape"
+    };
+  }
   const enemyCount = enemyParticipantCount(death);
   const allyCount = alliedParticipantCount(death);
   const numericFightShape = `${enemyCount || "?"}v${allyCount || "?"}`;
@@ -1869,7 +1890,7 @@ function inferFightShape(death, context = {}) {
   if (lanePairFight && matchup.lanePartnerPresent && laneMatchupRoles) {
     return {
       id: "lane_2v2_death",
-      label: "2v2 lane death",
+      label: "Bot lane 2v2 death",
       bucket: "2v2",
       numericFightShape,
       fightInterpretation: "lane fight",
@@ -1881,7 +1902,7 @@ function inferFightShape(death, context = {}) {
   if (lanePairFight && !matchup.lanePartnerPresent && laneMatchupRoles) {
     return {
       id: "lane_2v1_death",
-      label: "2v1 lane death",
+      label: "Bot lane 2v1 punish",
       bucket: "2v1",
       numericFightShape,
       fightInterpretation: "lane fight",
@@ -1937,6 +1958,24 @@ function inferFightShape(death, context = {}) {
 }
 
 function objectiveEvidence(death) {
+  if (Array.isArray(death?.objectiveFacts) && death.objectiveFacts.length > 0) {
+    const facts = death.objectiveFacts.map((objective) => {
+      const seconds = Number(objective.secondsFromDeath ?? 0);
+      const relation = objective.teamRelation === "enemy" ? "Enemy team" : objective.teamRelation === "allied" ? "Allied team" : "Team";
+      const timing = seconds < 0
+        ? `${Math.abs(seconds)}s before the death`
+        : seconds > 0
+          ? `${seconds}s after the death`
+          : "at the death";
+      return `${relation} took ${objective.name ?? "objective"} ${timing}`;
+    });
+    const reasons = death.objectiveFacts.map((objective) => {
+      if (objective.reviewWindow === "before_setup") return `death happened before ${objective.name ?? "objective"} setup completed`;
+      if (objective.reviewWindow === "during_contest") return `death happened during the ${objective.name ?? "objective"} contest`;
+      return `death happened after the ${objective.name ?? "objective"} exit window`;
+    });
+    return { facts, reasons };
+  }
   const objectiveName = death?.objectiveName ?? death?.objective?.name ?? "objective";
   const beforeSpawn = Number(death?.objectiveSpawnSecondsAfterDeath ?? death?.objectiveSecondsUntilSpawn ?? NaN);
   const takenAfter = Number(death?.objectiveTakenSecondsAfterDeath ?? death?.objective?.takenSecondsAfterDeath ?? NaN);
@@ -2100,8 +2139,9 @@ function repeatedEnemySignature(death) {
 
 function candidateCauseCategory(id) {
   if (id === "solo_death_candidate" || id === "isolated_forward_death_candidate") return "walked_without_cover";
-  if (id.includes("cover") || id === "lane_2v1_death") return "walked_without_cover";
+  if (id.includes("cover") || id === "lane_2v1_death" || id === "bot_lane_2v1_punish") return "walked_without_cover";
   if (id.includes("outnumbered") || id.includes("collapse")) return "outnumbered_fight";
+  if (id.includes("gank") || id.includes("roam")) return "outnumbered_fight";
   if (id.includes("objective")) return "objective_setup_mistake";
   if (id.includes("stayed")) return "stayed_too_long";
   if (id === "no_flash_punish") return "not_preventable";
@@ -2160,6 +2200,8 @@ function reviewMomentFactorOptions(death, goalKind, context = {}) {
   const locationZone = context.locationZone ?? deathLocationZone(death, context);
   const matchupContext = matchupContextForDeath(death, { ...context, locationZone });
   if (fightShape.id === "lane_2v2_death" || fightShape.id === "lane_2v1_death" ||
+    fightShape.id === "bot_lane_2v2_death" || fightShape.id === "bot_lane_2v1_punish" ||
+    fightShape.id === "bot_lane_gank" || fightShape.id === "bot_lane_roam" || fightShape.id === "bot_lane_collapse_unknown" ||
     fightShape.id === "outnumbered_fight" && fightShape.enemyCount >= 3 ||
     fightShape.id === "even_skirmish") {
     const involvedRoles = roleListLabel(matchupContext.enemyParticipantsInvolved);
@@ -2169,16 +2211,22 @@ function reviewMomentFactorOptions(death, goalKind, context = {}) {
       category: "fight_shape",
       confidence: fightShape.id === "outnumbered_fight" ? "High" : "Medium",
       facts: [
-        `Fight shape: ${fightShape.bucket}`,
+        fightShape.helperText || `Fight shape: ${fightShape.bucket} against you`,
         `Enemy participants: ${deathEnemyParticipants(death).join(", ") || fightShape.enemyCount}`,
         `Allied support nearby: ${deathAllyParticipants(death).join(", ") || (fightShape.allyCount > 1 ? "yes" : "not detected")}`
       ],
-      reasons: fightShape.id === "lane_2v2_death"
+      reasons: fightShape.id === "lane_2v2_death" || fightShape.id === "bot_lane_2v2_death"
         ? [`This was an even 2v2 by count${involvedRoles ? ` against enemy ${involvedRoles}` : ""}, so the replay question is execution/trade timing, not outnumbering.`]
-        : fightShape.id === "lane_2v1_death"
-          ? [involvedRoles ? `Enemy ${involvedRoles} fought while allied lane cover was not detected.` : "Enemy lane pressure landed before allied cover was detected."]
-          : fightShape.id === "even_skirmish"
-            ? ["this was even by participant count; review engage timing instead of treating it as outnumbered"]
+        : fightShape.id === "lane_2v1_death" || fightShape.id === "bot_lane_2v1_punish"
+          ? [involvedRoles ? `Enemy ${involvedRoles} fought while allied lane partner was not detected.` : "Enemy lane pressure landed while allied lane partner was not detected."]
+          : fightShape.id === "bot_lane_gank"
+            ? ["enemy jungler was involved in a bot-lane death during lane phase"]
+            : fightShape.id === "bot_lane_roam"
+              ? ["a non-lane enemy joined the bot-lane death during lane phase"]
+              : fightShape.id === "bot_lane_collapse_unknown"
+                ? ["three or more enemies were involved, but the data does not identify gank versus roam"]
+        : fightShape.id === "even_skirmish"
+          ? ["this was even by participant count; review engage timing instead of treating it as outnumbered"]
             : ["enemy numbers exceeded allied participants close enough to influence the death"],
       affectedDeathIds: deathIndex ? [deathIndex] : [],
       sourceSignals: death?.tags ?? []
@@ -2339,7 +2387,8 @@ function reviewMomentEvidenceFacts(death, goalKind) {
 
   if (killer) facts.push(killer);
   if (assists) facts.push(assists);
-  facts.push(`Fight shape: ${fightShape.bucket}`);
+  facts.push(fightShape.helperText || `Fight shape: ${fightShape.bucket} against you`);
+  if (death?.gamePhaseLabel) facts.push(`Phase: ${death.gamePhaseLabel}`);
   if (locationZone?.userRelativeZoneLabel) facts.push(`Death happened in ${locationZone.userRelativeZoneLabel}`);
   if (participantRoles) facts.push(`Enemy ${participantRoles} were involved`);
   facts.push(`Enemy participants: ${deathEnemyParticipants(death).join(", ") || fightShape.enemyCount}`);
@@ -2376,7 +2425,7 @@ function reviewMomentEvidenceFacts(death, goalKind) {
     facts.push(levels);
   }
 
-  return [...new Set(facts)].slice(0, 5);
+  return [...new Set([...(death?.evidenceSections?.knownFromData ?? []), ...facts])].slice(0, 6);
 }
 
 function reviewMomentEventSummary(death, goalKind) {
@@ -2792,7 +2841,11 @@ export function buildMatchReviewPlan(review) {
 
 function reviewedMomentForUiMoment(moment, reviewedMoments = []) {
   const momentsByKey = reviewedMomentIndex(reviewedMoments);
-  return momentsByKey.get(reviewMomentKey(moment.deathIndex, moment.primarySignal));
+  return momentsByKey.get(reviewMomentKey(moment.deathIndex, moment.primarySignal)) ??
+    reviewedMoments.find((entry) =>
+      Number(entry?.deathIndex) === Number(moment.deathIndex) &&
+      String(entry?.signalId ?? "") === "manual_other_pattern"
+    );
 }
 
 function uiMomentIsComplete(moment, reviewedMoments = []) {
@@ -2836,7 +2889,11 @@ function reviewStatusUi(reviewedMoment) {
 function reviewProgressSummary(plan, reviewedMoments = []) {
   const momentsByKey = reviewedMomentIndex(reviewedMoments);
   return plan.reviewMoments.reduce((summary, moment) => {
-    const reviewedMoment = momentsByKey.get(reviewMomentKey(moment.deathIndex, moment.primarySignal));
+    const reviewedMoment = momentsByKey.get(reviewMomentKey(moment.deathIndex, moment.primarySignal)) ??
+      reviewedMoments.find((entry) =>
+        Number(entry?.deathIndex) === Number(moment.deathIndex) &&
+        String(entry?.signalId ?? "") === "manual_other_pattern"
+      );
     if (!reviewedMoment) {
       summary.notReviewed += 1;
     } else if (["unsure", "dismissed", "skipped", "needs_review"].includes(String(reviewedMoment.status ?? "").toLowerCase())) {
@@ -2853,7 +2910,8 @@ function reviewCompletionSummary(plan, reviewedMoments = []) {
   const counts = new Map();
   const momentsByKey = reviewedMomentIndex(reviewedMoments);
   for (const moment of plan.reviewMoments) {
-    const reviewedMoment = momentsByKey.get(reviewMomentKey(moment.deathIndex, moment.primarySignal));
+    const reviewedMoment = momentsByKey.get(reviewMomentKey(moment.deathIndex, moment.primarySignal)) ??
+      reviewedMomentForUiMoment(moment, reviewedMoments);
     const factorId = selectedPatternIdForMoment(moment, reviewedMoment);
     const factor = moment.factorOptions.find((option) => option.id === factorId) ?? moment.factorOptions[0];
     const label = factor?.label ?? "No clear deterministic cause";
@@ -2928,7 +2986,8 @@ function renderReviewChecklist(plan, reviewedMoments = []) {
       </div>
       <div class="review-checklist-items">
         ${plan.reviewMoments.map((moment) => {
-          const reviewedMoment = momentsByKey.get(reviewMomentKey(moment.deathIndex, moment.primarySignal));
+          const reviewedMoment = momentsByKey.get(reviewMomentKey(moment.deathIndex, moment.primarySignal)) ??
+            reviewedMomentForUiMoment(moment, reviewedMoments);
           const status = reviewStatusUi(reviewedMoment);
           return `
             <button class="review-checklist-item ${reviewedMoment ? "is-complete" : "is-open"}" type="button" data-jump-to-death="${escapeHtml(String(moment.deathIndex))}">
@@ -3046,7 +3105,12 @@ function deathContextFacts(moment) {
   const allies = (death.nearbyAllyChampionNames ?? []).slice(0, 4).join(", ");
   const enemies = (death.nearbyEnemyChampionNames ?? []).slice(0, 4).join(", ");
   const location = moment.locationZone?.userRelativeZoneLabel ?? death.lane ?? death.positionLabel ?? death.location ?? "";
-  if (moment.fightShape?.bucket) facts.push(`Fight shape: ${moment.fightShape.bucket}`);
+  if (death.gamePhaseLabel) facts.push(death.gamePhaseLabel);
+  if (moment.fightShape?.helperText) {
+    facts.push(moment.fightShape.helperText);
+  } else if (moment.fightShape?.bucket) {
+    facts.push(`Fight shape: ${moment.fightShape.bucket} against you`);
+  }
   if (location) facts.push(location);
   if (allies) facts.push(`Nearby allies: ${allies}`);
   if (enemies) facts.push(`Nearby enemies: ${enemies}`);
@@ -3087,6 +3151,9 @@ function renderDeathReviewList(plan, review) {
           const reasons = selectedCandidate?.interpretationReasons?.length
             ? selectedCandidate.interpretationReasons
             : [moment.reviewQuestion || "Needs replay check."];
+          const replayQuestions = moment.death?.evidenceSections?.replayCanAnswer?.length
+            ? moment.death.evidenceSections.replayCanAnswer
+            : reasons;
           const impactFacts = moment.consequenceFacts?.length ? moment.consequenceFacts : [];
           const contextFacts = deathContextFacts(moment);
           const locationLabel = moment.locationZone?.userRelativeZoneLabel || "";
@@ -3122,9 +3189,9 @@ function renderDeathReviewList(plan, review) {
                   </div>
                 ` : ""}
                 <div class="review-evidence-facts">
-                  <p class="eyebrow">${impactFacts.length > 0 ? "Review question" : "Needs replay check"}</p>
+                  <p class="eyebrow">${impactFacts.length > 0 ? "Review question" : "Replay can answer"}</p>
                   <ul>
-                    ${(impactFacts.length > 0 ? [moment.reviewQuestion] : reasons).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}
+                    ${(impactFacts.length > 0 ? [moment.reviewQuestion] : replayQuestions).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}
                   </ul>
                 </div>
               </div>
@@ -3166,7 +3233,7 @@ function renderObservedPatterns(plan) {
           <article class="observed-pattern-item" data-observed-pattern-item>
             <h4>${escapeHtml(pattern.label)}</h4>
             <p class="muted">${escapeHtml(String(pattern.count))} ${pattern.count === 1 ? "death" : "deaths"}</p>
-            <p class="muted">${escapeHtml(pattern.times.slice(0, 4).join(", "))}</p>
+            <p class="muted">${escapeHtml(pattern.times.slice(0, 4).join(", "))}${pattern.count > pattern.times.slice(0, 4).length ? ` <span class="more-count">+${escapeHtml(String(pattern.count - pattern.times.slice(0, 4).length))} more</span>` : ""}</p>
             <button class="button secondary compact-row-action" type="button" data-set-main-focus-pattern="${escapeHtml(pattern.id)}" data-focus-label="${escapeHtml(pattern.label)}">Set as main focus</button>
           </article>
         `).join("")}
@@ -3304,6 +3371,7 @@ function renderMatchReview(root, review, context = getRouteContext()) {
   const playedAt = summary.playedAt ?? summary.gameCreationDate ?? summary.startedAt ?? null;
   const playedAtLabel = playedAt ? ` · ${new Date(playedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "";
   const headerContext = `${role ? `${role} · ` : ""}${kdaLabel(summary)} KDA · Goal: ${reviewPlan.activeGoalName} · ${progressLabel}${playedAtLabel}`;
+  const sideLabel = summary.teamSideLabel ? ` · ${summary.teamSideLabel}` : "";
 
   root.innerHTML = appShell(`
     <section class="section-heading">
@@ -3311,12 +3379,13 @@ function renderMatchReview(root, review, context = getRouteContext()) {
         <p class="eyebrow">Match Review</p>
         <h2>${escapeHtml(summary.championName ?? "Unknown champion")} · ${escapeHtml(summary.result ?? "Unknown result")} · ${escapeHtml(summary.queueLabel ?? "Unknown queue")}</h2>
       </div>
-      <p class="section-copy">${escapeHtml(headerContext)}</p>
+      <p class="section-copy">${escapeHtml(`${headerContext}${sideLabel}`)}</p>
     </section>
     ${renderReviewPlan(reviewPlan, review)}
     <section class="review-secondary-stack">
       <details class="panel technical-evidence">
         <summary>Technical evidence</summary>
+        <p class="muted"><a href="${escapeHtml(toAppHref("/system-inventory", context) ?? "/system-inventory")}">System inventory</a></p>
         ${review.evaluationSummary ? renderDeathFacts(review.deathEvents, review.reviewedMoments) : '<p class="muted">Evaluation is not prepared for this match yet.</p>'}
         ${renderTagCounts(review.deterministicTagCounts)}
       </details>
@@ -3417,12 +3486,13 @@ function bindReviewMomentControls(root, review) {
       const selectedFactor = selectedInput?.value || momentActionButton.dataset.signalId;
       const selectedCauseCategory = selectedInput?.dataset?.causeCategory || null;
       const selectedOtherPattern = selectedFactor === "manual_other_pattern";
+      const action = momentActionButton.dataset.reviewMomentAction;
       const body = {
         deathIndex: Number(momentActionButton.dataset.deathIndex),
         deathTimestampSeconds: momentActionButton.dataset.deathTimestampSeconds ? Number(momentActionButton.dataset.deathTimestampSeconds) : null,
-        signalId: momentActionButton.dataset.signalId,
+        signalId: selectedOtherPattern ? "manual_other_pattern" : momentActionButton.dataset.signalId,
         selectedPatternId: selectedFactor,
-        status: momentActionButton.dataset.reviewMomentAction === "skipped" || selectedOtherPattern ? "unsure" : "confirmed",
+        status: action === "skipped" ? "unsure" : "confirmed",
         causeCategory: selectedCauseCategory || "other"
       };
 
@@ -3562,6 +3632,61 @@ async function renderReviewPage(root, context = getRouteContext()) {
       compact: true
     });
   }
+}
+
+async function renderSystemInventoryPage(root, context = getRouteContext()) {
+  if (!getSessionState().authenticated) {
+    renderAuthRequiredPage(root, "Sign in to open system inventory", "System inventory uses your RiftSense setup.");
+    return;
+  }
+
+  const inventory = await requestJson("/api/system-inventory", context.requestOptions);
+  root.innerHTML = appShell(`
+    <section class="section-heading">
+      <div>
+        <p class="eyebrow">System inventory</p>
+        <h2>Known evidence patterns</h2>
+      </div>
+      <p class="section-copy">Read-only view of goal types, evidence categories, and detected evidence patterns.</p>
+    </section>
+    <section class="goal-dashboard-stack">
+      <section class="panel dashboard-compact-panel">
+        <p class="eyebrow">Goal types</p>
+        <h3>Configured goals</h3>
+        <section class="compact-list">
+          ${(inventory.goalTypes ?? []).map((goal) => `
+            <article class="compact-row">
+              <div>
+                <span class="compact-row-main">${escapeHtml(goal.title ?? goal.id)}</span>
+                <span class="compact-row-value">Evidence: ${escapeHtml((goal.evidenceCategories ?? []).join(", ") || "None configured")}</span>
+                <span class="compact-row-value">Subscribed patterns: ${escapeHtml((goal.subscribedPatterns ?? []).join(", ") || "None configured")}</span>
+              </div>
+            </article>
+          `).join("") || '<p class="muted">No goal types are configured.</p>'}
+        </section>
+      </section>
+      <section class="panel dashboard-compact-panel">
+        <p class="eyebrow">Evidence parsers</p>
+        <h3>Active deterministic parsers</h3>
+        ${renderSignalList(inventory.deterministicEvidenceParsers ?? [], "No deterministic parsers are listed.")}
+      </section>
+      <section class="panel dashboard-compact-panel">
+        <p class="eyebrow">System evidence patterns</p>
+        <h3>Detected evidence patterns</h3>
+        ${renderSignalList((inventory.systemEvidencePatterns ?? []).map(tagLabel), "No evidence patterns are listed.")}
+      </section>
+      <section class="panel dashboard-compact-panel">
+        <p class="eyebrow">Game phase</p>
+        <h3>Phase thresholds</h3>
+        <p class="muted">${escapeHtml(inventory.gamePhase?.note ?? "Phase thresholds are not configured.")}</p>
+      </section>
+    </section>
+  `, {
+    eyebrow: "System inventory",
+    title: "Known evidence patterns",
+    text: "Read-only configuration.",
+    compact: true
+  });
 }
 
 function insightCard(insight) {
@@ -4970,6 +5095,14 @@ export async function renderApp(root) {
 
     if (pathname === "/review" || pathname === "/demo/review") {
       await renderReviewPage(root, context);
+      bindNavControls(root);
+      bindNavSectionControls(root);
+      bindSessionControls(root);
+      return;
+    }
+
+    if (pathname === "/system-inventory") {
+      await renderSystemInventoryPage(root, context);
       bindNavControls(root);
       bindNavSectionControls(root);
       bindSessionControls(root);

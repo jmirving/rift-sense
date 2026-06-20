@@ -1768,9 +1768,9 @@ describe("public app routes", () => {
       ]
     });
 
-    expect(lane2v2.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("2v2 lane death");
+    expect(lane2v2.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Bot lane 2v2 death");
     expect(lane2v2.reviewMoments[0].fightShape.bucket).toBe("2v2");
-    expect(lane2v1.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("2v1 lane death");
+    expect(lane2v1.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Bot lane 2v1 punish");
     expect(collapse.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Collapsed on by multiple enemies");
     expect(repeated.patterns.map((pattern) => pattern.label)).toContain("Repeatedly killed by Annie + Brand");
   });
@@ -2000,9 +2000,9 @@ describe("public app routes", () => {
       }]
     });
 
-    expect(supportJungle.reviewMoments[0].factorOptions.map((option) => option.label)).not.toContain("2v1 lane death");
+    expect(supportJungle.reviewMoments[0].factorOptions.map((option) => option.label)).not.toContain("Bot lane 2v1 punish");
     expect(supportJungle.reviewMoments[0].evidenceFacts.join(" ")).toContain("Enemy support + jungle were involved");
-    expect(botPair.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("2v2 lane death");
+    expect(botPair.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Bot lane 2v2 death");
     expect(botPair.reviewMoments[0].factorOptions[0].interpretationReasons.join(" ")).toContain("bot carry + support");
     expect(topGank.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Lane gank/collapse");
   });
@@ -2279,7 +2279,7 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Next-game focus");
   });
 
-  it("persists other pattern selection as manual review", async () => {
+  it("persists other pattern selection as confirmed manual classification", async () => {
     const fetchMock = vi.fn(async (url, options = {}) => {
       if (url === "/api/session") {
         return mockJsonResponse({
@@ -2323,17 +2323,17 @@ describe("public app routes", () => {
       if (url === "/api/matches/NA1_other/reviewed-moments" && options.method === "PUT") {
         expect(JSON.parse(options.body)).toMatchObject({
           deathIndex: 1,
-          signalId: "solo_death_candidate",
+          signalId: "manual_other_pattern",
           selectedPatternId: "manual_other_pattern",
-          status: "unsure",
+          status: "confirmed",
           causeCategory: "other"
         });
         return mockJsonResponse({
           reviewedMoment: {
             deathIndex: 1,
-            signalId: "solo_death_candidate",
+            signalId: "manual_other_pattern",
             selectedPatternId: "manual_other_pattern",
-            status: "unsure",
+            status: "confirmed",
             causeCategory: "other"
           }
         });
@@ -2354,6 +2354,44 @@ describe("public app routes", () => {
       expect.objectContaining({ method: "PUT" })
     );
     expect(document.querySelector('input[value="manual_other_pattern"]')?.checked).toBe(true);
+  });
+
+  it("renders the read-only system inventory page", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+      if (url === "/api/system-inventory") {
+        return mockJsonResponse({
+          goalTypes: [{
+            id: "death_review",
+            title: "Death Review",
+            evidenceCategories: ["death_review"],
+            subscribedPatterns: ["bot_lane_2v1_punish"]
+          }],
+          deterministicEvidenceParsers: ["deterministic match evaluation"],
+          systemEvidencePatterns: ["bot_lane_2v1_punish", "objective_window_candidate"],
+          gamePhase: { note: "before 14:00 is lane phase" }
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/system-inventory");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("Known evidence patterns");
+    expect(document.body.textContent).toContain("Death Review");
+    expect(document.body.textContent).toContain("Bot lane 2v1 punish");
+    expect(document.body.textContent).toContain("deterministic match evaluation");
   });
 
   it("preserves a non-default selected pattern when marking reviewed or needs review", async () => {

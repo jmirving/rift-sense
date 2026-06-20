@@ -10,6 +10,7 @@ import { createHomeRouter } from "./routes/home.js";
 import { createMatchEvaluationsRouter } from "./routes/match-evaluations.js";
 import { createOnboardingRouter } from "./routes/onboarding.js";
 import { createSessionRouter } from "./routes/session.js";
+import { createSystemInventoryRouter } from "./routes/system-inventory.js";
 import { resolveRecentGames as defaultResolveRecentGames } from "./riot/recent-games.js";
 import { ApiError, badRequest, formatErrorResponse } from "./errors.js";
 
@@ -36,6 +37,7 @@ const clientRoutes = [
   "/drills",
   "/test",
   "/review",
+  "/system-inventory",
   "/training",
   "/team",
   "/content/:id",
@@ -129,6 +131,17 @@ export function createApp({
       },
       goalTypesRepository,
       userHomesRepository
+    })
+  );
+
+  app.use(
+    "/api/system-inventory",
+    createSystemInventoryRouter({
+      config: {
+        ...config,
+        requireAuth
+      },
+      goalTypesRepository
     })
   );
 

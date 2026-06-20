@@ -58,6 +58,9 @@ function createEvaluationRepository() {
       kills: 1,
       deaths: 2,
       assists: 3,
+      teamId: 100,
+      teamSide: "blue",
+      teamSideLabel: "You were blue side",
       evaluatedAt: "2026-06-02T00:00:00.000Z"
     },
     deathsJson: [
@@ -352,7 +355,10 @@ describe("match evaluations API", () => {
         result: "Loss",
         kills: 1,
         deaths: 2,
-        assists: 3
+        assists: 3,
+        teamId: 100,
+        teamSide: "blue",
+        teamSideLabel: "You were blue side"
       },
       evaluationSummary: {
         deathCount: 2,
@@ -386,6 +392,23 @@ describe("match evaluations API", () => {
     });
     expect(JSON.stringify(response.body)).not.toContain("SECRET_TIMELINE_EVENT");
     expect(JSON.stringify(response.body)).not.toContain("timelineJson");
+  });
+
+  it("returns read-only system inventory", async () => {
+    const app = await createTestApp({ matchEvaluationsRepository: createEvaluationRepository() });
+
+    const response = await request(app)
+      .get("/api/system-inventory")
+      .set("Authorization", `Bearer ${token({ riot: { puuid: "puuid_owner" } })}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.goalTypes[0]).toMatchObject({
+      evidenceCategories: expect.any(Array),
+      subscribedPatterns: expect.any(Array)
+    });
+    expect(response.body.deterministicEvidenceParsers).toContain("deterministic match evaluation");
+    expect(response.body.systemEvidencePatterns).toContain("bot_lane_2v1_punish");
+    expect(response.body.gamePhase.note).toContain("before 14:00");
   });
 
   it.each([

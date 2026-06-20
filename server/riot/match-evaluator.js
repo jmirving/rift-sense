@@ -5,10 +5,19 @@ const OBJECTIVE_SETUP_WINDOW_MS = 45_000;
 const OBJECTIVE_EXIT_WINDOW_MS = 45_000;
 const LEVEL_UP_WINDOW_MS = 20_000;
 const NEARBY_PARTICIPANT_RADIUS = 2500;
+const LANE_PHASE_END_SECONDS = 14 * 60;
+const MID_GAME_END_SECONDS = 25 * 60;
 const TAG_IDS = [
   "death_count",
   "solo_death_candidate",
   "multi_enemy_collapse_candidate",
+  "bot_lane_2v2_death",
+  "bot_lane_2v1_punish",
+  "bot_lane_gank",
+  "bot_lane_roam",
+  "bot_lane_collapse_unknown",
+  "lane_gank_death",
+  "outnumbered_known_enemy",
   "objective_window_candidate",
   "objective_setup_death_candidate",
   "objective_exit_death_candidate",
@@ -21,6 +30,13 @@ const TAG_IDS = [
 const SUMMARY_TAGS = new Map([
   ["solo_death_candidate", "possible unsupported deaths"],
   ["multi_enemy_collapse_candidate", "possible multi-enemy collapse candidates"],
+  ["bot_lane_2v2_death", "bot lane 2v2 deaths"],
+  ["bot_lane_2v1_punish", "bot lane 2v1 punish deaths"],
+  ["bot_lane_gank", "bot lane gank deaths"],
+  ["bot_lane_roam", "bot lane roam deaths"],
+  ["bot_lane_collapse_unknown", "bot lane collapse deaths"],
+  ["lane_gank_death", "lane gank deaths"],
+  ["outnumbered_known_enemy", "outnumbered deaths"],
   ["objective_window_candidate", "objective-window candidates"],
   ["objective_setup_death_candidate", "objective setup death candidates"],
   ["objective_exit_death_candidate", "objective exit death candidates"],
@@ -30,6 +46,27 @@ const SUMMARY_TAGS = new Map([
   ["missing_timeline", "missing timeline"],
   ["missing_participant", "missing participant"]
 ]);
+
+export function getDeterministicMatchEvaluationInventory() {
+  return {
+    parserVersion: DETERMINISTIC_MATCH_EVALUATOR_VERSION,
+    activeParsers: [
+      "deterministic match evaluation",
+      "death review",
+      "fight participation",
+      "objective setup and exit",
+      "vision information",
+      "lane pressure",
+      "tempo conversion"
+    ],
+    emittedTags: [...TAG_IDS],
+    phaseThresholds: {
+      lanePhaseEndsAtSeconds: LANE_PHASE_END_SECONDS,
+      midGameEndsAtSeconds: MID_GAME_END_SECONDS,
+      note: "Game phase is derived from in-game timestamp: before 14:00 is lane phase, 14:00-24:59 is mid game, and 25:00+ is late game."
+    }
+  };
+}
 
 function normalizeString(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -101,6 +138,19 @@ function participantTeam(participantIndex, participantId) {
   return normalizeNumber(participantIndex.byId.get(participantId)?.teamId);
 }
 
+function teamSideFromTeamId(teamId) {
+  const normalized = normalizeNumber(teamId);
+  if (normalized === 100) return "blue";
+  if (normalized === 200) return "red";
+  return null;
+}
+
+function teamSideLabel(teamSide) {
+  if (teamSide === "blue") return "You were blue side";
+  if (teamSide === "red") return "You were red side";
+  return null;
+}
+
 function championName(participantIndex, participantId) {
   return normalizeString(participantIndex.byId.get(participantId)?.championName);
 }
@@ -110,8 +160,27 @@ function participantRole(participantIndex, participantId) {
   return normalizeString(participant?.teamPosition ?? participant?.individualPosition ?? participant?.lane)?.toUpperCase() ?? null;
 }
 
+function participantSummary(participantIndex, participantId) {
+  const participant = participantIndex.byId.get(participantId);
+  if (!participant) return null;
+  return {
+    participantId,
+    championName: championName(participantIndex, participantId),
+    role: participantRole(participantIndex, participantId),
+    teamId: participantTeam(participantIndex, participantId),
+    teamSide: teamSideFromTeamId(participantTeam(participantIndex, participantId))
+  };
+}
+
 function isBotLaneRole(role) {
   return role === "BOTTOM" || role === "UTILITY" || role === "SUPPORT";
+}
+
+function isLaneRoleFor(playerRole, enemyRole) {
+  if (isBotLaneRole(playerRole)) {
+    return isBotLaneRole(enemyRole);
+  }
+  return playerRole && enemyRole === playerRole;
 }
 
 function enemyParticipantIdsForDeath(event, participantIndex, victimTeamId) {
@@ -148,6 +217,45 @@ function isObjectiveEvent(event) {
 
 function objectiveNearDeath(events, timestampMs) {
   return events.some((event) => isObjectiveEvent(event) && Math.abs(event.timestamp - timestampMs) <= OBJECTIVE_WINDOW_MS);
+}
+
+function objectiveName(event) {
+  if (event?.type === "BUILDING_KILL") {
+    const buildingType = normalizeString(event?.buildingType)?.toUpperCase() ?? "";
+    return buildingType.includes("INHIBITOR") ? "inhibitor" : "tower";
+  }
+  const monsterType = normalizeString(event?.monsterType)?.toUpperCase() ?? "";
+  const monsterSubType = normalizeString(event?.monsterSubType)?.toUpperCase() ?? "";
+  if (monsterType.includes("BARON")) return "Baron";
+  if (monsterType.includes("DRAGON") || monsterSubType.includes("ELDER")) return monsterSubType.includes("ELDER") ? "Elder dragon" : "dragon";
+  if (monsterType.includes("HORDE")) return "Voidgrubs";
+  if (monsterType.includes("RIFTHERALD")) return "Rift Herald";
+  return "objective";
+}
+
+function objectiveTeamLabel(event, victimTeamId) {
+  const teamId = normalizeNumber(event?.killerTeamId ?? event?.teamId);
+  if (teamId === null || victimTeamId === null) return null;
+  return teamId === victimTeamId ? "allied" : "enemy";
+}
+
+function objectiveFactsNearDeath(events, timestampMs, victimTeamId) {
+  return events
+    .filter((event) => isObjectiveEvent(event) && Math.abs(event.timestamp - timestampMs) <= OBJECTIVE_WINDOW_MS)
+    .map((event) => {
+      const deltaSeconds = Math.round((event.timestamp - timestampMs) / 1000);
+      const phase = deltaSeconds > 10 ? "before_setup" : deltaSeconds < -10 ? "after_exit" : "during_contest";
+      return {
+        name: objectiveName(event),
+        eventType: event.type,
+        timestampMs: event.timestamp,
+        secondsFromDeath: deltaSeconds,
+        timing: deltaSeconds < 0 ? "killed_before_death" : deltaSeconds > 0 ? "killed_after_death" : "killed_at_death",
+        reviewWindow: phase,
+        teamId: normalizeNumber(event?.killerTeamId ?? event?.teamId),
+        teamRelation: objectiveTeamLabel(event, victimTeamId)
+      };
+    });
 }
 
 function objectiveSetupNearDeath(events, timestampMs) {
@@ -187,6 +295,56 @@ function enemyLevelUpsNearDeath(events, timestampMs, enemyParticipantIds, partic
       championName: championName(participantIndex, event.participantId),
       secondsBeforeDeath: Math.round((timestampMs - event.timestampMs) / 1000)
     }));
+}
+
+export function gamePhaseForTimestampSeconds(timestampSeconds) {
+  const seconds = normalizeNumber(timestampSeconds) ?? 0;
+  if (seconds < LANE_PHASE_END_SECONDS) return "lane_phase";
+  if (seconds < MID_GAME_END_SECONDS) return "mid_game";
+  return "late_game";
+}
+
+function fightShapeFromCounts(enemyCount, alliedNearbyCount) {
+  const alliedCount = 1 + Math.max(0, normalizeNumber(alliedNearbyCount) ?? 0);
+  const normalizedEnemyCount = Math.max(0, normalizeNumber(enemyCount) ?? 0);
+  return {
+    enemyCount: normalizedEnemyCount,
+    alliedCount,
+    notation: `${normalizedEnemyCount || "?"}v${alliedCount || "?"}`,
+    label: `Fight shape: ${normalizedEnemyCount || "?"}v${alliedCount || "?"} against you`,
+    helperText: `Enemy ${normalizedEnemyCount || "?"} / Allied ${alliedCount || "?"} near the death`
+  };
+}
+
+function classifyLaneDeathContext({ victimRole, gamePhase, enemyParticipantsInvolved, nearbyParticipants, participantIndex }) {
+  if (gamePhase !== "lane_phase") return null;
+  const roles = enemyParticipantsInvolved.map((id) => participantRole(participantIndex, id)).filter(Boolean);
+  const enemyCount = enemyParticipantsInvolved.length;
+  const alliedNearbyCount = nearbyParticipants?.allies?.length ?? 0;
+  const laneRoles = roles.filter((role) => isLaneRoleFor(victimRole, role));
+  const nonLaneRoles = roles.filter((role) => !isLaneRoleFor(victimRole, role));
+  const enemyJunglerInvolved = roles.includes("JUNGLE");
+  const nonLaneRoleInvolved = nonLaneRoles.length > 0;
+
+  if (isBotLaneRole(victimRole)) {
+    const lanePairInvolved = roles.includes("BOTTOM") && (roles.includes("UTILITY") || roles.includes("SUPPORT"));
+    if (enemyCount === 2 && lanePairInvolved && alliedNearbyCount > 0) return "bot_lane_2v2_death";
+    if (enemyCount === 2 && lanePairInvolved && alliedNearbyCount === 0) return "bot_lane_2v1_punish";
+    if (enemyCount >= 3 && enemyJunglerInvolved) return "bot_lane_gank";
+    if (enemyCount >= 3 && nonLaneRoleInvolved) return "bot_lane_roam";
+    if (enemyCount >= 3) return "bot_lane_collapse_unknown";
+    return null;
+  }
+
+  if ((victimRole === "TOP" || victimRole === "MIDDLE") && enemyCount >= 2 && enemyJunglerInvolved && laneRoles.length > 0) {
+    return "lane_gank_death";
+  }
+
+  if (enemyCount > 1 && nonLaneRoleInvolved) {
+    return "outnumbered_known_enemy";
+  }
+
+  return null;
 }
 
 function isMeaningfulMultiEnemyDeath({ enemyParticipantsInvolved, nearbyParticipants, participantIndex, victimParticipantId }) {
@@ -337,6 +495,45 @@ export function summarizeMatchEvaluationDeaths(evaluation) {
     nearbyAllyChampionNames: normalizeArray(death?.nearbyAllyChampionNames).map(normalizeString).filter(Boolean),
     nearbyEnemyCount: normalizeNumber(death?.nearbyEnemyCount),
     nearbyAllyCount: normalizeNumber(death?.nearbyAllyCount),
+    enemyParticipants: normalizeArray(death?.enemyParticipants).map((entry) => ({
+      participantId: normalizeNumber(entry?.participantId),
+      championName: normalizeString(entry?.championName),
+      role: normalizeString(entry?.role),
+      teamId: normalizeNumber(entry?.teamId),
+      teamSide: normalizeString(entry?.teamSide)
+    })),
+    alliedParticipantsNearby: normalizeArray(death?.alliedParticipantsNearby).map((entry) => ({
+      participantId: normalizeNumber(entry?.participantId),
+      championName: normalizeString(entry?.championName),
+      role: normalizeString(entry?.role),
+      teamId: normalizeNumber(entry?.teamId),
+      teamSide: normalizeString(entry?.teamSide),
+      distance: normalizeNumber(entry?.distance)
+    })),
+    fightShape: death?.fightShape ? {
+      enemyCount: normalizeNumber(death.fightShape.enemyCount),
+      alliedCount: normalizeNumber(death.fightShape.alliedCount),
+      notation: normalizeString(death.fightShape.notation),
+      label: normalizeString(death.fightShape.label),
+      helperText: normalizeString(death.fightShape.helperText)
+    } : null,
+    laneDeathContext: normalizeString(death?.laneDeathContext),
+    gamePhase: normalizeString(death?.gamePhase),
+    gamePhaseLabel: normalizeString(death?.gamePhaseLabel),
+    evidenceSections: death?.evidenceSections ? {
+      knownFromData: normalizeArray(death.evidenceSections.knownFromData).map(normalizeString).filter(Boolean),
+      replayCanAnswer: normalizeArray(death.evidenceSections.replayCanAnswer).map(normalizeString).filter(Boolean)
+    } : null,
+    objectiveFacts: normalizeArray(death?.objectiveFacts).map((entry) => ({
+      name: normalizeString(entry?.name),
+      eventType: normalizeString(entry?.eventType),
+      timestampMs: normalizeNumber(entry?.timestampMs),
+      secondsFromDeath: normalizeNumber(entry?.secondsFromDeath),
+      timing: normalizeString(entry?.timing),
+      reviewWindow: normalizeString(entry?.reviewWindow),
+      teamId: normalizeNumber(entry?.teamId),
+      teamRelation: normalizeString(entry?.teamRelation)
+    })),
     enemyLevelUpsBeforeDeath: normalizeArray(death?.enemyLevelUpsBeforeDeath).map((event) => ({
       participantId: normalizeNumber(event?.participantId),
       timestampMs: normalizeNumber(event?.timestampMs),
@@ -363,6 +560,7 @@ export function evaluateMatchFacts({
   const participant = participantIndex.byPuuid.get(puuid) ?? null;
   const participantId = normalizeNumber(participant?.participantId ?? perspectiveRecord?.participantId);
   const victimTeamId = normalizeNumber(participant?.teamId ?? perspectiveRecord?.teamId);
+  const teamSide = teamSideFromTeamId(victimTeamId);
   const frames = normalizeArray(timelineJson?.info?.frames);
   const events = flattenTimelineEvents(timelineJson);
   const counts = zeroTagCounts();
@@ -396,6 +594,20 @@ export function evaluateMatchFacts({
       timestampMs,
       position
     });
+    const gamePhase = gamePhaseForTimestampSeconds(Math.floor(timestampMs / 1000));
+    const victimRole = participantRole(participantIndex, participantId);
+    const fightShape = fightShapeFromCounts(
+      Math.max(enemyParticipantsInvolved.length, nearbyParticipants?.enemies?.length ?? 0),
+      nearbyParticipants?.allies?.length ?? 0
+    );
+    const laneDeathContext = classifyLaneDeathContext({
+      victimRole,
+      gamePhase,
+      enemyParticipantsInvolved,
+      nearbyParticipants,
+      participantIndex
+    });
+    const objectiveFacts = objectiveFactsNearDeath(events, timestampMs, victimTeamId);
     const tags = [];
 
     if (enemyParticipantsInvolved.length === 1) {
@@ -403,6 +615,9 @@ export function evaluateMatchFacts({
     }
     if (isMeaningfulMultiEnemyDeath({ enemyParticipantsInvolved, nearbyParticipants, participantIndex, victimParticipantId: participantId })) {
       tags.push("multi_enemy_collapse_candidate");
+    }
+    if (laneDeathContext) {
+      tags.push(laneDeathContext);
     }
     if (objectiveNearDeath(events, timestampMs)) {
       tags.push("objective_window_candidate");
@@ -428,6 +643,7 @@ export function evaluateMatchFacts({
       timestampSeconds: Math.floor(timestampMs / 1000),
       minute: Math.floor(timestampMs / 60_000),
       victimParticipantId: participantId,
+      victimRole,
       killerParticipantId,
       killerChampionName: killerParticipantId === null ? null : championName(participantIndex, killerParticipantId),
       assistingParticipantIds,
@@ -436,10 +652,36 @@ export function evaluateMatchFacts({
       victimLevel: findPriorLevel(frames, participantId, timestampMs),
       killerLevel: killerParticipantId === null ? null : findPriorLevel(frames, killerParticipantId, timestampMs),
       enemyParticipantsInvolved,
+      enemyParticipants: enemyParticipantsInvolved.map((id) => participantSummary(participantIndex, id)).filter(Boolean),
       enemyLevelUpsBeforeDeath,
+      fightShape,
+      laneDeathContext,
+      gamePhase,
+      gamePhaseLabel: gamePhase === "lane_phase" ? "Lane phase" : gamePhase === "mid_game" ? "Mid game" : "Late game",
+      objectiveFacts,
+      evidenceSections: {
+        knownFromData: [
+          killerParticipantId === null ? null : `Killer: ${championName(participantIndex, killerParticipantId) ?? `participant ${killerParticipantId}`}`,
+          assistingParticipantIds.length > 0 ? `Assists: ${assistingParticipantIds.map((id) => championName(participantIndex, id) ?? `participant ${id}`).join(", ")}` : "No assists recorded",
+          fightShape.helperText,
+          gamePhase === "lane_phase" ? "Death happened during lane phase" : `Death happened during ${gamePhase === "mid_game" ? "mid game" : "late game"}`,
+          laneDeathContext ? `Lane context: ${laneDeathContext.replaceAll("_", " ")}` : null,
+          objectiveFacts.length > 0 ? `Objective event near death: ${objectiveFacts.map((fact) => `${fact.teamRelation ?? "unknown team"} ${fact.name}`).join(", ")}` : null
+        ].filter(Boolean),
+        replayCanAnswer: [
+          "ward coverage before the death",
+          "whether global mobility or teleport started the collapse",
+          laneDeathContext?.includes("roam") ? "whether the roam was visible before the engage" : null,
+          objectiveFacts.length === 0 ? "whether an objective was actually being set up or exited" : null
+        ].filter(Boolean)
+      },
       ...(nearbyParticipants ? {
         nearbyEnemyChampionNames: nearbyParticipants.enemies.map((entry) => entry.championName).filter(Boolean),
         nearbyAllyChampionNames: nearbyParticipants.allies.map((entry) => entry.championName).filter(Boolean),
+        alliedParticipantsNearby: nearbyParticipants.allies.map((entry) => ({
+          ...participantSummary(participantIndex, entry.participantId),
+          distance: entry.distance
+        })).filter(Boolean),
         nearbyEnemyCount: nearbyParticipants.enemies.length,
         nearbyAllyCount: nearbyParticipants.allies.length
       } : {}),
@@ -465,6 +707,8 @@ export function evaluateMatchFacts({
       deaths: normalizeNumber(participant?.deaths),
       assists: normalizeNumber(participant?.assists),
       teamId: victimTeamId,
+      teamSide,
+      teamSideLabel: teamSideLabel(teamSide),
       participantId,
       role: inferRole(participant, perspectiveRecord),
       lane: normalizeString(participant?.lane),

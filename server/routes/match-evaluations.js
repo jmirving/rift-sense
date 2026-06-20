@@ -118,6 +118,8 @@ function reviewSummaryFields(record, evaluation) {
   const summary = evaluation?.summaryJson ?? {};
   const queueId = summary.queueId ?? record?.queueId ?? null;
   const win = typeof summary.win === "boolean" ? summary.win : record?.win;
+  const teamId = summary.teamId ?? record?.teamId ?? null;
+  const teamSide = summary.teamSide ?? (Number(teamId) === 100 ? "blue" : Number(teamId) === 200 ? "red" : null);
 
   return {
     championName: summary.championName ?? record?.championName ?? null,
@@ -129,6 +131,9 @@ function reviewSummaryFields(record, evaluation) {
     kills: summary.kills ?? record?.kills ?? null,
     deaths: summary.deaths ?? record?.deaths ?? null,
     assists: summary.assists ?? record?.assists ?? null,
+    teamId,
+    teamSide,
+    teamSideLabel: summary.teamSideLabel ?? (teamSide === "blue" ? "You were blue side" : teamSide === "red" ? "You were red side" : null),
     role: roleFromRecord(record, summary),
     lane: summary.lane ?? record?.lane ?? null
   };
