@@ -195,6 +195,7 @@ describeWithPostgres("match evaluations repository", () => {
       deathIndex: 1,
       deathTimestampSeconds: 60,
       signalId: "solo_death_candidate",
+      selectedPatternId: "solo_death_candidate",
       status: "confirmed",
       causeCategory: "walked_without_cover"
     }, { now: new Date("2026-06-03T00:00:00.000Z") });
@@ -224,6 +225,7 @@ describeWithPostgres("match evaluations repository", () => {
       deathIndex: 1,
       deathTimestampSeconds: 60,
       signalId: "solo_death_candidate",
+      selectedPatternId: "stayed_too_long_pattern",
       status: "confirmed",
       causeCategory: "stayed_too_long"
     }, { now: new Date("2026-06-03T00:03:00.000Z") });
@@ -244,6 +246,7 @@ describeWithPostgres("match evaluations repository", () => {
         matchId: "NA1_050",
         deathIndex: 1,
         signalId: "solo_death_candidate",
+        selectedPatternId: "stayed_too_long_pattern",
         status: "confirmed",
         causeCategory: "stayed_too_long",
         updatedAt: "2026-06-03T00:03:00.000Z"
@@ -262,6 +265,7 @@ describeWithPostgres("match evaluations repository", () => {
     })).resolves.toMatchObject([
       {
         signalId: "solo_death_candidate",
+        selectedPatternId: "stayed_too_long_pattern",
         status: "confirmed",
         causeCategory: "stayed_too_long"
       }

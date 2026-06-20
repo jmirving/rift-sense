@@ -151,7 +151,7 @@ it("extracts death events and conservative deterministic tags", () => {
     enemyCount: 2,
     alliedCount: 1,
     notation: "2v1",
-    helperText: "Enemy 2 / Allied 1 near the death"
+    helperText: "Fight shape: 2 enemies vs 1 ally"
   });
   expect(result.deathsJson[0].gamePhase).toBe("lane_phase");
   expect(result.deathsJson[0].objectiveFacts[0]).toMatchObject({
@@ -589,9 +589,10 @@ it("tags bot 3v2 deaths as ganks when a jungler joins", () => {
     }
   });
 
-  expect(result.deathsJson[0].tags).toContain("multi_enemy_collapse_candidate");
+  expect(result.deathsJson[0].tags).not.toContain("multi_enemy_collapse_candidate");
   expect(result.deathsJson[0].tags).toContain("bot_lane_gank");
   expect(result.deathsJson[0].laneDeathContext).toBe("bot_lane_gank");
+  expect(result.deathsJson[0].laneDeathContextLabel).toBe("Bot-lane gank");
 });
 
 it("tags bot deaths as roams when a non-lane role joins", () => {
@@ -622,9 +623,171 @@ it("tags bot deaths as roams when a non-lane role joins", () => {
     }
   });
 
-  expect(result.deathsJson[0].tags).toContain("multi_enemy_collapse_candidate");
+  expect(result.deathsJson[0].tags).not.toContain("multi_enemy_collapse_candidate");
   expect(result.deathsJson[0].tags).toContain("bot_lane_roam");
   expect(result.deathsJson[0].laneDeathContext).toBe("bot_lane_roam");
+});
+
+it("classifies early solo-lane jungle interventions as lane ganks before generic outnumbered fights", () => {
+  const result = evaluate({
+    summaryJson: summary([
+      participant({ puuid: "target_puuid", participantId: 1, championName: "Gwen", teamId: 100, teamPosition: "TOP", individualPosition: "TOP", lane: "TOP" }),
+      participant({ participantId: 6, championName: "Renekton", teamId: 200, teamPosition: "TOP", individualPosition: "TOP", lane: "TOP" }),
+      participant({ participantId: 7, championName: "Taliyah", teamId: 200, teamPosition: "JUNGLE", individualPosition: "JUNGLE", lane: "JUNGLE" })
+    ]),
+    perspectiveRecord: {
+      matchId: "NA1_050",
+      puuid: "target_puuid",
+      participantId: 1,
+      championName: "Gwen",
+      teamId: 100,
+      teamPosition: "TOP"
+    },
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(300_000, { 1: 5, 6: 5, 7: 5 }),
+            events: [
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 300_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: [7]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  });
+
+  expect(result.deathsJson[0].tags).toContain("lane_gank_death");
+  expect(result.deathsJson[0].tags).not.toContain("multi_enemy_collapse_candidate");
+  expect(result.deathsJson[0].laneDeathContextLabel).toBe("Top-lane gank");
+  expect(result.deathsJson[0].evidenceSections.knownFromData).toContain("Lane context: Top-lane gank");
+});
+
+it("classifies lane roams before generic outnumbered fights", () => {
+  const result = evaluate({
+    summaryJson: summary([
+      participant({ puuid: "target_puuid", participantId: 1, championName: "Gwen", teamId: 100, teamPosition: "TOP", individualPosition: "TOP", lane: "TOP" }),
+      participant({ participantId: 6, championName: "Renekton", teamId: 200, teamPosition: "TOP", individualPosition: "TOP", lane: "TOP" }),
+      participant({ participantId: 7, championName: "Ahri", teamId: 200, teamPosition: "MIDDLE", individualPosition: "MIDDLE", lane: "MIDDLE" })
+    ]),
+    perspectiveRecord: {
+      matchId: "NA1_050",
+      puuid: "target_puuid",
+      participantId: 1,
+      championName: "Gwen",
+      teamId: 100,
+      teamPosition: "TOP"
+    },
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(360_000, { 1: 6, 6: 6, 7: 6 }),
+            events: [
+              {
+                type: "CHAMPION_KILL",
+                timestamp: 360_000,
+                victimId: 1,
+                killerId: 6,
+                assistingParticipantIds: [7]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  });
+
+  expect(result.deathsJson[0].tags).toContain("top_lane_roam");
+  expect(result.deathsJson[0].tags).not.toContain("multi_enemy_collapse_candidate");
+  expect(result.deathsJson[0].laneDeathContextLabel).toBe("Top-lane roam/collapse");
+});
+
+it("derives pick, teamfight, death order, and traded-up fight outcome context", () => {
+  const pick = evaluate({
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(120_000, { 1: 5, 6: 5 }),
+            events: [{ type: "CHAMPION_KILL", timestamp: 120_000, victimId: 1, killerId: 6, assistingParticipantIds: [] }]
+          }
+        ]
+      }
+    }
+  });
+  expect(pick.deathsJson[0].fightOutcomeContext).toMatchObject({
+    label: "pick_death",
+    alliedDeaths: 1,
+    enemyDeaths: 0,
+    totalDeaths: 1,
+    playerDeathOrder: "first",
+    teamResult: "lost_by_death_count"
+  });
+
+  const teamfight = evaluate({
+    summaryJson: summary([
+      participant({ puuid: "target_puuid", participantId: 1, championName: "Ahri", teamId: 100 }),
+      participant({ participantId: 2, championName: "Vi", teamId: 100 }),
+      participant({ participantId: 3, championName: "Gwen", teamId: 100 }),
+      participant({ participantId: 4, championName: "Caitlyn", teamId: 100 }),
+      participant({ participantId: 6, championName: "Zed", teamId: 200 }),
+      participant({ participantId: 7, championName: "LeeSin", teamId: 200 }),
+      participant({ participantId: 8, championName: "Jinx", teamId: 200 }),
+      participant({ participantId: 9, championName: "Nautilus", teamId: 200 })
+    ]),
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(900_000, { 1: 11, 2: 11, 3: 11, 4: 11, 6: 11, 7: 11, 8: 11, 9: 11 }),
+            events: [
+              { type: "CHAMPION_KILL", timestamp: 900_000, victimId: 1, killerId: 6, assistingParticipantIds: [] },
+              { type: "CHAMPION_KILL", timestamp: 904_000, victimId: 2, killerId: 7, assistingParticipantIds: [] },
+              { type: "CHAMPION_KILL", timestamp: 908_000, victimId: 6, killerId: 3, assistingParticipantIds: [] },
+              { type: "CHAMPION_KILL", timestamp: 912_000, victimId: 7, killerId: 4, assistingParticipantIds: [] },
+              { type: "CHAMPION_KILL", timestamp: 916_000, victimId: 3, killerId: 8, assistingParticipantIds: [] },
+              { type: "CHAMPION_KILL", timestamp: 920_000, victimId: 8, killerId: 4, assistingParticipantIds: [] }
+            ]
+          }
+        ]
+      }
+    }
+  });
+  expect(teamfight.deathsJson[0].fightOutcomeContext).toMatchObject({
+    label: "teamfight_death",
+    totalDeaths: 6,
+    playerDeathOrder: "first"
+  });
+
+  const tradedUp = evaluate({
+    timelineJson: {
+      info: {
+        frames: [
+          {
+            ...frame(500_000, { 1: 8, 6: 8, 7: 8 }),
+            events: [
+              { type: "CHAMPION_KILL", timestamp: 500_000, victimId: 1, killerId: 6, assistingParticipantIds: [] },
+              { type: "CHAMPION_KILL", timestamp: 505_000, victimId: 6, killerId: 2, assistingParticipantIds: [] },
+              { type: "CHAMPION_KILL", timestamp: 510_000, victimId: 7, killerId: 2, assistingParticipantIds: [] }
+            ]
+          }
+        ]
+      }
+    }
+  });
+  expect(tradedUp.deathsJson[0].fightOutcomeContext).toMatchObject({
+    label: "won_fight_but_died",
+    alliedDeaths: 1,
+    enemyDeaths: 2,
+    teamResult: "won_by_death_count"
+  });
 });
 
 it("tags late-game deaths with three nearby enemies as possible collapse", () => {

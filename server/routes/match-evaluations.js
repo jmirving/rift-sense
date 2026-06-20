@@ -238,6 +238,7 @@ export function createMatchEvaluationsRouter({
 
     const deathIndex = normalizeInteger(request.body?.deathIndex);
     const signalId = normalizeString(request.body?.signalId);
+    const selectedPatternId = normalizeString(request.body?.selectedPatternId);
     const status = normalizeReviewStatus(request.body?.status);
     const deathTimestampSeconds = normalizeInteger(request.body?.deathTimestampSeconds);
     const causeCategory = normalizeCauseCategory(request.body?.causeCategory);
@@ -262,6 +263,7 @@ export function createMatchEvaluationsRouter({
       deathIndex,
       deathTimestampSeconds,
       signalId,
+      selectedPatternId,
       status,
       causeCategory
     });

@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { buildMatchReviewPlan, mapDeathPositionToZone, renderApp } from "../../public/app/app.js";
+import { buildMatchReviewPlan, fightShapeDisplayLabel, mapDeathPositionToZone, renderApp } from "../../public/app/app.js";
 
 function mockJsonResponse(body) {
   return {
@@ -1688,11 +1688,14 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Caitlyn · Win · Ranked Solo/Duo");
     expect(document.body.textContent).toContain("ADC · 4/4/12 KDA · Goal: Die Less · 0 of 4 reviewed");
     expect(document.querySelectorAll("[data-main-review]")).toHaveLength(1);
+    expect(document.querySelector(".review-page-grid")).not.toBeNull();
+    expect(document.querySelector(".review-progress-rail .review-checklist-panel")).not.toBeNull();
     expect(document.querySelectorAll("[data-death-review-item]")).toHaveLength(4);
     expect(document.body.textContent).toContain("Death 4 · 20:00");
     expect(document.body.textContent).toContain("Unreviewed");
     expect(document.body.textContent).not.toContain("Multiple enemies");
     expect(document.querySelectorAll("[data-observed-pattern-item]").length).toBeGreaterThanOrEqual(2);
+    expect(document.body.textContent).toContain("Other suggested patterns");
     document.querySelectorAll("[data-observed-pattern-item]").forEach((item) => {
       expect(item.querySelector("h4")).toBeTruthy();
       expect(item.querySelectorAll("p")).toHaveLength(2);
@@ -1877,10 +1880,52 @@ describe("public app routes", () => {
       }]
     });
 
-    expect(equal.reviewMoments[0].fightShape.label).toBe("3v3 skirmish");
+    expect(equal.reviewMoments[0].fightShape.helperText).toBe("Even fight: 3 enemies vs 3 allies");
     expect(equal.reviewMoments[0].fightShape.label).not.toContain("Outnumbered");
     expect(advantaged.reviewMoments[0].evidenceFacts.join(" ")).not.toContain("allied cover was not close enough");
     expect(collapsed.reviewMoments[0].fightShape.label).toContain("Collapsed");
+  });
+
+  it("uses plain fight-shape display labels without against-you wording for allied advantages", () => {
+    expect(fightShapeDisplayLabel({ enemyCount: 3, alliedCount: 4 })).toBe("Allied numbers advantage: 3 enemies vs 4 allies");
+    expect(fightShapeDisplayLabel({ enemyCount: 3, alliedCount: 2 })).toBe("Outnumbered: 3 enemies vs 2 allies");
+    expect(fightShapeDisplayLabel({ enemyCount: 2, alliedCount: 2 })).toBe("Even fight: 2 enemies vs 2 allies");
+  });
+
+  it("keeps main review evidence suggested until user selections confirm it", () => {
+    const plan = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      evaluationSummary: { deathCount: 2 },
+      deterministicTagCounts: { death_count: 2, solo_death_candidate: 2 },
+      deathEvents: [
+        { deathIndex: 1, timestampSeconds: 100, tags: ["solo_death_candidate"], killerChampionName: "Ahri" },
+        { deathIndex: 2, timestampSeconds: 200, tags: ["solo_death_candidate"], killerChampionName: "Ahri" }
+      ],
+      reviewedMoments: [
+        {
+          deathIndex: 1,
+          signalId: "solo_death_candidate",
+          selectedPatternId: "solo_death_candidate",
+          status: "confirmed",
+          causeCategory: "walked_without_cover"
+        },
+        {
+          deathIndex: 2,
+          signalId: "solo_death_candidate",
+          selectedPatternId: "manual_other_pattern",
+          status: "unsure",
+          causeCategory: "other"
+        }
+      ]
+    });
+
+    expect(plan.mainReview.diagnosis).toContain("Confirmed: 1 reviewed moments match this pattern");
+    const soloPattern = plan.patterns.find((pattern) => pattern.id === "solo_death_candidate");
+    expect(soloPattern.confirmedCount).toBe(1);
+    expect(soloPattern.evidenceRows).toEqual([
+      expect.objectContaining({ deathIndex: 1, status: "reviewed" }),
+      expect.objectContaining({ deathIndex: 2, status: "suggested" })
+    ]);
   });
 
   it("maps death coordinates into reusable absolute and relative zones", () => {
@@ -2184,7 +2229,7 @@ describe("public app routes", () => {
     expect(putBodies[1].status).toBe("unsure");
     expect(document.body.textContent).toContain("Game review complete");
     expect(document.body.textContent).toContain("1 reviewed · 1 needs manual review · 2 total");
-    expect(document.querySelector('a[href="/review?matchId=NA1_next"]')?.textContent).toContain("Go to next initial assessment game");
+    expect(document.querySelector('a[href="/review?matchId=NA1_next"]')?.textContent).toContain("Go to next assessment game");
   });
 
   it("uses server assessment state so stale candidate objects do not loop next assessment game", async () => {
@@ -2256,7 +2301,7 @@ describe("public app routes", () => {
 
     expect(document.body.textContent).toContain("Game review complete");
     expect(document.body.textContent).toContain("2 complete");
-    expect(document.querySelector('a[href="/review?matchId=NA1_third"]')?.textContent).toContain("Go to next initial assessment game");
+    expect(document.querySelector('a[href="/review?matchId=NA1_third"]')?.textContent).toContain("Go to next assessment game");
     expect(document.querySelector('a[href="/review?matchId=NA1_first"]')).toBeNull();
   });
 

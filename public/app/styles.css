@@ -1267,6 +1267,9 @@ body.auth-page.nav-collapsed {
 .review-moment-list,
 .review-signal-row,
 .review-moment-control,
+.review-page-grid,
+.review-main-column,
+.review-progress-rail,
 .review-moment-card,
 .main-review-card,
 .review-progress-panel,
@@ -1306,6 +1309,17 @@ body.auth-page.nav-collapsed {
   display: grid;
   gap: 12px;
   border-color: var(--border-strong);
+}
+
+.review-page-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  gap: 16px;
+  align-items: start;
+}
+
+.review-progress-rail {
+  position: sticky;
+  top: 16px;
 }
 
 .review-moment-card,
@@ -1397,6 +1411,21 @@ body.auth-page.nav-collapsed {
   align-items: stretch;
 }
 
+.observed-patterns-compact {
+  margin-top: 0;
+}
+
+.suggested-patterns-more {
+  display: grid;
+  gap: 8px;
+}
+
+.suggested-patterns-more summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .review-progress-panel,
 .review-checklist-panel {
   border-color: var(--border-strong);
@@ -1457,6 +1486,17 @@ body.auth-page.nav-collapsed {
 
 .review-checklist-item.is-complete {
   opacity: 0.78;
+}
+
+@media (max-width: 860px) {
+  .review-page-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .review-progress-rail {
+    position: static;
+    order: -1;
+  }
 }
 
 .review-moment-body {

@@ -43,7 +43,8 @@ describeWithPostgres("Postgres migrations", () => {
       { id: "001_riftsense_storage.sql" },
       { id: "002_match_evaluations.sql" },
       { id: "003_recent_game_card_indexes.sql" },
-      { id: "004_reviewed_moments.sql" }
+      { id: "004_reviewed_moments.sql" },
+      { id: "005_reviewed_moment_selected_pattern.sql" }
     ]);
 
     const indexes = await pool.query(

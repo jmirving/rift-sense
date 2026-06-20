@@ -914,7 +914,10 @@ function tagLabel(value) {
     bot_lane_2v2_death: "Bot lane 2v2 death",
     bot_lane_2v1_punish: "Bot lane 2v1 punish",
     bot_lane_gank: "Bot lane gank",
-    bot_lane_roam: "Bot lane roam",
+    bot_lane_roam: "Bot lane roam/collapse",
+    top_lane_roam: "Top-lane roam/collapse",
+    mid_lane_roam: "Mid-lane roam/collapse",
+    lane_roam_collapse: "Lane roam/collapse",
     bot_lane_collapse_unknown: "Bot lane collapse",
     lane_gank_death: "Lane gank",
     outnumbered_known_enemy: "Outnumbered with known nearby enemy",
@@ -1913,6 +1916,66 @@ function roleListLabel(roles) {
   return roles.map((role) => labels[role] ?? role).join(" + ");
 }
 
+export function fightShapeDisplayLabel(fightShape = {}) {
+  const enemyCount = Number(fightShape.enemyCount ?? fightShape.enemy ?? fightShape.enemies);
+  const allyCount = Number(fightShape.alliedCount ?? fightShape.allyCount ?? fightShape.allies);
+  if (!Number.isFinite(enemyCount) || !Number.isFinite(allyCount)) {
+    return "Fight shape unknown";
+  }
+  const enemyLabel = `${enemyCount} ${enemyCount === 1 ? "enemy" : "enemies"}`;
+  const allyLabel = `${allyCount} ${allyCount === 1 ? "ally" : "allies"}`;
+  if (enemyCount > allyCount) {
+    return `Outnumbered: ${enemyLabel} vs ${allyLabel}`;
+  }
+  if (enemyCount === allyCount) {
+    return `Even fight: ${enemyLabel} vs ${allyLabel}`;
+  }
+  return `Allied numbers advantage: ${enemyLabel} vs ${allyLabel}`;
+}
+
+function compactFightShapeLabel(fightShape = {}) {
+  const enemyCount = Number(fightShape.enemyCount ?? 0);
+  const allyCount = Number(fightShape.allyCount ?? fightShape.alliedCount ?? 0);
+  return Number.isFinite(enemyCount) && Number.isFinite(allyCount) && enemyCount > 0
+    ? `${enemyCount} enemies vs ${allyCount} allies`
+    : "Fight shape unknown";
+}
+
+function laneContextDisplayLabel(id, death = {}) {
+  if (death?.laneDeathContextLabel) return death.laneDeathContextLabel;
+  const role = normalizedRole(death?.victimRole ?? death?.role ?? death?.participantRole);
+  const lane = role === "top" ? "Top" : role === "mid" ? "Mid" : roleIsBotLane(role) ? "Bot" : "Lane";
+  const labels = {
+    bot_lane_2v2_death: "2v2 lane death",
+    lane_2v2_death: "2v2 lane death",
+    bot_lane_2v1_punish: "2v1 bot-lane punish",
+    lane_2v1_death: "2v1 bot-lane punish",
+    bot_lane_gank: "Bot-lane gank",
+    lane_gank_death: `${lane}-lane gank`,
+    bot_lane_roam: "Bot-lane roam/collapse",
+    top_lane_roam: "Top-lane roam/collapse",
+    mid_lane_roam: "Mid-lane roam/collapse",
+    lane_roam_collapse: `${lane}-lane roam/collapse`,
+    bot_lane_collapse_unknown: "Bot-lane collapse"
+  };
+  return labels[id] ?? null;
+}
+
+function fightOutcomeDisplayLabel(context = {}) {
+  const alliedDeaths = Number(context.alliedDeaths ?? 0);
+  const enemyDeaths = Number(context.enemyDeaths ?? 0);
+  const totalDeaths = Number(context.totalDeaths ?? alliedDeaths + enemyDeaths);
+  const duration = Number(context.durationSeconds ?? 0);
+  const label = String(context.label ?? "");
+  if (label === "pick_death") return alliedDeaths <= 1 && enemyDeaths === 0 ? "Outcome: pick - only you died." : `Outcome: pick - ${alliedDeaths} allied deaths, ${enemyDeaths} enemy deaths.`;
+  if (label === "lost_skirmish") return `Outcome: lost skirmish - ${alliedDeaths} allied deaths, ${enemyDeaths} enemy death${enemyDeaths === 1 ? "" : "s"}.`;
+  if (label === "even_trade") return `Outcome: even trade - ${alliedDeaths} allied deaths, ${enemyDeaths} enemy deaths.`;
+  if (label === "won_fight_but_died") return "Outcome: won fight but died - your team traded up.";
+  if (label === "teamfight_death") return `Outcome: teamfight - ${totalDeaths} total deaths${duration > 0 ? ` in ${duration}s` : ""}.`;
+  if (label === "stagger_death") return `Outcome: stagger - you died ${context.playerDeathOrder ?? "late"} in the fight.`;
+  return totalDeaths > 0 ? `Outcome: ${alliedDeaths} allied deaths, ${enemyDeaths} enemy deaths.` : "";
+}
+
 function matchupContextForDeath(death, context = {}) {
   const playerRole = normalizedRole(context.role ?? death?.role ?? death?.participantRole);
   const locationZone = context.locationZone ?? deathLocationZone(death, context);
@@ -1941,15 +2004,18 @@ function matchupContextForDeath(death, context = {}) {
 
 function inferFightShape(death, context = {}) {
   if (death?.fightShape?.enemyCount || death?.fightShape?.notation) {
+    const enemyCount = Number(death.fightShape.enemyCount ?? 0);
+    const allyCount = Number(death.fightShape.alliedCount ?? 0);
+    const laneLabel = laneContextDisplayLabel(death.laneDeathContext, death);
     return {
       id: death.laneDeathContext ?? "fight_context",
-      label: death.fightShape.label ?? `Fight shape: ${death.fightShape.notation} against you`,
-      bucket: death.fightShape.notation ?? `${death.fightShape.enemyCount ?? "?"}v${death.fightShape.alliedCount ?? "?"}`,
+      label: laneLabel ?? death.fightShape.label ?? fightShapeDisplayLabel({ enemyCount, alliedCount: allyCount }),
+      bucket: compactFightShapeLabel({ enemyCount, allyCount }),
       numericFightShape: death.fightShape.notation ?? `${death.fightShape.enemyCount ?? "?"}v${death.fightShape.alliedCount ?? "?"}`,
-      fightInterpretation: death.fightShape.helperText ?? "enemy first, allied second",
-      enemyCount: Number(death.fightShape.enemyCount ?? 0),
-      allyCount: Number(death.fightShape.alliedCount ?? 0),
-      helperText: death.fightShape.helperText ?? "",
+      fightInterpretation: death.fightShape.helperText ?? "",
+      enemyCount,
+      allyCount,
+      helperText: fightShapeDisplayLabel({ enemyCount, alliedCount: allyCount }),
       category: "fight_shape"
     };
   }
@@ -1994,35 +2060,38 @@ function inferFightShape(death, context = {}) {
       label: enemyCount >= allyCount + 2 || location === "river" || location === "jungle"
         ? "Collapsed on by multiple enemies"
         : "Outnumbered fight",
-      bucket: numericFightShape,
+      bucket: compactFightShapeLabel({ enemyCount, allyCount }),
       numericFightShape,
       fightInterpretation: interpretation,
       enemyCount,
       allyCount,
+      helperText: fightShapeDisplayLabel({ enemyCount, alliedCount: allyCount }),
       category: "fight_shape"
     };
   }
   if (enemyCount === allyCount && enemyCount >= 3) {
     return {
       id: enemyCount >= 5 ? "teamfight" : "even_skirmish",
-      label: enemyCount >= 5 ? `${numericFightShape} teamfight` : `${numericFightShape} skirmish`,
-      bucket: numericFightShape,
+      label: enemyCount >= 5 ? `${numericFightShape} teamfight` : "Even skirmish",
+      bucket: compactFightShapeLabel({ enemyCount, allyCount }),
       numericFightShape,
       fightInterpretation: enemyCount >= 5 ? "teamfight" : "even skirmish",
       enemyCount,
       allyCount,
+      helperText: fightShapeDisplayLabel({ enemyCount, alliedCount: allyCount }),
       category: "fight_shape"
     };
   }
   if (enemyCount < allyCount && enemyCount > 0) {
     return {
       id: "allied_number_advantage",
-      label: `${numericFightShape} allied-number advantage`,
-      bucket: numericFightShape,
+      label: "Allied numbers advantage",
+      bucket: compactFightShapeLabel({ enemyCount, allyCount }),
       numericFightShape,
       fightInterpretation: "advantaged fight",
       enemyCount,
       allyCount,
+      helperText: fightShapeDisplayLabel({ enemyCount, alliedCount: allyCount }),
       category: "fight_shape"
     };
   }
@@ -2114,6 +2183,32 @@ function alliedCoverReason(death) {
     return "ally proximity was detected, but functional peel/trade range is unclear";
   }
   return "allied cover unclear";
+}
+
+function enemyParticipantByRole(death, role) {
+  return (death?.enemyParticipants ?? []).find((entry) => normalizedRole(entry?.role) === role) ?? null;
+}
+
+function laneInterventionFact(fightShape, death) {
+  const id = fightShape?.id ?? "";
+  if (id === "bot_lane_gank" || id === "lane_gank_death") {
+    const jungler = enemyParticipantByRole(death, "jungle");
+    return `Enemy jungle involved: ${jungler?.championName ?? "detected"}`;
+  }
+  if (id.includes("roam")) {
+    const joined = (death?.enemyParticipants ?? []).find((entry) => {
+      const role = normalizedRole(entry?.role);
+      return role && !["jungle"].includes(role) && !isExpectedLaneEnemyRole(death, role);
+    });
+    return joined ? `Enemy ${normalizedRole(joined.role)} joined: ${joined.championName ?? "detected"}` : "Non-lane enemy joined";
+  }
+  return "";
+}
+
+function isExpectedLaneEnemyRole(death, role) {
+  const playerRole = normalizedRole(death?.victimRole ?? death?.role ?? death?.participantRole);
+  if (roleIsBotLane(playerRole)) return role === "bot" || role === "support";
+  return role === playerRole;
 }
 
 function compactUncertaintyNote(lines = [], fallback = "Needs replay check") {
@@ -2286,10 +2381,11 @@ function reviewMomentFactorOptions(death, goalKind, context = {}) {
       category: "fight_shape",
       confidence: fightShape.id === "outnumbered_fight" ? "High" : "Medium",
       facts: [
-        fightShape.helperText || `Fight shape: ${fightShape.bucket} against you`,
+        fightShape.helperText || fightShapeDisplayLabel(fightShape),
         `Enemy participants: ${deathEnemyParticipants(death).join(", ") || fightShape.enemyCount}`,
-        `Allied support nearby: ${deathAllyParticipants(death).join(", ") || (fightShape.allyCount > 1 ? "yes" : "not detected")}`
-      ],
+        `Allied participants nearby: ${deathAllyParticipants(death).join(", ") || "not detected"}`,
+        laneInterventionFact(fightShape, death)
+      ].filter(Boolean),
       reasons: fightShape.id === "lane_2v2_death" || fightShape.id === "bot_lane_2v2_death"
         ? [`This was an even 2v2 by count${involvedRoles ? ` against enemy ${involvedRoles}` : ""}, so the replay question is execution/trade timing, not outnumbering.`]
         : fightShape.id === "lane_2v1_death" || fightShape.id === "bot_lane_2v1_punish"
@@ -2462,10 +2558,14 @@ function reviewMomentEvidenceFacts(death, goalKind) {
 
   if (killer) facts.push(killer);
   if (assists) facts.push(assists);
-  facts.push(fightShape.helperText || `Fight shape: ${fightShape.bucket} against you`);
+  facts.push(fightShape.helperText || fightShapeDisplayLabel(fightShape));
+  const outcome = fightOutcomeDisplayLabel(death?.fightOutcomeContext);
+  if (outcome) facts.push(outcome);
   if (death?.gamePhaseLabel) facts.push(`Phase: ${death.gamePhaseLabel}`);
   if (locationZone?.userRelativeZoneLabel) facts.push(`Death happened in ${locationZone.userRelativeZoneLabel}`);
-  if (participantRoles) facts.push(`Enemy ${participantRoles} were involved`);
+  const intervention = laneInterventionFact(fightShape, death);
+  if (intervention) facts.push(intervention);
+  else if (participantRoles) facts.push(`Enemy ${participantRoles} were involved`);
   facts.push(`Enemy participants: ${deathEnemyParticipants(death).join(", ") || fightShape.enemyCount}`);
   const allies = deathAllyParticipants(death).join(", ");
   facts.push(`Allied participants nearby: ${allies || "not detected"}`);
@@ -2482,7 +2582,9 @@ function reviewMomentEvidenceFacts(death, goalKind) {
     }
   }
   if (tags.has("solo_death_candidate") || tags.has("isolated_forward_death_candidate")) {
-    facts.push(alliedCoverReason(death));
+    if (deathAllyParticipants(death).length === 0 || Number(death?.nearbyAllyCount ?? NaN) === 0) {
+      facts.push("Allied participants nearby: not detected");
+    }
   }
   if (tags.has("multi_enemy_collapse_candidate") && Number(death?.nearbyEnemyCount ?? 0) >= 3) {
     const enemies = (death?.nearbyEnemyChampionNames ?? []).slice(0, 5).join(", ");
@@ -2500,7 +2602,9 @@ function reviewMomentEvidenceFacts(death, goalKind) {
     facts.push(levels);
   }
 
-  return [...new Set([...(death?.evidenceSections?.knownFromData ?? []), ...facts])].slice(0, 6);
+  return [...new Set([...(death?.evidenceSections?.knownFromData ?? []), ...facts])]
+    .filter((fact) => !/review whether|replay|unclear|could affect|objective relevance/i.test(fact))
+    .slice(0, 8);
 }
 
 function reviewMomentEventSummary(death, goalKind) {
@@ -2684,9 +2788,11 @@ function nextGameRuleForLabel(label) {
   return "Next game: pause the replay and write the safer alternative before queueing again.";
 }
 
-function buildPatternSummaries(moments) {
+function buildPatternSummaries(moments, reviewedMoments = []) {
   const byLabel = new Map();
   for (const moment of moments) {
+    const reviewedMoment = reviewedMomentForUiMoment(moment, reviewedMoments);
+    const selectedFactorId = reviewedMoment ? selectedPatternIdForMoment(moment, reviewedMoment) : "";
     for (const factor of moment.factorOptions.filter((option) =>
       !["no_clear_deterministic_cause", "manual_other_pattern"].includes(option.id)
     )) {
@@ -2694,14 +2800,35 @@ function buildPatternSummaries(moments) {
         id: factor.id,
         label: factor.label,
         count: 0,
-        times: []
+        suggestedCount: 0,
+        confirmedCount: 0,
+        needsManualReviewCount: 0,
+        times: [],
+        evidenceRows: []
       };
       entry.count += 1;
+      entry.suggestedCount += 1;
       entry.times.push(moment.time);
+      const selectedHere = reviewedMoment && selectedFactorId === factor.id;
+      if (selectedHere && reviewStatusUi(reviewedMoment).label === "Reviewed") {
+        entry.confirmedCount += 1;
+      }
+      if (selectedHere && reviewStatusUi(reviewedMoment).label === "Needs manual review") {
+        entry.needsManualReviewCount += 1;
+      }
+      entry.evidenceRows.push({
+        deathIndex: moment.deathIndex,
+        time: moment.time,
+        status: !reviewedMoment ? "suggested" : selectedHere ? reviewStatusUi(reviewedMoment).label.toLowerCase() : "suggested"
+      });
       byLabel.set(factor.label, entry);
     }
   }
-  return [...byLabel.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+  return [...byLabel.values()].sort((left, right) =>
+    right.confirmedCount - left.confirmedCount ||
+    right.suggestedCount - left.suggestedCount ||
+    left.label.localeCompare(right.label)
+  );
 }
 
 function findMomentByDeathIndex(moments, deathIndex) {
@@ -2751,11 +2878,13 @@ function buildMainReview(moments, patterns, selectedFocus = null) {
         return {
           type: "pattern",
           title: pattern.label,
-          diagnosis: `User-selected focus: ${pattern.count} ${pattern.count === 1 ? "death" : "deaths"} matched this pattern.`,
+          diagnosis: pattern.confirmedCount > 0
+            ? `User-selected focus: confirmed by your review - ${pattern.confirmedCount} reviewed ${pattern.confirmedCount === 1 ? "moment" : "moments"} match this pattern.`
+            : `User-selected focus: suggested from detected evidence - ${pattern.suggestedCount} ${pattern.suggestedCount === 1 ? "death" : "deaths"} match this pattern.`,
           impact: "",
-          evidence: pattern.times.slice(0, 4).map((time) => `Death at ${time}`),
+          evidence: pattern.evidenceRows.slice(0, 4).map((row) => `Death ${row.deathIndex} · ${row.time} · ${row.status}`),
           takeaway: nextGameRuleForLabel(pattern.label),
-          confidence: confidenceLabel(pattern.count, moments.length),
+          confidence: pattern.confirmedCount > 0 ? confidenceLabel(pattern.confirmedCount, moments.length) : "Suggested",
           selectedByUser: true
         };
       }
@@ -2764,19 +2893,18 @@ function buildMainReview(moments, patterns, selectedFocus = null) {
       return buildManualMainReview(selectedFocus, moments);
     }
   }
-  const repeatedPattern = patterns.find((pattern) => pattern.count > 1);
+  const repeatedPattern = patterns.find((pattern) => pattern.confirmedCount > 1) ?? patterns.find((pattern) => pattern.suggestedCount > 1);
   if (repeatedPattern) {
-    const relatedMoments = moments.filter((moment) =>
-      moment.factorOptions.some((option) => option.label === repeatedPattern.label)
-    );
     return {
       type: "pattern",
       title: repeatedPattern.label,
-      diagnosis: `${repeatedPattern.count} deaths shared this pattern.`,
-      impact: "Repeated deaths point to one rule worth checking first.",
-      evidence: relatedMoments.slice(0, 4).map((moment) => `Death ${moment.deathIndex} at ${moment.time}`),
+      diagnosis: repeatedPattern.confirmedCount > 0
+        ? `Confirmed: ${repeatedPattern.confirmedCount} reviewed moments match this pattern.`
+        : `Suggested: ${repeatedPattern.suggestedCount} deaths match this pattern.`,
+      impact: repeatedPattern.confirmedCount > 0 ? "Confirmed by your review." : "Suggested from detected evidence.",
+      evidence: repeatedPattern.evidenceRows.slice(0, 4).map((row) => `Death ${row.deathIndex} · ${row.time} · ${row.status}`),
       takeaway: nextGameRuleForLabel(repeatedPattern.label),
-      confidence: confidenceLabel(repeatedPattern.count, moments.length)
+      confidence: repeatedPattern.confirmedCount > 0 ? confidenceLabel(repeatedPattern.confirmedCount, moments.length) : "Suggested"
     };
   }
   const moment = [...moments].sort((left, right) => right.priority - left.priority || left.deathIndex - right.deathIndex)[0];
@@ -2887,7 +3015,7 @@ export function buildMatchReviewPlan(review) {
           : undefined
       };
     });
-  const patterns = buildPatternSummaries(reviewMoments);
+  const patterns = buildPatternSummaries(reviewMoments, review?.reviewedMoments ?? []);
 
   return {
     activeGoalName: goalName,
@@ -3119,9 +3247,11 @@ function renderReviewCompletion(plan, review, context = getRouteContext()) {
       ` : ""}
       <div class="action-row">
         ${nextHref && !assessmentComplete
-          ? `<a class="button" href="${escapeHtml(nextHref)}">Go to next initial assessment game</a>`
+          ? `<a class="button" href="${escapeHtml(nextHref)}">Go to next assessment game</a>`
           : ""}
-        <a class="button ${nextHref && !assessmentComplete ? "secondary" : ""}" href="${escapeHtml(toAppHref("/", context) ?? "/")}">Back to dashboard</a>
+        ${assessmentComplete
+          ? `<a class="button" href="${escapeHtml(toAppHref("/", context) ?? "/")}">${escapeHtml(completeCount < assessment.target ? "All available assessment games reviewed" : "Complete initial assessment")}</a>`
+          : `<a class="button secondary" href="${escapeHtml(toAppHref("/", context) ?? "/")}">Back to dashboard</a>`}
         <button class="button secondary" type="button" data-change-main-focus>Change main focus</button>
       </div>
     </article>
@@ -3191,8 +3321,10 @@ function deathContextFacts(moment) {
   if (moment.fightShape?.helperText) {
     facts.push(moment.fightShape.helperText);
   } else if (moment.fightShape?.bucket) {
-    facts.push(`Fight shape: ${moment.fightShape.bucket} against you`);
+    facts.push(fightShapeDisplayLabel(moment.fightShape));
   }
+  const outcome = fightOutcomeDisplayLabel(death?.fightOutcomeContext);
+  if (outcome) facts.push(outcome);
   if (location) facts.push(location);
   if (allies) facts.push(`Nearby allies: ${allies}`);
   if (enemies) facts.push(`Nearby enemies: ${enemies}`);
@@ -3299,27 +3431,44 @@ function renderDeathReviewList(plan, review) {
 }
 
 function renderObservedPatterns(plan) {
-  if (plan.patterns.length === 0) {
+  const patterns = plan.patterns.filter((pattern) => pattern.label !== plan.mainReview?.title);
+  if (patterns.length === 0) {
     return "";
   }
+  const visible = patterns.slice(0, 2);
+  const hidden = patterns.slice(2);
+  const patternCard = (pattern) => {
+    const rows = pattern.evidenceRows ?? pattern.times.map((time) => ({ time, status: "suggested" }));
+    const shownRows = rows.slice(0, 4);
+    const moreCount = Math.max(0, rows.length - shownRows.length);
+    return `
+      <article class="observed-pattern-item" data-observed-pattern-item>
+        <h4>${escapeHtml(pattern.label)}</h4>
+        <p class="muted">Suggested: ${escapeHtml(String(pattern.suggestedCount ?? pattern.count))} ${Number(pattern.suggestedCount ?? pattern.count) === 1 ? "death" : "deaths"}${pattern.confirmedCount ? ` · Confirmed: ${escapeHtml(String(pattern.confirmedCount))}` : ""}</p>
+        <p class="muted">${escapeHtml(shownRows.map((row) => `Death ${row.deathIndex ?? ""}${row.deathIndex ? " · " : ""}${row.time} · ${row.status}`).join(", "))}${moreCount > 0 ? ` <span class="more-count">+${escapeHtml(String(moreCount))} more</span>` : ""}</p>
+        <button class="button secondary compact-row-action" type="button" data-set-main-focus-pattern="${escapeHtml(pattern.id)}" data-focus-label="${escapeHtml(pattern.label)}">Set as main focus</button>
+      </article>
+    `;
+  };
   return `
-    <section class="review-section" aria-labelledby="observed-patterns-title">
+    <section class="review-section observed-patterns-compact" aria-labelledby="observed-patterns-title">
       <div class="section-heading compact-section-heading">
         <div>
-          <p class="eyebrow">Other Patterns Noticed</p>
-          <h3 id="observed-patterns-title">Patterns across deaths</h3>
+          <p class="eyebrow">Other suggested patterns</p>
+          <h3 id="observed-patterns-title">Secondary review options</h3>
         </div>
       </div>
       <section class="observed-pattern-grid">
-        ${plan.patterns.map((pattern) => `
-          <article class="observed-pattern-item" data-observed-pattern-item>
-            <h4>${escapeHtml(pattern.label)}</h4>
-            <p class="muted">${escapeHtml(String(pattern.count))} ${pattern.count === 1 ? "death" : "deaths"}</p>
-            <p class="muted">${escapeHtml(pattern.times.slice(0, 4).join(", "))}${pattern.count > pattern.times.slice(0, 4).length ? ` <span class="more-count">+${escapeHtml(String(pattern.count - pattern.times.slice(0, 4).length))} more</span>` : ""}</p>
-            <button class="button secondary compact-row-action" type="button" data-set-main-focus-pattern="${escapeHtml(pattern.id)}" data-focus-label="${escapeHtml(pattern.label)}">Set as main focus</button>
-          </article>
-        `).join("")}
+        ${visible.map(patternCard).join("")}
       </section>
+      ${hidden.length > 0 ? `
+        <details class="suggested-patterns-more">
+          <summary>See more suggested patterns</summary>
+          <section class="observed-pattern-grid">
+            ${hidden.map(patternCard).join("")}
+          </section>
+        </details>
+      ` : ""}
     </section>
   `;
 }
@@ -3335,12 +3484,18 @@ function renderReviewPlan(plan, review) {
   const complete = plan.reviewMoments.length > 0 && plan.reviewMoments.every((moment) => uiMomentIsComplete(moment, reviewedMoments));
 
   return `
-    ${renderAssessmentProgress(review, complete)}
-    ${renderMainReview(plan)}
-    ${renderReviewChecklist(plan, reviewedMoments)}
+    <section class="review-page-grid">
+      <div class="review-main-column">
+        ${renderAssessmentProgress(review, complete)}
+        ${renderMainReview(plan)}
+        ${renderObservedPatterns(plan)}
+      </div>
+      <div class="review-progress-rail">
+        ${renderReviewChecklist(plan, reviewedMoments)}
+      </div>
+    </section>
     ${complete ? renderReviewCompletion(plan, review) : ""}
     ${renderDeathReviewList(plan, review)}
-    ${renderObservedPatterns(plan)}
   `;
 }
 

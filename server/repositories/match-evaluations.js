@@ -152,6 +152,7 @@ function rowToReviewedMoment(row) {
     deathIndex: row.death_index,
     deathTimestampSeconds: row.death_timestamp_seconds,
     signalId: row.signal_id,
+    selectedPatternId: row.selected_pattern_id,
     status: row.status,
     causeCategory: row.cause_category,
     createdAt: toIso(row.created_at),
@@ -369,15 +370,17 @@ export function createMatchEvaluationsRepository({ pool, schema = "riftsense" })
           death_index,
           death_timestamp_seconds,
           signal_id,
+          selected_pattern_id,
           status,
           cause_category,
           created_at,
           updated_at
         )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $9::timestamptz)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $10::timestamptz)
         on conflict (user_id, match_id, death_index, signal_id) do update
         set puuid = excluded.puuid,
             death_timestamp_seconds = excluded.death_timestamp_seconds,
+            selected_pattern_id = excluded.selected_pattern_id,
             status = excluded.status,
             cause_category = excluded.cause_category,
             updated_at = excluded.updated_at
@@ -390,6 +393,7 @@ export function createMatchEvaluationsRepository({ pool, schema = "riftsense" })
         record.deathIndex,
         record.deathTimestampSeconds ?? null,
         record.signalId,
+        record.selectedPatternId ?? null,
         record.status,
         record.causeCategory ?? null,
         timestamp
@@ -430,6 +434,7 @@ export function createMatchEvaluationsRepository({ pool, schema = "riftsense" })
               'deathIndex', death_index,
               'deathTimestampSeconds', death_timestamp_seconds,
               'signalId', signal_id,
+              'selectedPatternId', selected_pattern_id,
               'status', status,
               'causeCategory', cause_category,
               'updatedAt', updated_at

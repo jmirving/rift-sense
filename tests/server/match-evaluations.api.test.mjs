@@ -434,6 +434,7 @@ describe("match evaluations API", () => {
         deathIndex: 1,
         deathTimestampSeconds: 494,
         signalId: "solo_death_candidate",
+        selectedPatternId: "solo_death_candidate",
         status,
         causeCategory
       });
@@ -446,6 +447,7 @@ describe("match evaluations API", () => {
       deathIndex: 1,
       deathTimestampSeconds: 494,
       signalId: "solo_death_candidate",
+      selectedPatternId: "solo_death_candidate",
       status,
       causeCategory
     });
