@@ -411,6 +411,50 @@ export function createMatchEvaluationsRepository({ pool, schema = "riftsense" })
     return result.rows.map(rowToReviewedMoment).filter(Boolean);
   }
 
+  async function listReviewedMomentSummariesForUserByMatch({ userId, matchIds }) {
+    const ids = Array.isArray(matchIds) && matchIds.length > 0 ? matchIds.filter(Boolean) : [];
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const result = await pool.query(
+      `
+        select
+          match_id,
+          count(*)::int as reviewed_moment_count,
+          count(*) filter (where status in ('unsure', 'dismissed'))::int as needs_manual_review_count,
+          count(distinct death_index)::int as triaged_moment_count,
+          max(updated_at) as last_reviewed_at,
+          jsonb_agg(
+            jsonb_build_object(
+              'deathIndex', death_index,
+              'deathTimestampSeconds', death_timestamp_seconds,
+              'signalId', signal_id,
+              'status', status,
+              'causeCategory', cause_category,
+              'updatedAt', updated_at
+            )
+            order by death_index asc, signal_id asc
+          ) as moments
+        from ${reviewedMomentsTable}
+        where user_id = $1 and match_id = any($2::text[])
+        group by match_id
+        order by max(updated_at) desc
+      `,
+      [userId, ids]
+    );
+
+    return result.rows.map((row) => ({
+      matchId: row.match_id,
+      reviewedMomentCount: Number(row.reviewed_moment_count ?? 0),
+      needsManualReviewCount: Number(row.needs_manual_review_count ?? 0),
+      triagedMomentCount: Number(row.triaged_moment_count ?? 0),
+      lastReviewedAt: nullableIso(row.last_reviewed_at),
+      reviewedAt: nullableIso(row.last_reviewed_at),
+      moments: Array.isArray(row.moments) ? row.moments : []
+    }));
+  }
+
   return {
     initialize,
     getMatchEvaluation,
@@ -422,6 +466,7 @@ export function createMatchEvaluationsRepository({ pool, schema = "riftsense" })
     getPersistedMatchReview,
     listReviewedMomentsForMatch,
     saveReviewedMoment,
-    listConfirmedReviewedMomentsForUser
+    listConfirmedReviewedMomentsForUser,
+    listReviewedMomentSummariesForUserByMatch
   };
 }

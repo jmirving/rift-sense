@@ -748,7 +748,11 @@ function targetChipGrid(items, emptyText) {
 
 function hasReviewedEvidence(goal = {}, dashboard = {}) {
   const reviewedCount = Number(goal.reviewedGameCount ?? goal.reviewedGamesCount ?? dashboard.reviewedGameCount ?? 0);
-  return Number.isFinite(reviewedCount) && reviewedCount > 0;
+  const assessmentCount = Number(goal.riotEvidence?.initialAssessment?.completedCount ?? 0);
+  const progressCount = Number(goal.riotEvidence?.reviewProgress?.totalReviewedTriagedGames ?? 0);
+  return (Number.isFinite(reviewedCount) && reviewedCount > 0) ||
+    (Number.isFinite(assessmentCount) && assessmentCount > 0) ||
+    (Number.isFinite(progressCount) && progressCount > 0);
 }
 
 function signalCard(signal) {
@@ -1102,6 +1106,21 @@ function evaluationSummaryBlock(game) {
 }
 
 function recentGameState(game) {
+  if (game?.reviewStatus === "needs_manual_review") {
+    return { label: "Needs manual review", actionLabel: "Open review", canReview: true };
+  }
+  if (game?.reviewStatus === "triaged") {
+    return { label: "Triaged", actionLabel: "Open review", canReview: true };
+  }
+  if (game?.reviewStatus === "in_progress") {
+    const triaged = Number(game.triagedMomentCount ?? game.reviewedMomentCount ?? 0);
+    const total = Number(game.totalReviewMomentCount ?? game.deathCount ?? 0);
+    return {
+      label: total > 0 ? `${triaged}/${total} moments reviewed` : "In review",
+      actionLabel: "Continue review",
+      canReview: true
+    };
+  }
   if (game?.reviewedAt) {
     return { label: "Reviewed", actionLabel: "Open summary", canReview: true };
   }
@@ -1109,7 +1128,7 @@ function recentGameState(game) {
     return { label: "In review", actionLabel: "Review", canReview: true };
   }
   if (gameIsEvaluationReady(game)) {
-    return { label: "Ready", actionLabel: "Review", canReview: true };
+    return { label: "Not reviewed", actionLabel: "Review", canReview: true };
   }
   if (game?.evaluationStatus === "failed") {
     return { label: "Preparation failed", actionLabel: null, canReview: false };
@@ -1210,6 +1229,8 @@ function reviewQueueGames(riotEvidence, limit = 3) {
     game?.matchId
     && (game.reviewStartedAt || game.reviewedAt || gameIsEvaluationReady(game))
     && reviewMomentCount(game) > 0
+    && game.reviewStatus !== "triaged"
+    && game.reviewStatus !== "needs_manual_review"
   );
   const seen = new Set();
   return games.filter((game) => {
@@ -1223,6 +1244,7 @@ function reviewQueueGames(riotEvidence, limit = 3) {
 
 function dashboardState({ dashboard = {}, goal = {}, riotEvidence = {} }) {
   const reviewQueue = reviewQueueGames(riotEvidence);
+  const initialAssessment = riotEvidence?.initialAssessment ?? null;
   const hasReviewedGames = hasReviewedEvidence(goal, dashboard);
   const weeklyTargets = hasReviewedGames ? (goal.weeklyTargets ?? []) : [];
   const patterns = hasReviewedGames ? (dashboard.recentInsights ?? []) : [];
@@ -1239,6 +1261,7 @@ function dashboardState({ dashboard = {}, goal = {}, riotEvidence = {} }) {
     hasActionableTeamFocus: Boolean(dashboard.activeTeamFocus?.headlineSignal || dashboard.activeTeamFocus?.nextTeamAction?.title),
     inProgressReview,
     reviewQueue,
+    initialAssessment,
     weeklyTargets,
     patterns,
     goalSignals,
@@ -1247,6 +1270,32 @@ function dashboardState({ dashboard = {}, goal = {}, riotEvidence = {} }) {
 }
 
 function primaryDashboardAction({ state: dashboardView, action = {}, context = {} }) {
+  const assessment = dashboardView.initialAssessment;
+  if (assessment?.candidateGames?.length) {
+    const target = Number(assessment.target ?? INITIAL_ASSESSMENT_TARGET);
+    const completedCount = Number(assessment.completedCount ?? 0);
+    const nextGame = assessment.candidateGames.find((game) => game.matchId === assessment.nextMatchId) ??
+      assessment.candidateGames.find((game) => game.reviewStatus !== "triaged" && game.reviewStatus !== "needs_manual_review") ??
+      null;
+    if (completedCount >= Math.min(target, assessment.candidateGames.length)) {
+      return {
+        title: "Initial assessment complete",
+        body: `${completedCount} of ${target} games reviewed.`,
+        primaryLabel: "View suggested mini-goals",
+        primaryHref: toAppHref("/", context) ?? "#",
+        disabled: true
+      };
+    }
+    if (nextGame) {
+      return {
+        title: completedCount > 0 ? "Continue initial assessment" : "Start initial assessment",
+        body: `Initial assessment: ${completedCount} of ${target} games reviewed.`,
+        primaryLabel: completedCount > 0 ? "Continue initial assessment" : "Start initial assessment",
+        primaryHref: reviewHrefForGame(nextGame, context)
+      };
+    }
+  }
+
   if (dashboardView.hasInProgressReview) {
     const href = toAppHref(dashboardView.inProgressReview.href, context)
       ?? (dashboardView.inProgressReview.matchId ? reviewHrefForGame(dashboardView.inProgressReview, context) : toAppHref("/review", context))
@@ -1333,6 +1382,32 @@ function reviewQueueSummary(reviewQueue, context = {}) {
 }
 
 function evidenceProgressCard(dashboardView) {
+  const assessment = dashboardView.initialAssessment;
+  if (assessment) {
+    const target = Number(assessment.target ?? INITIAL_ASSESSMENT_TARGET);
+    const completedCount = Number(assessment.completedCount ?? 0);
+    const availableCount = Array.isArray(assessment.candidateGames) ? assessment.candidateGames.length : 0;
+    const latest = [...assessment.candidateGames]
+      .filter((game) => game.lastReviewedAt || game.reviewedAt)
+      .sort((left, right) => new Date(right.lastReviewedAt ?? right.reviewedAt).getTime() - new Date(left.lastReviewedAt ?? left.reviewedAt).getTime())[0] ?? null;
+    const manualCount = assessment.candidateGames.filter((game) => game.reviewStatus === "needs_manual_review").length;
+    const latestText = latest
+      ? `${latest.champion ?? latest.championName ?? "Latest game"} ${String(latest.result ?? "").toLowerCase()} · ${Number(latest.triagedMomentCount ?? 0)} moments triaged`
+      : "No games reviewed yet";
+    return `
+      <section class="panel evidence-progress-panel">
+        <p class="eyebrow">Initial assessment</p>
+        <h2>${escapeHtml(completedCount)} of ${escapeHtml(target)} games reviewed</h2>
+        <div class="progress-checklist">
+          <span>Initial assessment: ${escapeHtml(completedCount)} of ${escapeHtml(target)} games reviewed</span>
+          <span>Last reviewed: ${escapeHtml(latestText)}</span>
+          <span>${escapeHtml(manualCount)} ${manualCount === 1 ? "game has" : "games have"} moments marked for manual review</span>
+          ${availableCount > 0 && availableCount < target ? `<span>${escapeHtml(availableCount)} of ${escapeHtml(target)} assessment games available</span>` : ""}
+        </div>
+      </section>
+    `;
+  }
+
   if (dashboardView.hasReviewedGames) {
     const reviewedCount = dashboardView.goalReviewedCount;
     const latestPattern = dashboardView.patterns[0];
@@ -2927,14 +3002,20 @@ function reviewCompletionSummary(plan, reviewedMoments = []) {
   };
 }
 
-function assessmentState(review) {
+function assessmentState(review, { currentMatchTriaged = false } = {}) {
   const target = Number(review?.assessment?.target ?? INITIAL_ASSESSMENT_TARGET);
   const games = review?.assessment?.candidateGames ?? [];
   const currentIndex = games.findIndex((game) => game.matchId === review?.matchId);
   const completedIds = new Set(review?.assessment?.completedMatchIds ?? []);
-  const completedCount = Math.min(target, Number(review?.assessment?.completedCount ?? completedIds.size ?? 0));
+  if (currentMatchTriaged && review?.matchId) {
+    completedIds.add(review.matchId);
+  }
+  const completedCount = Math.min(target, Math.max(Number(review?.assessment?.completedCount ?? 0), completedIds.size));
   const availableCount = games.length || Number(review?.assessment?.availableCount ?? 0);
-  const nextGame = games.find((game, index) => index !== currentIndex && !completedIds.has(game.matchId)) ?? null;
+  const afterCurrent = currentIndex >= 0
+    ? games.slice(currentIndex + 1).find((game) => !completedIds.has(game.matchId))
+    : null;
+  const nextGame = afterCurrent ?? games.find((game) => !completedIds.has(game.matchId)) ?? null;
   return {
     target,
     availableCount,
@@ -2942,7 +3023,8 @@ function assessmentState(review) {
     completedCount,
     remainingCount: Math.max(0, Math.min(target, availableCount || target) - completedCount),
     nextGame,
-    thresholdReached: completedCount >= target
+    thresholdReached: completedCount >= target,
+    assessmentComplete: Boolean(review?.assessment?.assessmentComplete) || completedCount >= Math.min(target, availableCount || target) || !nextGame
   };
 }
 
@@ -3004,9 +3086,9 @@ function renderReviewChecklist(plan, reviewedMoments = []) {
 function renderReviewCompletion(plan, review, context = getRouteContext()) {
   const summary = reviewCompletionSummary(plan, review.reviewedMoments);
   const progress = reviewProgressSummary(plan, review.reviewedMoments);
-  const assessment = assessmentState(review);
-  const completeCount = Math.max(assessment.completedCount, assessment.currentNumber);
-  const assessmentComplete = completeCount >= assessment.target || !assessment.nextGame;
+  const assessment = assessmentState(review, { currentMatchTriaged: true });
+  const completeCount = assessment.completedCount;
+  const assessmentComplete = assessment.assessmentComplete;
   const nextHref = assessment.nextGame?.matchId
     ? toAppHref(`/review?matchId=${encodeURIComponent(assessment.nextGame.matchId)}`, context)
     : null;
@@ -3032,14 +3114,14 @@ function renderReviewCompletion(plan, review, context = getRouteContext()) {
       ${assessmentComplete ? `
         <div class="next-focus-box">
           <p class="eyebrow">Next step</p>
-          <h4>RiftSense has enough reviewed evidence to suggest first mini-goals.</h4>
+          <h4>${escapeHtml(completeCount < assessment.target ? "All available assessment games reviewed." : "Initial assessment complete.")}</h4>
         </div>
       ` : ""}
       <div class="action-row">
         ${nextHref && !assessmentComplete
           ? `<a class="button" href="${escapeHtml(nextHref)}">Go to next initial assessment game</a>`
-          : `<button class="button" type="button" disabled>Create mini-goals</button>`}
-        <a class="button secondary" href="${escapeHtml(toAppHref("/", context) ?? "/")}">Back to dashboard</a>
+          : ""}
+        <a class="button ${nextHref && !assessmentComplete ? "secondary" : ""}" href="${escapeHtml(toAppHref("/", context) ?? "/")}">Back to dashboard</a>
         <button class="button secondary" type="button" data-change-main-focus>Change main focus</button>
       </div>
     </article>
@@ -3552,6 +3634,14 @@ function candidateToReview(game) {
 }
 
 function reviewIsTriaged(reviewLike) {
+  if (reviewLike?.reviewStatus === "triaged" || reviewLike?.reviewStatus === "needs_manual_review") {
+    return true;
+  }
+  const total = Number(reviewLike?.totalReviewMomentCount ?? reviewLike?.deathCount);
+  const triaged = Number(reviewLike?.triagedMomentCount ?? 0);
+  if (Number.isFinite(total) && total > 0 && triaged >= total) {
+    return true;
+  }
   const deaths = Array.isArray(reviewLike?.evaluationDeaths) ? reviewLike.evaluationDeaths : reviewLike?.deathEvents ?? [];
   const reviewed = reviewLike?.reviewedMoments ?? [];
   if (!Array.isArray(deaths) || deaths.length === 0) return Boolean(reviewLike?.reviewedAt || reviewLike?.reviewComplete);
@@ -3563,15 +3653,19 @@ function reviewIsTriaged(reviewLike) {
 
 function attachAssessmentState(review, homeResult) {
   const riotEvidence = homeResult?.home?.goalDashboard?.activePersonalGoal?.riotEvidence ?? null;
-  const games = (riotEvidence?.candidateGames ?? riotEvidence?.recentGames ?? [])
+  const serverAssessment = riotEvidence?.initialAssessment ?? null;
+  const games = (serverAssessment?.candidateGames ?? riotEvidence?.candidateGames ?? riotEvidence?.recentGames ?? [])
     .filter((game) => game?.matchId && (game.evaluationSummary || game.evaluationDeaths?.length || game.matchId === review?.matchId));
-  const completedMatchIds = games.filter(reviewIsTriaged).map((game) => game.matchId);
+  const completedMatchIds = (serverAssessment?.completedMatchIds ?? games.filter(reviewIsTriaged).map((game) => game.matchId))
+    .filter(Boolean);
   review.assessment = {
-    target: Number(riotEvidence?.initialAssessmentTarget ?? INITIAL_ASSESSMENT_TARGET),
+    target: Number(serverAssessment?.target ?? riotEvidence?.initialAssessmentTarget ?? INITIAL_ASSESSMENT_TARGET),
     candidateGames: games,
     completedMatchIds,
-    completedCount: completedMatchIds.length,
-    availableCount: games.length
+    completedCount: Number(serverAssessment?.completedCount ?? completedMatchIds.length),
+    availableCount: games.length,
+    nextMatchId: serverAssessment?.nextMatchId ?? null,
+    assessmentComplete: Boolean(serverAssessment?.assessmentComplete)
   };
   return review;
 }

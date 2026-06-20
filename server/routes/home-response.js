@@ -143,6 +143,7 @@ export async function buildHomePayload({
       resolveRecentGames,
       riotMatchesRepository,
       matchEvaluationsRepository,
+      userId: effectiveUserId,
       timing
     })
   };

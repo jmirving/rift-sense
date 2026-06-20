@@ -668,6 +668,142 @@ describe("home API", () => {
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.preparingCount).toBe(1);
   });
 
+  it("includes per-match durable review progress for candidate games", async () => {
+    const matchEvaluationsRepository = {
+      async listRecentEvaluationSummariesForUser() {
+        return [];
+      },
+      async listReviewedMomentSummariesForUserByMatch({ userId, matchIds }) {
+        expect(userId).toBe("usr_local_dev");
+        expect(matchIds).toEqual(["NA1_reviewed", "NA1_partial", "NA1_open"]);
+        return [
+          {
+            matchId: "NA1_reviewed",
+            reviewedMomentCount: 2,
+            needsManualReviewCount: 1,
+            triagedMomentCount: 2,
+            reviewedAt: "2026-06-09T02:00:00.000Z",
+            lastReviewedAt: "2026-06-09T02:00:00.000Z"
+          },
+          {
+            matchId: "NA1_partial",
+            reviewedMomentCount: 1,
+            needsManualReviewCount: 0,
+            triagedMomentCount: 1,
+            reviewedAt: "2026-06-09T01:00:00.000Z",
+            lastReviewedAt: "2026-06-09T01:00:00.000Z"
+          }
+        ];
+      }
+    };
+    const app = await createTestApp({
+      authEnabled: true,
+      riotApiKey: "riot-key",
+      matchEvaluationsRepository,
+      async fetchSharedProfile() {
+        return {
+          userId: "usr_local_dev",
+          primaryRole: "ADC",
+          riotPuuid: "puuid_owner"
+        };
+      },
+      async resolveRecentGames() {
+        return {
+          status: "all_recent_games_ready",
+          sourceLabel: "Riot recent games",
+          games: [
+            {
+              matchId: "NA1_reviewed",
+              playedAt: "2026-06-08T03:00:00.000Z",
+              queueLabel: "Ranked Solo/Duo",
+              championName: "Jhin",
+              role: "ADC",
+              result: "Loss",
+              kda: "4/2/5",
+              evaluationStatus: "current",
+              evaluationSummary: { deathCount: 2, reviewSignals: ["2 deaths"], topTags: [{ tag: "death_count", count: 2 }] }
+            },
+            {
+              matchId: "NA1_partial",
+              playedAt: "2026-06-07T03:00:00.000Z",
+              queueLabel: "Ranked Solo/Duo",
+              championName: "Ashe",
+              role: "ADC",
+              result: "Loss",
+              kda: "3/3/4",
+              evaluationStatus: "current",
+              evaluationSummary: { deathCount: 3, reviewSignals: ["3 deaths"], topTags: [{ tag: "death_count", count: 3 }] }
+            },
+            {
+              matchId: "NA1_open",
+              playedAt: "2026-06-06T03:00:00.000Z",
+              queueLabel: "Ranked Solo/Duo",
+              championName: "Caitlyn",
+              role: "ADC",
+              result: "Loss",
+              kda: "2/1/6",
+              evaluationStatus: "current",
+              evaluationSummary: { deathCount: 1, reviewSignals: ["1 death"], topTags: [{ tag: "death_count", count: 1 }] }
+            }
+          ],
+          readyCount: 3,
+          summaryReadyCount: 3,
+          evaluationReadyCount: 3,
+          discoveredCount: 3
+        };
+      }
+    });
+    const goalDashboard = buildDefaultGoalDashboardState(new Date("2026-06-08T00:00:00.000Z"));
+    await app.locals.testRepositories.userHomesRepository.saveUserHome({
+      id: "usr_local_dev",
+      profile: { displayName: "Authenticated User", primaryRole: "ADC" },
+      goalDashboard
+    });
+    const token = jwt.sign(
+      { sub: "usr_local_dev", iss: "nexus", aud: "riftsense" },
+      "test-secret",
+      { algorithm: "HS256", expiresIn: "1h" }
+    );
+
+    const response = await request(app)
+      .get("/api/home")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    const evidence = response.body.home.goalDashboard.activePersonalGoal.riotEvidence;
+    expect(evidence.candidateGames).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        matchId: "NA1_reviewed",
+        reviewedMomentCount: 2,
+        needsManualReviewCount: 1,
+        triagedMomentCount: 2,
+        totalReviewMomentCount: 2,
+        reviewStatus: "needs_manual_review"
+      }),
+      expect.objectContaining({
+        matchId: "NA1_partial",
+        reviewedMomentCount: 1,
+        triagedMomentCount: 1,
+        totalReviewMomentCount: 3,
+        reviewStatus: "in_progress"
+      })
+    ]));
+    expect(evidence.initialAssessment).toMatchObject({
+      target: 3,
+      completedMatchIds: ["NA1_reviewed"],
+      completedCount: 1,
+      nextMatchId: "NA1_partial",
+      assessmentComplete: false
+    });
+    expect(evidence.reviewProgress).toMatchObject({
+      totalReviewedMoments: 3,
+      totalNeedsManualReviewMoments: 1,
+      totalTriagedMoments: 3,
+      totalReviewedTriagedGames: 1,
+      reviewedMatchIds: ["NA1_reviewed", "NA1_partial"]
+    });
+  });
+
   it("refresh reports newly discovered match IDs separately from relevance-scored candidates", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const app = await createTestApp({

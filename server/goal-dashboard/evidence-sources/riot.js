@@ -7,6 +7,8 @@ import {
   DETERMINISTIC_MATCH_EVALUATOR_VERSION
 } from "../../riot/match-evaluator.js";
 
+const INITIAL_ASSESSMENT_TARGET = 3;
+
 function normalizeRiotIdentity(identity, profile) {
   const puuid = typeof profile?.riotPuuid === "string" && profile.riotPuuid.trim()
     ? profile.riotPuuid.trim()
@@ -266,6 +268,158 @@ function buildAvailableEvidence(candidateGames, recentGamesResult, { goal, profi
   };
 }
 
+function gameReviewMomentTotal(game = {}) {
+  const deathCount = Number(game.evaluationSummary?.deathCount ?? game.deathCount);
+  if (Number.isFinite(deathCount)) {
+    return Math.max(0, deathCount);
+  }
+  if (Array.isArray(game.evaluationDeaths)) {
+    return game.evaluationDeaths.length;
+  }
+  return 0;
+}
+
+function reviewStatusForProgress(progress, totalReviewMomentCount) {
+  const total = Number(totalReviewMomentCount ?? 0);
+  const triaged = Number(progress?.triagedMomentCount ?? 0);
+  const needsManual = Number(progress?.needsManualReviewCount ?? 0);
+  const reviewed = Number(progress?.reviewedMomentCount ?? 0);
+
+  if (total > 0 && triaged >= total) {
+    return needsManual > 0 ? "needs_manual_review" : "triaged";
+  }
+  if (reviewed > 0 || triaged > 0) {
+    return "in_progress";
+  }
+  return "not_started";
+}
+
+function mergeGameReviewProgress(game, progressByMatchId) {
+  const progress = progressByMatchId.get(game.matchId) ?? {};
+  const totalReviewMomentCount = gameReviewMomentTotal(game);
+  const triagedMomentCount = Math.min(
+    totalReviewMomentCount || Number(progress.triagedMomentCount ?? 0),
+    Number(progress.triagedMomentCount ?? 0)
+  );
+  const reviewedMomentCount = Number(progress.reviewedMomentCount ?? 0);
+  const needsManualReviewCount = Number(progress.needsManualReviewCount ?? 0);
+
+  return {
+    ...game,
+    reviewedMomentCount,
+    needsManualReviewCount,
+    triagedMomentCount,
+    totalReviewMomentCount,
+    deathCount: Number.isFinite(Number(game.deathCount)) ? Number(game.deathCount) : totalReviewMomentCount,
+    reviewStatus: reviewStatusForProgress({ ...progress, triagedMomentCount }, totalReviewMomentCount),
+    reviewedAt: progress.reviewedAt ?? null,
+    lastReviewedAt: progress.lastReviewedAt ?? null
+  };
+}
+
+async function attachReviewProgress({ riotEvidence, userId, matchEvaluationsRepository, timing }) {
+  if (!riotEvidence || !userId || !matchEvaluationsRepository?.listReviewedMomentSummariesForUserByMatch) {
+    return riotEvidence;
+  }
+
+  const matchIds = [
+    ...(riotEvidence.recentGames ?? []),
+    ...(riotEvidence.candidateGames ?? []),
+    riotEvidence.reviewCandidate
+  ]
+    .filter(Boolean)
+    .map((game) => game.matchId)
+    .filter(Boolean);
+  const uniqueMatchIds = [...new Set(matchIds)];
+  if (uniqueMatchIds.length === 0) {
+    return {
+      ...riotEvidence,
+      reviewProgress: {
+        totalReviewedMoments: 0,
+        totalNeedsManualReviewMoments: 0,
+        totalTriagedMoments: 0,
+        totalReviewedTriagedGames: 0,
+        latestReviewedMatch: null,
+        reviewedMatchIds: [],
+        perMatch: []
+      },
+      initialAssessment: {
+        target: Number(riotEvidence.initialAssessmentTarget ?? INITIAL_ASSESSMENT_TARGET),
+        candidateGames: [],
+        completedMatchIds: [],
+        completedCount: 0,
+        nextMatchId: null,
+        assessmentComplete: false
+      }
+    };
+  }
+
+  const summaries = await runTimed(timing, "review_progress_summary_read", () =>
+    matchEvaluationsRepository.listReviewedMomentSummariesForUserByMatch({
+      userId,
+      matchIds: uniqueMatchIds
+    })
+  );
+  const progressByMatchId = new Map(summaries.map((summary) => [summary.matchId, summary]));
+  const recentGames = (riotEvidence.recentGames ?? []).map((game) => mergeGameReviewProgress(game, progressByMatchId));
+  const candidateGames = (riotEvidence.candidateGames ?? []).map((game) => mergeGameReviewProgress(game, progressByMatchId));
+  const reviewCandidate = riotEvidence.reviewCandidate
+    ? mergeGameReviewProgress(riotEvidence.reviewCandidate, progressByMatchId)
+    : riotEvidence.reviewCandidate;
+  const perMatch = uniqueMatchIds.map((matchId) => {
+    const game = candidateGames.find((entry) => entry.matchId === matchId) ?? recentGames.find((entry) => entry.matchId === matchId) ?? null;
+    const progress = progressByMatchId.get(matchId) ?? {};
+    const totalReviewMomentCount = gameReviewMomentTotal(game ?? {});
+    const triagedMomentCount = Math.min(
+      totalReviewMomentCount || Number(progress.triagedMomentCount ?? 0),
+      Number(progress.triagedMomentCount ?? 0)
+    );
+    return {
+      matchId,
+      reviewedMomentCount: Number(progress.reviewedMomentCount ?? 0),
+      needsManualReviewCount: Number(progress.needsManualReviewCount ?? 0),
+      triagedMomentCount,
+      totalReviewMomentCount,
+      reviewStatus: reviewStatusForProgress({ ...progress, triagedMomentCount }, totalReviewMomentCount),
+      reviewedAt: progress.reviewedAt ?? null,
+      lastReviewedAt: progress.lastReviewedAt ?? null
+    };
+  });
+  const completedMatchIds = candidateGames
+    .filter((game) => game.reviewStatus === "triaged" || game.reviewStatus === "needs_manual_review")
+    .map((game) => game.matchId);
+  const target = Number(riotEvidence.initialAssessmentTarget ?? INITIAL_ASSESSMENT_TARGET);
+  const nextMatch = candidateGames.find((game) => !completedMatchIds.includes(game.matchId)) ?? null;
+  const latestReviewedMatchId = summaries[0]?.matchId ?? null;
+  const latestReviewedMatch = latestReviewedMatchId
+    ? (candidateGames.find((game) => game.matchId === latestReviewedMatchId) ?? recentGames.find((game) => game.matchId === latestReviewedMatchId) ?? perMatch.find((game) => game.matchId === latestReviewedMatchId))
+    : null;
+
+  return {
+    ...riotEvidence,
+    recentGames,
+    candidateGames,
+    reviewCandidate,
+    reviewProgress: {
+      totalReviewedMoments: summaries.reduce((sum, summary) => sum + Number(summary.reviewedMomentCount ?? 0), 0),
+      totalNeedsManualReviewMoments: summaries.reduce((sum, summary) => sum + Number(summary.needsManualReviewCount ?? 0), 0),
+      totalTriagedMoments: summaries.reduce((sum, summary) => sum + Number(summary.triagedMomentCount ?? 0), 0),
+      totalReviewedTriagedGames: completedMatchIds.length,
+      latestReviewedMatch,
+      reviewedMatchIds: summaries.map((summary) => summary.matchId),
+      perMatch
+    },
+    initialAssessment: {
+      target,
+      candidateGames,
+      completedMatchIds,
+      completedCount: completedMatchIds.length,
+      nextMatchId: nextMatch?.matchId ?? null,
+      assessmentComplete: candidateGames.length > 0 && completedMatchIds.length >= Math.min(target, candidateGames.length)
+    }
+  };
+}
+
 function runTimed(timing, step, fn) {
   return timing ? timing.time(step, fn) : fn();
 }
@@ -336,6 +490,7 @@ export async function applyRiotEvidenceToDashboard({
   goalDashboard,
   identity,
   source,
+  userId,
   demoVariant = "default",
   profile,
   config,
@@ -408,7 +563,12 @@ export async function applyRiotEvidenceToDashboard({
     activePersonalGoal: {
       ...goalDashboard.activePersonalGoal,
       role: profile?.primaryRole ?? goalDashboard.activePersonalGoal.role,
-      riotEvidence
+      riotEvidence: await attachReviewProgress({
+        riotEvidence,
+        userId,
+        matchEvaluationsRepository,
+        timing
+      }).catch(() => riotEvidence)
     }
   };
 }

@@ -266,5 +266,18 @@ describeWithPostgres("match evaluations repository", () => {
         causeCategory: "stayed_too_long"
       }
     ]);
+
+    await expect(evaluationRepository.listReviewedMomentSummariesForUserByMatch({
+      userId: "usr_1",
+      matchIds: ["NA1_050"]
+    })).resolves.toMatchObject([
+      {
+        matchId: "NA1_050",
+        reviewedMomentCount: 3,
+        needsManualReviewCount: 2,
+        triagedMomentCount: 2,
+        lastReviewedAt: "2026-06-03T00:03:00.000Z"
+      }
+    ]);
   });
 });

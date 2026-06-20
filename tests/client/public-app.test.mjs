@@ -1299,6 +1299,72 @@ describe("public app routes", () => {
     expect(document.querySelector('a[href="/review?matchId=NA1_new_partial"]')).toBeNull();
   });
 
+  it("renders server-owned initial assessment progress and reviewed recent-game status", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+      if (url === "/api/home") {
+        const candidateGames = [
+          { matchId: "NA1_done", championName: "Caitlyn", result: "Loss", queueLabel: "Ranked Solo/Duo", kda: "2/4/5", evaluationStatus: "current", evaluationSummary: { deathCount: 4 }, triagedMomentCount: 4, totalReviewMomentCount: 4, reviewStatus: "triaged", lastReviewedAt: "2026-06-09T02:00:00.000Z" },
+          { matchId: "NA1_manual", championName: "Jinx", result: "Loss", queueLabel: "Ranked Solo/Duo", kda: "1/2/3", evaluationStatus: "current", evaluationSummary: { deathCount: 2 }, triagedMomentCount: 2, needsManualReviewCount: 1, totalReviewMomentCount: 2, reviewStatus: "needs_manual_review" },
+          { matchId: "NA1_next", championName: "Ashe", result: "Win", queueLabel: "Ranked Solo/Duo", kda: "4/1/8", evaluationStatus: "current", evaluationSummary: { deathCount: 1 }, totalReviewMomentCount: 1, reviewStatus: "not_started" }
+        ];
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Improve teamfight deaths",
+                role: "ADC",
+                evidenceSource: {},
+                riotEvidence: {
+                  status: "all_recent_games_ready",
+                  summaryReadyCount: 3,
+                  evaluationReadyCount: 3,
+                  recentGames: candidateGames,
+                  candidateGames,
+                  initialAssessment: {
+                    target: 3,
+                    completedMatchIds: ["NA1_done", "NA1_manual"],
+                    completedCount: 2,
+                    nextMatchId: "NA1_next",
+                    assessmentComplete: false,
+                    candidateGames
+                  }
+                }
+              },
+              todaysAction: {},
+              activeTeamFocus: {},
+              recentInsights: [],
+              suggestedNextSteps: []
+            }
+          }
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("2 of 3 games reviewed");
+    expect(document.body.textContent).toContain("Initial assessment: 2 of 3 games reviewed");
+    expect(document.body.textContent).toContain("Continue initial assessment");
+    expect(document.querySelector('a[href="/review?matchId=NA1_next"]')?.textContent).toContain("Continue initial assessment");
+    expect(document.body.textContent).toContain("Triaged");
+    expect(document.body.textContent).toContain("Needs manual review");
+    expect(document.body.textContent).toContain("1 game has moments marked for manual review");
+  });
+
   it("renders failed recent-game preparation counts", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
@@ -2119,6 +2185,79 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Game review complete");
     expect(document.body.textContent).toContain("1 reviewed · 1 needs manual review · 2 total");
     expect(document.querySelector('a[href="/review?matchId=NA1_next"]')?.textContent).toContain("Go to next initial assessment game");
+  });
+
+  it("uses server assessment state so stale candidate objects do not loop next assessment game", async () => {
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+      if (url === "/api/home") {
+        return mockJsonResponse({
+          home: {
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Improve teamfight deaths",
+                riotEvidence: {
+                  initialAssessment: {
+                    target: 3,
+                    completedMatchIds: ["NA1_first"],
+                    completedCount: 1,
+                    nextMatchId: "NA1_second",
+                    assessmentComplete: false,
+                    candidateGames: [
+                      { matchId: "NA1_first", evaluationSummary: { deathCount: 1 }, evaluationDeaths: [{ deathIndex: 1 }] },
+                      { matchId: "NA1_second", evaluationSummary: { deathCount: 1 }, evaluationDeaths: [{ deathIndex: 1 }] },
+                      { matchId: "NA1_third", evaluationSummary: { deathCount: 1 }, evaluationDeaths: [{ deathIndex: 1 }] }
+                    ]
+                  },
+                  candidateGames: [
+                    { matchId: "NA1_first", evaluationSummary: { deathCount: 1 }, evaluationDeaths: [{ deathIndex: 1 }], reviewedMoments: [] },
+                    { matchId: "NA1_second", evaluationSummary: { deathCount: 1 }, evaluationDeaths: [{ deathIndex: 1 }] },
+                    { matchId: "NA1_third", evaluationSummary: { deathCount: 1 }, evaluationDeaths: [{ deathIndex: 1 }] }
+                  ]
+                }
+              }
+            }
+          }
+        });
+      }
+      if (url === "/api/matches/NA1_second/evaluation") {
+        return mockJsonResponse({
+          matchId: "NA1_second",
+          activeGoalName: "Improve teamfight deaths",
+          matchSummary: { championName: "Jhin", queueLabel: "Ranked Solo/Duo", result: "Loss", kills: 1, deaths: 1, assists: 1 },
+          evaluationSummary: { deathCount: 1 },
+          deathEvents: [
+            { deathIndex: 1, timestampSeconds: 494, killerChampionName: "LeBlanc", tags: ["solo_death_candidate"] }
+          ],
+          deterministicTagCounts: { death_count: 1, solo_death_candidate: 1 },
+          reviewedMoments: []
+        });
+      }
+      if (url === "/api/matches/NA1_second/reviewed-moments" && options.method === "PUT") {
+        return mockJsonResponse({ reviewedMoment: JSON.parse(options.body) });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/review?matchId=NA1_second");
+
+    await renderApp(document.querySelector("#app"));
+    document.querySelector('[data-review-moment-action="reviewed"]').click();
+    await flushAsyncWork();
+
+    expect(document.body.textContent).toContain("Game review complete");
+    expect(document.body.textContent).toContain("2 complete");
+    expect(document.querySelector('a[href="/review?matchId=NA1_third"]')?.textContent).toContain("Go to next initial assessment game");
+    expect(document.querySelector('a[href="/review?matchId=NA1_first"]')).toBeNull();
   });
 
   it("lets the user set and persist a main review focus", async () => {
