@@ -935,6 +935,20 @@ describe("home API", () => {
     expect(demoOnboardingResponse.text).toContain('<div id="app"></div>');
   });
 
+  it("serves the client app from setup routes", async () => {
+    const app = await createTestApp();
+
+    const setupResponse = await request(app).get("/setup");
+    const demoSetupResponse = await request(app).get("/demo/setup");
+
+    expect(setupResponse.status).toBe(200);
+    expect(setupResponse.text).toContain('<div id="app"></div>');
+    expect(setupResponse.text).toContain('<script type="module" src="/app/main.js"></script>');
+    expect(demoSetupResponse.status).toBe(200);
+    expect(demoSetupResponse.text).toContain('<div id="app"></div>');
+    expect(demoSetupResponse.text).toContain('<script type="module" src="/app/main.js"></script>');
+  });
+
   it("returns onboarding template options", async () => {
     const app = await createTestApp();
 
