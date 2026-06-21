@@ -1591,6 +1591,9 @@ describe("public app routes", () => {
     expect(document.querySelectorAll("[data-main-review]")).toHaveLength(1);
     expect(document.querySelectorAll("[data-death-review-item]")).toHaveLength(2);
     expect(document.querySelectorAll("[data-death-review-item] .review-factor-option").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll("[data-death-review-item] .review-factor-intro")).toHaveLength(2);
+    expect(document.querySelectorAll("[data-death-review-item] .review-factor-intro h5")[0]?.textContent).toBe("What type of death was this?");
+    expect(document.querySelectorAll("[data-death-review-item] .review-factor-intro p")[0]?.textContent).toBe("Pick the pattern that best matches the replay. Use “Other pattern not listed” if the generated options are wrong.");
     expect(document.querySelector(".review-factor-grid")).toBeTruthy();
     expect(document.querySelector(".review-factor-option input")?.type).toBe("radio");
     expect(document.querySelector(".technical-evidence")?.hasAttribute("open")).toBe(false);
@@ -2049,6 +2052,43 @@ describe("public app routes", () => {
     expect(supported.reviewMoments[0].reviewQuestion).toBe("Were you early, grouped, or late to dragon setup?");
     expect(supported.reviewMoments[0].whyReview).toContain("dragon");
     expect(unsupported.reviewMoments[0].factorOptions.map((option) => option.label).join(" ")).not.toContain("objective setup/window");
+  });
+
+  it("deduplicates death facts and keeps replay language out of Facts", () => {
+    const plan = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1, bot_lane_2v2_death: 1 },
+      deathEvents: [{
+        deathIndex: 1,
+        timestampSeconds: 120,
+        killerChampionName: "Draven",
+        assistingChampionNames: ["Pantheon"],
+        tags: ["bot_lane_2v2_death"],
+        laneDeathContext: "bot_lane_2v2_death",
+        laneDeathContextLabel: "2v2 lane death",
+        fightShape: {
+          enemyCount: 2,
+          alliedCount: 2,
+          helperText: "Fight shape: 2 enemies vs 2 allies"
+        },
+        evidenceSections: {
+          knownFromData: [
+            "Fight shape: 2 enemies vs 2 allies",
+            "Even fight: 2 enemies vs 2 allies",
+            "Lane context: 2v2 lane death",
+            "Could nearby allies affect the fight?"
+          ],
+          replayCanAnswer: ["Did you and your lane partner commit to the same trade?"]
+        }
+      }]
+    });
+
+    const facts = plan.reviewMoments[0].evidenceFacts.join(" ");
+    expect(facts).toContain("Fight shape: 2 enemies vs 2 allies");
+    expect(facts).not.toContain("Even fight: 2 enemies vs 2 allies");
+    expect(facts).not.toContain("Lane context: 2v2 lane death");
+    expect(facts).not.toMatch(/review whether|could affect|unclear/i);
   });
 
   it("shows level evidence only when it changes interpretation", () => {
@@ -2562,7 +2602,17 @@ describe("public app routes", () => {
           }],
           deterministicEvidenceParsers: ["deterministic match evaluation"],
           systemEvidencePatterns: ["bot_lane_2v1_punish", "objective_window_candidate"],
-          gamePhase: { note: "before 14:00 is lane phase" }
+          gamePhase: { note: "before 14:00 is lane phase" },
+          mapTimers: {
+            rules: {
+              dragon: { firstSpawnSeconds: 300 },
+              voidgrubs: { firstSpawnSeconds: 480 },
+              riftHerald: { firstSpawnSeconds: 900 },
+              baron: { firstSpawnSeconds: 1200 },
+              scuttle: { firstSpawnSeconds: 175 },
+              jungleCamps: { minorCampRespawnSeconds: 135, buffRespawnSeconds: 300 }
+            }
+          }
         });
       }
       throw new Error(`Unexpected fetch: ${url}`);
@@ -2576,6 +2626,8 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Death Review");
     expect(document.body.textContent).toContain("Bot lane 2v1 punish");
     expect(document.body.textContent).toContain("deterministic match evaluation");
+    expect(document.body.textContent).toContain("Dragon first spawn: 300s");
+    expect(document.body.textContent).toContain("Scuttle first spawn: 175s");
   });
 
   it("preserves a non-default selected pattern when marking reviewed or needs review", async () => {

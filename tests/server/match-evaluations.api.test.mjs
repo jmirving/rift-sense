@@ -409,6 +409,8 @@ describe("match evaluations API", () => {
     expect(response.body.deterministicEvidenceParsers).toContain("deterministic match evaluation");
     expect(response.body.systemEvidencePatterns).toContain("bot_lane_2v1_punish");
     expect(response.body.gamePhase.note).toContain("before 14:00");
+    expect(response.body.mapTimers.rules.dragon.firstSpawnSeconds).toBe(300);
+    expect(response.body.mapTimers.rules.scuttle.firstSpawnSeconds).toBe(175);
   });
 
   it.each([

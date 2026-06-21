@@ -1,10 +1,15 @@
+import {
+  MAP_TIMER_RULES,
+  MAP_TIMER_WINDOWS,
+  getCampStateNearTimestamp,
+  getObjectiveStateNearTimestamp
+} from "./map-timers.js";
+
 export const DETERMINISTIC_MATCH_EVALUATOR_VERSION = "deterministic-v2";
 
-const OBJECTIVE_WINDOW_MS = 45_000;
-const OBJECTIVE_SETUP_WINDOW_MS = 45_000;
-const OBJECTIVE_EXIT_WINDOW_MS = 45_000;
 const LEVEL_UP_WINDOW_MS = 20_000;
 const NEARBY_PARTICIPANT_RADIUS = 2500;
+const LOCAL_FIGHT_RADIUS = 2500;
 const LANE_PHASE_END_SECONDS = 14 * 60;
 const MID_GAME_END_SECONDS = 25 * 60;
 const TAG_IDS = [
@@ -70,6 +75,10 @@ export function getDeterministicMatchEvaluationInventory() {
       lanePhaseEndsAtSeconds: LANE_PHASE_END_SECONDS,
       midGameEndsAtSeconds: MID_GAME_END_SECONDS,
       note: "Game phase is derived from in-game timestamp: before 14:00 is lane phase, 14:00-24:59 is mid game, and 25:00+ is late game."
+    },
+    mapTimers: {
+      rules: MAP_TIMER_RULES,
+      windows: MAP_TIMER_WINDOWS
     }
   };
 }
@@ -95,6 +104,10 @@ function normalizePosition(position) {
   const x = normalizeNumber(position.x);
   const y = normalizeNumber(position.y);
   return x === null || y === null ? null : { x, y };
+}
+
+function countNoun(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 function inferRole(participant, perspective) {
@@ -221,10 +234,6 @@ function isObjectiveEvent(event) {
   );
 }
 
-function objectiveNearDeath(events, timestampMs) {
-  return events.some((event) => isObjectiveEvent(event) && Math.abs(event.timestamp - timestampMs) <= OBJECTIVE_WINDOW_MS);
-}
-
 function objectiveName(event) {
   if (event?.type === "BUILDING_KILL") {
     const buildingType = normalizeString(event?.buildingType)?.toUpperCase() ?? "";
@@ -245,39 +254,25 @@ function objectiveTeamLabel(event, victimTeamId) {
   return teamId === victimTeamId ? "allied" : "enemy";
 }
 
-function objectiveFactsNearDeath(events, timestampMs, victimTeamId) {
-  return events
-    .filter((event) => isObjectiveEvent(event) && Math.abs(event.timestamp - timestampMs) <= OBJECTIVE_WINDOW_MS)
-    .map((event) => {
-      const deltaSeconds = Math.round((event.timestamp - timestampMs) / 1000);
-      const phase = deltaSeconds > 10 ? "before_setup" : deltaSeconds < -10 ? "after_exit" : "during_contest";
-      return {
-        name: objectiveName(event),
-        eventType: event.type,
-        timestampMs: event.timestamp,
-        secondsFromDeath: deltaSeconds,
-        timing: deltaSeconds < 0 ? "killed_before_death" : deltaSeconds > 0 ? "killed_after_death" : "killed_at_death",
-        reviewWindow: phase,
-        teamId: normalizeNumber(event?.killerTeamId ?? event?.teamId),
-        teamRelation: objectiveTeamLabel(event, victimTeamId)
-      };
-    });
-}
-
-function objectiveSetupNearDeath(events, timestampMs) {
-  return events.some((event) => (
-    isObjectiveEvent(event) &&
-    event.timestamp >= timestampMs &&
-    event.timestamp - timestampMs <= OBJECTIVE_SETUP_WINDOW_MS
+function objectiveFactFromState(state, events, timestampMs, victimTeamId) {
+  if (!state?.supported) return null;
+  const event = events.find((entry) => (
+    isObjectiveEvent(entry) &&
+    objectiveName(entry).toLowerCase() === state.objectiveName.toLowerCase() &&
+    Math.abs((normalizeNumber(entry.timestamp) ?? 0) - timestampMs) <= MAP_TIMER_WINDOWS.nearbyTimelineWindowSeconds * 1000
   ));
-}
-
-function objectiveExitNearDeath(events, timestampMs) {
-  return events.some((event) => (
-    isObjectiveEvent(event) &&
-    event.timestamp <= timestampMs &&
-    timestampMs - event.timestamp <= OBJECTIVE_EXIT_WINDOW_MS
-  ));
+  return {
+    name: state.objectiveName,
+    eventType: event?.type ?? null,
+    timestampMs: event ? normalizeNumber(event.timestamp) : null,
+    secondsFromDeath: state.secondsFromDeath,
+    timing: state.secondsFromDeath < 0 ? "before_death" : state.secondsFromDeath > 0 ? "after_death" : "at_death",
+    reviewWindow: state.relation,
+    teamId: event ? normalizeNumber(event?.killerTeamId ?? event?.teamId) : null,
+    teamRelation: event ? objectiveTeamLabel(event, victimTeamId) : null,
+    source: state.source,
+    confidence: state.confidence
+  };
 }
 
 function enemyLevelUpsNearDeath(events, timestampMs, enemyParticipantIds, participantIndex) {
@@ -396,42 +391,70 @@ function classifyLaneDeathContext({ victimRole, gamePhase, enemyParticipantsInvo
   return null;
 }
 
-function buildFightOutcomeContext({ events, timestampMs, participantIndex, victimParticipantId, victimTeamId }) {
-  const windowStart = timestampMs - 15_000;
-  const windowEnd = timestampMs + 30_000;
-  const kills = events
-    .filter((event) => event?.type === "CHAMPION_KILL" && event.timestamp >= windowStart && event.timestamp <= windowEnd)
-    .sort((left, right) => left.timestamp - right.timestamp || left.__index - right.__index);
+function positionDistance(left, right) {
+  const leftPosition = normalizePosition(left);
+  const rightPosition = normalizePosition(right);
+  if (!leftPosition || !rightPosition) return null;
+  const distance = Math.hypot(leftPosition.x - rightPosition.x, leftPosition.y - rightPosition.y);
+  return Number.isFinite(distance) ? distance : null;
+}
+
+function killParticipantIds(event) {
+  return new Set([
+    normalizeNumber(event?.victimId),
+    normalizeNumber(event?.killerId),
+    ...normalizeArray(event?.assistingParticipantIds).map(normalizeNumber)
+  ].filter((value) => value !== null));
+}
+
+function hasParticipantOverlap(left, right) {
+  const leftIds = killParticipantIds(left);
+  for (const id of killParticipantIds(right)) {
+    if (leftIds.has(id)) return true;
+  }
+  return false;
+}
+
+function isSameLocalFight(reviewedEvent, candidateEvent) {
+  if (reviewedEvent === candidateEvent) return true;
+  const deltaMs = Math.abs((normalizeNumber(candidateEvent.timestamp) ?? 0) - (normalizeNumber(reviewedEvent.timestamp) ?? 0));
+  if (deltaMs > 30_000) return false;
+  const distance = positionDistance(reviewedEvent.position, candidateEvent.position);
+  if (distance !== null) return distance <= LOCAL_FIGHT_RADIUS;
+  return hasParticipantOverlap(reviewedEvent, candidateEvent) && deltaMs <= 15_000;
+}
+
+function outcomeLabel({ alliedDeathCount, enemyDeathCount, totalDeaths, deathOrder, deathsBeforeReviewed }) {
+  if (totalDeaths >= 6) return "teamfight_death";
+  if (deathOrder === "last" && deathsBeforeReviewed >= 3) return "stagger_death";
+  if (enemyDeathCount > alliedDeathCount) return "won_fight_but_died";
+  if (alliedDeathCount > enemyDeathCount && alliedDeathCount >= 2) return "lost_skirmish";
+  if (alliedDeathCount === enemyDeathCount && totalDeaths >= 2) return "even_trade";
+  return "pick_death";
+}
+
+function buildOutcomeContextFromKills({ kills, participantIndex, victimParticipantId, victimTeamId, scope }) {
   const alliedDeaths = kills.filter((event) => participantTeam(participantIndex, normalizeNumber(event.victimId)) === victimTeamId);
   const enemyDeaths = kills.filter((event) => {
     const teamId = participantTeam(participantIndex, normalizeNumber(event.victimId));
     return teamId !== null && victimTeamId !== null && teamId !== victimTeamId;
   });
-  const reviewedIndex = kills.findIndex((event) => normalizeNumber(event.victimId) === victimParticipantId && event.timestamp === timestampMs);
+  const reviewedIndex = kills.findIndex((event) => normalizeNumber(event.victimId) === victimParticipantId);
   const totalDeaths = kills.length;
   const alliedDeathCount = alliedDeaths.length;
   const enemyDeathCount = enemyDeaths.length;
   const deathOrder = reviewedIndex <= 0 ? "first" : reviewedIndex === totalDeaths - 1 ? "last" : "middle";
+  const deathsBeforeReviewed = Math.max(0, reviewedIndex);
   const teamResult = enemyDeathCount > alliedDeathCount
     ? "won_by_death_count"
     : alliedDeathCount > enemyDeathCount
       ? "lost_by_death_count"
       : "traded_even";
-  const deathsBeforeReviewed = Math.max(0, reviewedIndex);
-  const label = totalDeaths >= 6
-    ? "teamfight_death"
-    : deathOrder === "last" && deathsBeforeReviewed >= 3
-      ? "stagger_death"
-      : enemyDeathCount > alliedDeathCount
-        ? "won_fight_but_died"
-        : alliedDeathCount > enemyDeathCount && alliedDeathCount >= 2
-          ? "lost_skirmish"
-          : alliedDeathCount === enemyDeathCount && totalDeaths >= 2
-            ? "even_trade"
-            : "pick_death";
+  const label = outcomeLabel({ alliedDeathCount, enemyDeathCount, totalDeaths, deathOrder, deathsBeforeReviewed });
   const durationSeconds = totalDeaths > 1 ? Math.round((kills[totalDeaths - 1].timestamp - kills[0].timestamp) / 1000) : 0;
 
   return {
+    scope,
     label,
     alliedDeaths: alliedDeathCount,
     enemyDeaths: enemyDeathCount,
@@ -441,6 +464,61 @@ function buildFightOutcomeContext({ events, timestampMs, participantIndex, victi
     durationSeconds,
     deathEventIds: kills.map((event) => `event-${event.__index}`)
   };
+}
+
+function buildLocalFightOutcomeContext({ events, timestampMs, participantIndex, victimParticipantId, victimTeamId }) {
+  const windowStart = timestampMs - 15_000;
+  const windowEnd = timestampMs + 30_000;
+  const reviewedEvent = events.find((event) => (
+    event?.type === "CHAMPION_KILL" &&
+    normalizeNumber(event.victimId) === victimParticipantId &&
+    event.timestamp === timestampMs
+  ));
+  const windowKills = events
+    .filter((event) => event?.type === "CHAMPION_KILL" && event.timestamp >= windowStart && event.timestamp <= windowEnd)
+    .sort((left, right) => left.timestamp - right.timestamp || left.__index - right.__index);
+  const kills = reviewedEvent
+    ? windowKills.filter((event) => isSameLocalFight(reviewedEvent, event))
+    : windowKills.filter((event) => normalizeNumber(event.victimId) === victimParticipantId && event.timestamp === timestampMs);
+
+  return buildOutcomeContextFromKills({
+    kills,
+    participantIndex,
+    victimParticipantId,
+    victimTeamId,
+    scope: "local_fight"
+  });
+}
+
+function buildNearbyDeathWindowContext({ events, timestampMs, participantIndex, victimParticipantId, victimTeamId, localFightOutcomeContext }) {
+  const windowStart = timestampMs - 15_000;
+  const windowEnd = timestampMs + 30_000;
+  const localIds = new Set(localFightOutcomeContext?.deathEventIds ?? []);
+  const kills = events
+    .filter((event) => event?.type === "CHAMPION_KILL" && event.timestamp >= windowStart && event.timestamp <= windowEnd)
+    .filter((event) => !localIds.has(`event-${event.__index}`))
+    .sort((left, right) => left.timestamp - right.timestamp || left.__index - right.__index);
+  const context = buildOutcomeContextFromKills({ kills, participantIndex, victimParticipantId, victimTeamId, scope: "nearby_timeline" });
+  return {
+    ...context,
+    locality: "unclear"
+  };
+}
+
+function fightOutcomeFact(context) {
+  if (!context) return "";
+  const alliedDeaths = normalizeNumber(context.alliedDeaths) ?? 0;
+  const enemyDeaths = normalizeNumber(context.enemyDeaths) ?? 0;
+  const totalDeaths = normalizeNumber(context.totalDeaths) ?? 0;
+  if (totalDeaths <= 0) return "";
+  const counts = `${countNoun(alliedDeaths, "allied death")}, ${countNoun(enemyDeaths, "enemy death")}`;
+  if (context.label === "pick_death") return alliedDeaths <= 1 && enemyDeaths === 0 ? "Outcome: you died" : `Outcome: pick — ${counts}`;
+  if (context.label === "lost_skirmish") return `Outcome: lost local fight — ${counts}`;
+  if (context.label === "even_trade") return `Outcome: local trade — ${counts}`;
+  if (context.label === "won_fight_but_died") return `Outcome: won local fight but died — ${counts}`;
+  if (context.label === "teamfight_death") return `Outcome: local teamfight — ${countNoun(totalDeaths, "total death")}`;
+  if (context.label === "stagger_death") return `Outcome: stagger — ${counts}`;
+  return `Outcome: ${counts}`;
 }
 
 function isMeaningfulMultiEnemyDeath({ enemyParticipantsInvolved, nearbyParticipants, participantIndex, victimParticipantId }) {
@@ -616,6 +694,7 @@ export function summarizeMatchEvaluationDeaths(evaluation) {
     laneDeathContext: normalizeString(death?.laneDeathContext),
     laneDeathContextLabel: normalizeString(death?.laneDeathContextLabel),
     fightOutcomeContext: death?.fightOutcomeContext ? {
+      scope: normalizeString(death.fightOutcomeContext.scope),
       label: normalizeString(death.fightOutcomeContext.label),
       alliedDeaths: normalizeNumber(death.fightOutcomeContext.alliedDeaths),
       enemyDeaths: normalizeNumber(death.fightOutcomeContext.enemyDeaths),
@@ -623,6 +702,25 @@ export function summarizeMatchEvaluationDeaths(evaluation) {
       playerDeathOrder: normalizeString(death.fightOutcomeContext.playerDeathOrder),
       teamResult: normalizeString(death.fightOutcomeContext.teamResult),
       durationSeconds: normalizeNumber(death.fightOutcomeContext.durationSeconds)
+    } : null,
+    localFightOutcomeContext: death?.localFightOutcomeContext ? {
+      scope: normalizeString(death.localFightOutcomeContext.scope),
+      label: normalizeString(death.localFightOutcomeContext.label),
+      alliedDeaths: normalizeNumber(death.localFightOutcomeContext.alliedDeaths),
+      enemyDeaths: normalizeNumber(death.localFightOutcomeContext.enemyDeaths),
+      totalDeaths: normalizeNumber(death.localFightOutcomeContext.totalDeaths),
+      playerDeathOrder: normalizeString(death.localFightOutcomeContext.playerDeathOrder),
+      teamResult: normalizeString(death.localFightOutcomeContext.teamResult),
+      durationSeconds: normalizeNumber(death.localFightOutcomeContext.durationSeconds)
+    } : null,
+    nearbyDeathWindowContext: death?.nearbyDeathWindowContext ? {
+      scope: normalizeString(death.nearbyDeathWindowContext.scope),
+      label: normalizeString(death.nearbyDeathWindowContext.label),
+      alliedDeaths: normalizeNumber(death.nearbyDeathWindowContext.alliedDeaths),
+      enemyDeaths: normalizeNumber(death.nearbyDeathWindowContext.enemyDeaths),
+      totalDeaths: normalizeNumber(death.nearbyDeathWindowContext.totalDeaths),
+      locality: normalizeString(death.nearbyDeathWindowContext.locality),
+      durationSeconds: normalizeNumber(death.nearbyDeathWindowContext.durationSeconds)
     } : null,
     gamePhase: normalizeString(death?.gamePhase),
     gamePhaseLabel: normalizeString(death?.gamePhaseLabel),
@@ -638,8 +736,26 @@ export function summarizeMatchEvaluationDeaths(evaluation) {
       timing: normalizeString(entry?.timing),
       reviewWindow: normalizeString(entry?.reviewWindow),
       teamId: normalizeNumber(entry?.teamId),
-      teamRelation: normalizeString(entry?.teamRelation)
+      teamRelation: normalizeString(entry?.teamRelation),
+      source: normalizeString(entry?.source),
+      confidence: normalizeString(entry?.confidence)
     })),
+    objectiveState: death?.objectiveState ? {
+      supported: Boolean(death.objectiveState.supported),
+      objectiveName: normalizeString(death.objectiveState.objectiveName),
+      relation: normalizeString(death.objectiveState.relation),
+      secondsFromDeath: normalizeNumber(death.objectiveState.secondsFromDeath),
+      confidence: normalizeString(death.objectiveState.confidence),
+      source: normalizeString(death.objectiveState.source)
+    } : null,
+    campState: death?.campState ? {
+      supported: Boolean(death.campState.supported),
+      campName: normalizeString(death.campState.campName),
+      relation: normalizeString(death.campState.relation),
+      secondsFromDeath: normalizeNumber(death.campState.secondsFromDeath),
+      confidence: normalizeString(death.campState.confidence),
+      source: normalizeString(death.campState.source)
+    } : null,
     enemyLevelUpsBeforeDeath: normalizeArray(death?.enemyLevelUpsBeforeDeath).map((event) => ({
       participantId: normalizeNumber(event?.participantId),
       timestampMs: normalizeNumber(event?.timestampMs),
@@ -714,14 +830,26 @@ export function evaluateMatchFacts({
       participantIndex
     });
     const laneDeathContextLabel = laneContextLabel(laneDeathContext, victimRole);
-    const fightOutcomeContext = buildFightOutcomeContext({
+    const localFightOutcomeContext = buildLocalFightOutcomeContext({
       events,
       timestampMs,
       participantIndex,
       victimParticipantId: participantId,
       victimTeamId
     });
-    const objectiveFacts = objectiveFactsNearDeath(events, timestampMs, victimTeamId);
+    const nearbyDeathWindowContext = buildNearbyDeathWindowContext({
+      events,
+      timestampMs,
+      participantIndex,
+      victimParticipantId: participantId,
+      victimTeamId,
+      localFightOutcomeContext
+    });
+    const fightOutcomeContext = localFightOutcomeContext;
+    const objectiveState = getObjectiveStateNearTimestamp(events, timestampMs);
+    const objectiveFact = objectiveFactFromState(objectiveState, events, timestampMs, victimTeamId);
+    const objectiveFacts = objectiveFact ? [objectiveFact] : [];
+    const campState = getCampStateNearTimestamp(events, timestampMs, { position, role: victimRole });
     const tags = [];
 
     if (enemyParticipantsInvolved.length === 1) {
@@ -733,13 +861,13 @@ export function evaluateMatchFacts({
     if (laneDeathContext) {
       tags.push(laneDeathContext);
     }
-    if (objectiveNearDeath(events, timestampMs)) {
+    if (objectiveState.supported) {
       tags.push("objective_window_candidate");
     }
-    if (objectiveSetupNearDeath(events, timestampMs)) {
+    if (objectiveState.supported && objectiveState.relation === "setup") {
       tags.push("objective_setup_death_candidate");
     }
-    if (objectiveExitNearDeath(events, timestampMs)) {
+    if (objectiveState.supported && objectiveState.relation === "exit") {
       tags.push("objective_exit_death_candidate");
     }
     if (enemyLevelUpsBeforeDeath.length > 0) {
@@ -772,26 +900,44 @@ export function evaluateMatchFacts({
       laneDeathContext,
       laneDeathContextLabel,
       fightOutcomeContext,
+      localFightOutcomeContext,
+      nearbyDeathWindowContext,
       gamePhase,
       gamePhaseLabel: gamePhase === "lane_phase" ? "Lane phase" : gamePhase === "mid_game" ? "Mid game" : "Late game",
+      objectiveState,
       objectiveFacts,
+      campState,
       evidenceSections: {
         knownFromData: [
           killerParticipantId === null ? null : `Killed by ${championName(participantIndex, killerParticipantId) ?? `participant ${killerParticipantId}`}`,
           assistingParticipantIds.length > 0 ? `Assisted by ${assistingParticipantIds.map((id) => championName(participantIndex, id) ?? `participant ${id}`).join(", ")}` : "No assists recorded",
           fightShape.helperText,
-          `Outcome: ${fightOutcomeContext.label.replaceAll("_", " ")} — ${fightOutcomeContext.alliedDeaths} allied deaths, ${fightOutcomeContext.enemyDeaths} enemy deaths`,
-          gamePhase === "lane_phase" ? "Death happened during lane phase" : `Death happened during ${gamePhase === "mid_game" ? "mid game" : "late game"}`,
-          laneDeathContextLabel ? `Lane context: ${laneDeathContextLabel}` : null,
-          objectiveFacts.length > 0 ? `Objective event near death: ${objectiveFacts.map((fact) => `${fact.teamRelation ?? "unknown team"} ${fact.name}`).join(", ")}` : null
+          fightOutcomeFact(localFightOutcomeContext),
+          nearbyDeathWindowContext.totalDeaths > 0 ? `Nearby timeline: ${countNoun(nearbyDeathWindowContext.totalDeaths, "other death")} happened within 30s; not enough position data to confirm same fight.` : null,
+          gamePhase === "lane_phase" ? "Phase: Lane phase" : `Phase: ${gamePhase === "mid_game" ? "Mid game" : "Late game"}`,
+          objectiveFacts.length > 0 ? objectiveFacts.map((fact) => {
+            const seconds = normalizeNumber(fact.secondsFromDeath) ?? 0;
+            const name = fact.name ?? "Objective";
+            if (fact.source === "timeline_event" && fact.teamRelation) {
+              const timing = seconds < 0 ? `${Math.abs(seconds)}s before this death` : seconds > 0 ? `${seconds}s after this death` : "at this death";
+              return `${fact.teamRelation === "enemy" ? "Enemy team" : "Allied team"} took ${name} ${timing}`;
+            }
+            if (seconds > 0) return `${name} spawned ${seconds}s after this death`;
+            if (seconds < 0) return `${name} spawned ${Math.abs(seconds)}s before this death`;
+            return `${name} timing was active at this death`;
+          }).join("; ") : null,
+          campState.supported ? `${campState.campName} ${campState.secondsFromDeath > 0 ? `spawning in ${campState.secondsFromDeath}s` : campState.secondsFromDeath < 0 ? `spawned ${Math.abs(campState.secondsFromDeath)}s before this death` : "timing was active at this death"}` : null
         ].filter(Boolean),
         replayCanAnswer: [
           laneDeathContext === "lane_gank_death" || laneDeathContext === "bot_lane_gank" ? "Was the gank path warded?" : null,
           laneDeathContext === "lane_gank_death" || laneDeathContext === "bot_lane_gank" ? "Did the enemy jungle show early enough to back off?" : null,
           laneDeathContext === "lane_gank_death" || laneDeathContext === "bot_lane_gank" ? "Were you already committed before the jungler arrived?" : null,
           laneDeathContext?.includes("roam") ? "Was the roam visible before the engage?" : null,
-          "Could nearby allies affect the fight?",
-          objectiveFacts.length === 0 ? "whether an objective was actually being set up or exited" : null
+          objectiveState.supported && objectiveState.objectiveName === "Dragon" && objectiveState.relation === "setup" ? "Were you setting up bot river before dragon spawn, or was this just a lane fight?" : null,
+          objectiveState.supported && objectiveState.relation === "contest" ? `Was the ${objectiveState.objectiveName} contest correct?` : null,
+          objectiveState.supported && objectiveState.relation === "exit" ? `Was the ${objectiveState.objectiveName} fight already over when you stayed or walked forward?` : null,
+          campState.supported && campState.campName === "Scuttle" ? "Was this river fight connected to first Scuttle spawn?" : null,
+          campState.supported && campState.campName !== "Scuttle" ? "Was the enemy jungler pathing from a known camp timer?" : null
         ].filter(Boolean)
       },
       ...(nearbyParticipants ? {

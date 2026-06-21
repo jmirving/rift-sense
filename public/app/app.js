@@ -1941,6 +1941,10 @@ function compactFightShapeLabel(fightShape = {}) {
     : "Fight shape unknown";
 }
 
+function countNoun(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 function laneContextDisplayLabel(id, death = {}) {
   if (death?.laneDeathContextLabel) return death.laneDeathContextLabel;
   const role = normalizedRole(death?.victimRole ?? death?.role ?? death?.participantRole);
@@ -1967,13 +1971,14 @@ function fightOutcomeDisplayLabel(context = {}) {
   const totalDeaths = Number(context.totalDeaths ?? alliedDeaths + enemyDeaths);
   const duration = Number(context.durationSeconds ?? 0);
   const label = String(context.label ?? "");
-  if (label === "pick_death") return alliedDeaths <= 1 && enemyDeaths === 0 ? "Outcome: pick - only you died." : `Outcome: pick - ${alliedDeaths} allied deaths, ${enemyDeaths} enemy deaths.`;
-  if (label === "lost_skirmish") return `Outcome: lost skirmish - ${alliedDeaths} allied deaths, ${enemyDeaths} enemy death${enemyDeaths === 1 ? "" : "s"}.`;
-  if (label === "even_trade") return `Outcome: even trade - ${alliedDeaths} allied deaths, ${enemyDeaths} enemy deaths.`;
-  if (label === "won_fight_but_died") return "Outcome: won fight but died - your team traded up.";
-  if (label === "teamfight_death") return `Outcome: teamfight - ${totalDeaths} total deaths${duration > 0 ? ` in ${duration}s` : ""}.`;
-  if (label === "stagger_death") return `Outcome: stagger - you died ${context.playerDeathOrder ?? "late"} in the fight.`;
-  return totalDeaths > 0 ? `Outcome: ${alliedDeaths} allied deaths, ${enemyDeaths} enemy deaths.` : "";
+  const counts = `${countNoun(alliedDeaths, "allied death")}, ${countNoun(enemyDeaths, "enemy death")}`;
+  if (label === "pick_death") return alliedDeaths <= 1 && enemyDeaths === 0 ? "Outcome: you died" : `Outcome: pick - ${counts}`;
+  if (label === "lost_skirmish") return `Outcome: lost local fight - ${counts}`;
+  if (label === "even_trade") return `Outcome: local trade - ${counts}`;
+  if (label === "won_fight_but_died") return `Outcome: won local fight but died - ${counts}`;
+  if (label === "teamfight_death") return `Outcome: local teamfight - ${countNoun(totalDeaths, "total death")}${duration > 0 ? ` in ${duration}s` : ""}`;
+  if (label === "stagger_death") return `Outcome: stagger - ${counts}`;
+  return totalDeaths > 0 ? `Outcome: ${counts}` : "";
 }
 
 function matchupContextForDeath(death, context = {}) {
@@ -2105,18 +2110,23 @@ function objectiveEvidence(death) {
   if (Array.isArray(death?.objectiveFacts) && death.objectiveFacts.length > 0) {
     const facts = death.objectiveFacts.map((objective) => {
       const seconds = Number(objective.secondsFromDeath ?? 0);
-      const relation = objective.teamRelation === "enemy" ? "Enemy team" : objective.teamRelation === "allied" ? "Allied team" : "Team";
       const timing = seconds < 0
         ? `${Math.abs(seconds)}s before the death`
         : seconds > 0
           ? `${seconds}s after the death`
           : "at the death";
-      return `${relation} took ${objective.name ?? "objective"} ${timing}`;
+      if (objective.source === "timeline_event" && objective.teamRelation) {
+        const relation = objective.teamRelation === "enemy" ? "Enemy team" : objective.teamRelation === "allied" ? "Allied team" : "Team";
+        return `${relation} took ${objective.name ?? "objective"} ${timing}`;
+      }
+      if (seconds > 0) return `${objective.name ?? "Objective"} spawned ${seconds}s after this death`;
+      if (seconds < 0) return `${objective.name ?? "Objective"} spawned ${Math.abs(seconds)}s before this death`;
+      return `${objective.name ?? "Objective"} timing was active at this death`;
     });
     const reasons = death.objectiveFacts.map((objective) => {
-      if (objective.reviewWindow === "before_setup") return `death happened before ${objective.name ?? "objective"} setup completed`;
-      if (objective.reviewWindow === "during_contest") return `death happened during the ${objective.name ?? "objective"} contest`;
-      return `death happened after the ${objective.name ?? "objective"} exit window`;
+      if (objective.reviewWindow === "setup") return `death happened before ${objective.name ?? "objective"} spawned`;
+      if (objective.reviewWindow === "contest") return `death happened during ${objective.name ?? "objective"} timing`;
+      return `death happened after the ${objective.name ?? "objective"} fight`;
     });
     return { facts, reasons };
   }
@@ -2559,7 +2569,7 @@ function reviewMomentEvidenceFacts(death, goalKind) {
   if (killer) facts.push(killer);
   if (assists) facts.push(assists);
   facts.push(fightShape.helperText || fightShapeDisplayLabel(fightShape));
-  const outcome = fightOutcomeDisplayLabel(death?.fightOutcomeContext);
+  const outcome = fightOutcomeDisplayLabel(death?.localFightOutcomeContext ?? death?.fightOutcomeContext);
   if (outcome) facts.push(outcome);
   if (death?.gamePhaseLabel) facts.push(`Phase: ${death.gamePhaseLabel}`);
   if (locationZone?.userRelativeZoneLabel) facts.push(`Death happened in ${locationZone.userRelativeZoneLabel}`);
@@ -2602,9 +2612,49 @@ function reviewMomentEvidenceFacts(death, goalKind) {
     facts.push(levels);
   }
 
-  return [...new Set([...(death?.evidenceSections?.knownFromData ?? []), ...facts])]
-    .filter((fact) => !/review whether|replay|unclear|could affect|objective relevance/i.test(fact))
+  if (death?.nearbyDeathWindowContext?.totalDeaths > 0) {
+    facts.push(`Nearby timeline: ${countNoun(Number(death.nearbyDeathWindowContext.totalDeaths), "other death")} happened within 30s; not enough position data to confirm same fight.`);
+  }
+
+  return normalizeDeathFacts([...(death?.evidenceSections?.knownFromData ?? []), ...facts], death, fightShape)
     .slice(0, 8);
+}
+
+function normalizeDeathFacts(facts, death = {}, fightShape = {}) {
+  const primaryLabels = new Set([
+    String(death?.laneDeathContextLabel ?? "").toLowerCase(),
+    String(laneContextDisplayLabel(death?.laneDeathContext, death) ?? "").toLowerCase()
+  ].filter(Boolean));
+  const seen = new Set();
+  let hasFightShape = false;
+  let hasEnemyParticipants = false;
+  let hasAlliedParticipants = false;
+
+  return facts
+    .map((fact) => typeof fact === "string" ? fact.trim() : "")
+    .filter(Boolean)
+    .filter((fact) => !/review whether|replay|unclear|could affect|objective relevance|use this when|whether an objective/i.test(fact))
+    .filter((fact) => {
+      const normalized = fact.toLowerCase().replace(/\s+/g, " ");
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      if (primaryLabels.has(normalized.replace(/^lane context:\s*/, ""))) return false;
+      if (/^lane context:/i.test(fact)) return false;
+      if (/^(even fight|outnumbered|allied numbers advantage):/i.test(fact) && fightShape?.helperText) return false;
+      if (/^fight shape:/i.test(fact)) {
+        if (hasFightShape) return false;
+        hasFightShape = true;
+      }
+      if (/^enemy participants:/i.test(fact)) {
+        if (hasEnemyParticipants) return false;
+        hasEnemyParticipants = true;
+      }
+      if (/^allied participants nearby:/i.test(fact)) {
+        if (hasAlliedParticipants) return false;
+        hasAlliedParticipants = true;
+      }
+      return true;
+    });
 }
 
 function reviewMomentEventSummary(death, goalKind) {
@@ -2687,8 +2737,6 @@ function reviewMomentReasons(death, tagCounts = {}) {
     reasons.push(`this happened after the ${objective.objectiveName} window ended`);
   } else if (objective.supported && tags.has("objective_window_candidate")) {
     reasons.push(`this happened near ${objective.objectiveName} timing`);
-  } else if (tags.has("objective_setup_death_candidate") || tags.has("objective_window_candidate") || tags.has("objective_exit_death_candidate")) {
-    reasons.push("Objective relevance unclear");
   }
   if (tags.has("solo_death_candidate") || tags.has("isolated_forward_death_candidate")) {
     reasons.push(alliedCoverReason(death));
@@ -2718,9 +2766,6 @@ function reviewQuestionForDeath(death) {
   }
   if (objective.supported && tags.has("objective_exit_death_candidate")) {
     return `Was ${objective.objectiveName} already over when you stayed or walked forward?`;
-  }
-  if (tags.has("objective_setup_death_candidate") || tags.has("objective_window_candidate") || tags.has("objective_exit_death_candidate")) {
-    return "What objective information was confirmed before this death?";
   }
   if (tags.has("solo_death_candidate") || tags.has("isolated_forward_death_candidate")) {
     return "Who was close enough to cover you when you walked forward?";
@@ -3323,7 +3368,7 @@ function deathContextFacts(moment) {
   } else if (moment.fightShape?.bucket) {
     facts.push(fightShapeDisplayLabel(moment.fightShape));
   }
-  const outcome = fightOutcomeDisplayLabel(death?.fightOutcomeContext);
+  const outcome = fightOutcomeDisplayLabel(death?.localFightOutcomeContext ?? death?.fightOutcomeContext);
   if (outcome) facts.push(outcome);
   if (location) facts.push(location);
   if (allies) facts.push(`Nearby allies: ${allies}`);
@@ -3408,6 +3453,10 @@ function renderDeathReviewList(plan, review) {
                     ${(impactFacts.length > 0 ? [moment.reviewQuestion] : replayQuestions).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}
                   </ul>
                 </div>
+              </div>
+              <div class="review-factor-intro">
+                <h5>What type of death was this?</h5>
+                <p>Pick the pattern that best matches the replay. Use “Other pattern not listed” if the generated options are wrong.</p>
               </div>
               <div class="review-factor-grid">
                 ${moment.factorOptions.map((factor, factorIndex) => `
@@ -3928,6 +3977,19 @@ async function renderSystemInventoryPage(root, context = getRouteContext()) {
         <p class="eyebrow">Game phase</p>
         <h3>Phase thresholds</h3>
         <p class="muted">${escapeHtml(inventory.gamePhase?.note ?? "Phase thresholds are not configured.")}</p>
+      </section>
+      <section class="panel dashboard-compact-panel">
+        <p class="eyebrow">Map timers</p>
+        <h3>Objective and jungle timers</h3>
+        ${renderSignalList([
+          inventory.mapTimers?.rules?.dragon?.firstSpawnSeconds ? `Dragon first spawn: ${inventory.mapTimers.rules.dragon.firstSpawnSeconds}s` : "",
+          inventory.mapTimers?.rules?.voidgrubs?.firstSpawnSeconds ? `Voidgrubs first spawn: ${inventory.mapTimers.rules.voidgrubs.firstSpawnSeconds}s` : "",
+          inventory.mapTimers?.rules?.riftHerald?.firstSpawnSeconds ? `Rift Herald first spawn: ${inventory.mapTimers.rules.riftHerald.firstSpawnSeconds}s` : "",
+          inventory.mapTimers?.rules?.baron?.firstSpawnSeconds ? `Baron first spawn: ${inventory.mapTimers.rules.baron.firstSpawnSeconds}s` : "",
+          inventory.mapTimers?.rules?.scuttle?.firstSpawnSeconds ? `Scuttle first spawn: ${inventory.mapTimers.rules.scuttle.firstSpawnSeconds}s` : "",
+          inventory.mapTimers?.rules?.jungleCamps?.minorCampRespawnSeconds ? `Minor camp respawn: ${inventory.mapTimers.rules.jungleCamps.minorCampRespawnSeconds}s` : "",
+          inventory.mapTimers?.rules?.jungleCamps?.buffRespawnSeconds ? `Buff respawn: ${inventory.mapTimers.rules.jungleCamps.buffRespawnSeconds}s` : ""
+        ].filter(Boolean), "Map timer rules are not configured.")}
       </section>
     </section>
   `, {

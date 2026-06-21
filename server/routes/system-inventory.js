@@ -22,7 +22,8 @@ export function createSystemInventoryRouter({ config, goalTypesRepository }) {
       })),
       deterministicEvidenceParsers: deterministic.activeParsers,
       systemEvidencePatterns: deterministic.emittedTags,
-      gamePhase: deterministic.phaseThresholds
+      gamePhase: deterministic.phaseThresholds,
+      mapTimers: deterministic.mapTimers
     });
   });
 
