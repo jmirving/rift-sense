@@ -1370,6 +1370,139 @@ function dashboardState({ dashboard = {}, goal = {}, riotEvidence = {} }) {
   };
 }
 
+function resolveCoachingNextStep({ state: dashboardView, action = {}, context = {}, goal = {}, setupHref = null } = {}) {
+  const reviewHref = toAppHref("/review", context) ?? "/review";
+  const canonicalActionHref = canonicalDashboardHref(action.href, context);
+  const setupActionHref = setupHref ?? canonicalSetupHref(context);
+
+  if (!goal?.title || action.status === "setup-needed") {
+    return {
+      type: "finish_setup",
+      title: action.title ?? "Finish setup",
+      description: action.summary ?? "Choose an active goal and role before review work starts.",
+      reason: "RiftSense needs a goal before it can rank games or targets.",
+      primaryCta: {
+        label: action.label ?? "Open setup",
+        href: canonicalActionHref ?? setupActionHref
+      }
+    };
+  }
+
+  if (dashboardView.hasInProgressReview) {
+    const href = toAppHref(dashboardView.inProgressReview.href, context)
+      ?? (dashboardView.inProgressReview.matchId ? reviewHrefForGame(dashboardView.inProgressReview, context) : reviewHref)
+      ?? "#";
+    return {
+      type: "continue_game_review",
+      title: "Finish current review",
+      description: "Complete the review already in progress before starting another one.",
+      reason: "Partial reviews do not count toward coaching evidence until their moments are triaged.",
+      primaryCta: {
+        label: "Continue this game",
+        href
+      },
+      secondaryCta: {
+        label: "View review queue",
+        href: reviewHref
+      },
+      gameId: dashboardView.inProgressReview.matchId
+    };
+  }
+
+  if (dashboardView.inInitialAssessment) {
+    const nextGame = assessmentNextGame(dashboardView.initialAssessment);
+    if (nextGame) {
+      return {
+        type: "review_assessment_game",
+        title: "Review next assessment game",
+        description: `Finish the ${dashboardView.assessmentTarget}-game baseline so coaching targets can use reviewed evidence.`,
+        reason: assessmentNextGameReason(nextGame, dashboardView.initialAssessment) ?? "This is the next assessment game with review moments ready.",
+        primaryCta: {
+          label: isAssessmentReviewInProgress(nextGame) ? "Continue this game" : "Review this game",
+          href: reviewHrefForGame(nextGame, context)
+        },
+        secondaryCta: {
+          label: "Choose a different game",
+          href: "#review-ready-games"
+        },
+        gameId: nextGame.matchId
+      };
+    }
+    return {
+      type: "play_more_games",
+      title: "Play more games",
+      description: "No assessment game is ready yet.",
+      reason: "The baseline needs reviewed games before coaching targets can be generated.",
+      primaryCta: {
+        label: "Check review queue",
+        href: reviewHref
+      }
+    };
+  }
+
+  if (dashboardView.hasWeeklyTargets) {
+    const target = dashboardView.weeklyTargets[0];
+    return {
+      type: "practice_focus",
+      title: target?.label ? `Practice: ${target.label}` : "Practice current focus",
+      description: target?.statusLabel ? `Current status: ${target.statusLabel}.` : "Use the current weekly target as your next focus.",
+      reason: "The initial assessment is complete and reviewed evidence has produced a weekly target.",
+      primaryCta: {
+        label: "View target",
+        href: "#weekly-targets"
+      },
+      focusKey: target?.signalId ?? target?.key ?? target?.label
+    };
+  }
+
+  if (dashboardView.hasConfirmedPatterns) {
+    const pattern = dashboardView.patterns[0] ?? dashboardView.goalSignals[0];
+    return {
+      type: "check_progress",
+      title: pattern?.title ?? pattern?.label ?? "Check progress",
+      description: pattern?.summary ?? "Review the latest pattern from completed game reviews.",
+      reason: "Your next step should use reviewed evidence, not just another queue item.",
+      primaryCta: {
+        label: "View evidence",
+        href: "#evidence-progress"
+      }
+    };
+  }
+
+  const recommended = dashboardView.reviewQueue[0] ?? null;
+  if (recommended) {
+    return {
+      type: dashboardView.reviewQueue.length > 1 ? "review_recommended_game" : "manual_review",
+      title: dashboardView.reviewQueue.length > 1 ? "Review recommended game" : "Review your latest game",
+      description: "Add one reviewed game so RiftSense can start separating useful signals from raw match history.",
+      reason: "Reviewed games are required before progress, targets, and patterns can be trusted.",
+      primaryCta: {
+        label: "Review this game",
+        href: reviewHrefForGame(recommended, context)
+      },
+      secondaryCta: dashboardView.reviewQueue.length > 1
+        ? {
+            label: "View review queue",
+            href: reviewHref
+          }
+        : undefined,
+      gameId: recommended.matchId
+    };
+  }
+
+  const fallbackHref = canonicalDashboardHref(action.href ?? "/review", context);
+  return {
+    type: "play_more_games",
+    title: action.title ?? "No review ready",
+    description: "Recent games are still being prepared.",
+    reason: "RiftSense needs a game with prepared review moments before it can create new coaching evidence.",
+    primaryCta: {
+      label: action.ctaLabel ?? "Open review",
+      href: fallbackHref ?? "#"
+    }
+  };
+}
+
 function assessmentNextGame(assessment) {
   const candidates = assessment?.candidateGames ?? [];
   const eligible = candidates.filter((game) =>
@@ -1536,6 +1669,26 @@ function primaryActionCard(primaryAction) {
   `;
 }
 
+function coachingNextStepCard(nextStep) {
+  const primary = nextStep.primaryCta ?? {};
+  const secondary = nextStep.secondaryCta ?? null;
+  return `
+    <section class="panel primary-action-panel coaching-next-step-panel">
+      <p class="eyebrow">Coaching next step</p>
+      <h2>${escapeHtml(nextStep.title)}</h2>
+      <p class="muted">${escapeHtml(nextStep.description)}</p>
+      <p class="muted">Why: ${escapeHtml(nextStep.reason)}</p>
+      <div class="action-row">
+        ${primary.href
+          ? `<a class="button" href="${escapeHtml(primary.href)}">${escapeHtml(primary.label ?? "Open")}</a>`
+          : `<button class="button" type="button" data-coaching-action="${escapeHtml(primary.action ?? nextStep.type)}">${escapeHtml(primary.label ?? "Open")}</button>`}
+        ${secondary?.href ? `<a class="button secondary" href="${escapeHtml(secondary.href)}">${escapeHtml(secondary.label)}</a>` : ""}
+        ${secondary?.action ? `<button class="button secondary" type="button" data-coaching-action="${escapeHtml(secondary.action)}">${escapeHtml(secondary.label)}</button>` : ""}
+      </div>
+    </section>
+  `;
+}
+
 function reviewQueueSummary(reviewQueue, context = {}) {
   return `
     <section class="panel dashboard-compact-panel" id="review-queue">
@@ -1645,7 +1798,7 @@ function evidenceProgressCard(dashboardView) {
     const reviewedCount = dashboardView.goalReviewedCount;
     const latestPattern = dashboardView.patterns[0];
     return `
-      <section class="panel evidence-progress-panel">
+      <section class="panel evidence-progress-panel" id="evidence-progress">
         <p class="eyebrow">Evidence progress</p>
         <h2>Evidence progress</h2>
         <div class="progress-checklist">
@@ -1660,7 +1813,7 @@ function evidenceProgressCard(dashboardView) {
   }
 
   return `
-    <section class="panel evidence-progress-panel">
+    <section class="panel evidence-progress-panel" id="evidence-progress">
       <p class="eyebrow">Evidence progress</p>
       <h2>Evidence progress</h2>
       <p class="muted">Review one game to create your first evidence point.</p>
@@ -1696,7 +1849,7 @@ function dashboardContextCards(dashboardView, teamFocus = {}) {
     <section class="dashboard-context-column">
       ${dashboardView.hasWeeklyTargets
         ? `
-          <section class="panel dashboard-compact-panel">
+          <section class="panel dashboard-compact-panel" id="weekly-targets">
             <p class="eyebrow">Weekly targets</p>
             <h2>Weekly targets</h2>
             ${targetChipGrid(dashboardView.weeklyTargets, "No weekly targets ready.")}
@@ -4186,6 +4339,11 @@ function assessmentState(review, { currentMatchTriaged = false } = {}) {
 function renderAssessmentProgress(review, complete) {
   const assessment = assessmentState(review);
   const completedCount = complete ? Math.max(assessment.completedCount, assessment.currentNumber) : assessment.completedCount;
+  const thresholdReached = completedCount >= assessment.target ||
+    (assessment.availableCount > 0 && completedCount >= Math.min(assessment.target, assessment.availableCount));
+  if (thresholdReached || assessment.assessmentComplete) {
+    return "";
+  }
   const currentChampion = review?.matchSummary?.championName ?? review?.championName ?? "Current game";
   const currentResult = review?.matchSummary?.result ?? review?.result ?? "result unknown";
   const availableText = assessment.availableCount > 0 && assessment.availableCount < assessment.target
@@ -5151,9 +5309,9 @@ async function renderHome(root, context = getRouteContext()) {
     const activeReviewTrend = dashboardView.inInitialAssessment
       ? "watch"
       : dashboardView.hasReviewedGames ? (goal.goalStatusTrend ?? "unknown") : "unknown";
-    const primaryAction = primaryDashboardAction({ state: dashboardView, action, context });
     const setupHref = canonicalSetupHref(context);
     const reviewHref = toAppHref("/review", context) ?? "#";
+    const nextStep = resolveCoachingNextStep({ state: dashboardView, action, context, goal, setupHref });
     const focusTagline = `${goal.role ?? profile.primaryRole ?? "Player"} · ${goal.scope ?? "Personal"}`;
     const demoBanner = context.demoMode
       ? `
@@ -5200,7 +5358,8 @@ async function renderHome(root, context = getRouteContext()) {
               <a class="button secondary" href="${escapeHtml(setupHref)}">Edit setup</a>
             </div>
           </section>
-          ${dashboardView.inInitialAssessment ? initialAssessmentPanel(dashboardView, context) : primaryActionCard(primaryAction)}
+          ${coachingNextStepCard(nextStep)}
+          ${dashboardView.inInitialAssessment ? initialAssessmentPanel(dashboardView, context) : ""}
           ${dashboardView.inInitialAssessment ? "" : reviewQueueSummary(dashboardView.reviewQueue, context)}
           ${riotEvidenceCard(riotEvidence, context)}
           ${dashboardView.inInitialAssessment ? "" : evidenceProgressCard(dashboardView)}

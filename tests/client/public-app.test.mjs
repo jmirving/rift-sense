@@ -906,6 +906,10 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
+    expect(document.body.textContent).toContain("Coaching next step");
+    expect(document.body.textContent).toContain("Practice: Review lane deaths");
+    expect(document.body.textContent).toContain("The initial assessment is complete and reviewed evidence has produced a weekly target.");
+    expect(document.querySelector('a[href="#weekly-targets"]')?.textContent).toBe("View target");
     expect(document.body.textContent).toContain("2 games reviewed");
     expect(document.body.textContent).toContain("Weekly targets ready");
     expect(document.body.textContent).toContain("Review lane deaths");
@@ -1365,6 +1369,9 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
+    expect(document.body.textContent).toContain("Coaching next step");
+    expect(document.body.textContent).toContain("Review next assessment game");
+    expect(document.body.textContent).toContain("Finish the 3-game baseline so coaching targets can use reviewed evidence.");
     expect(document.body.textContent).toContain("2 of 3 games reviewed");
     expect(document.body.textContent).toContain("Initial assessment: 2/3 reviewed");
     expect(document.body.textContent).not.toContain("Needs attention");
@@ -3038,6 +3045,70 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("2 complete · 1 remaining");
     expect(document.body.textContent).toContain("Current game: Jhin loss");
     expect(document.body.textContent).not.toContain("Game 1 of 3");
+  });
+
+  it("hides initial assessment copy on review pages after the prerequisite is complete", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+      if (url === "/api/home") {
+        const candidateGames = [
+          { matchId: "NA1_current", championName: "Jhin", result: "Loss", queueLabel: "Ranked Solo/Duo", kda: "1/2/1", evaluationSummary: { deathCount: 2 }, reviewStatus: "triaged" },
+          { matchId: "NA1_done_1", championName: "Ashe", result: "Win", queueLabel: "Ranked Solo/Duo", kda: "4/1/8", evaluationSummary: { deathCount: 1 }, reviewStatus: "triaged" },
+          { matchId: "NA1_done_2", championName: "Caitlyn", result: "Loss", queueLabel: "Ranked Solo/Duo", kda: "2/4/5", evaluationSummary: { deathCount: 4 }, reviewStatus: "triaged" }
+        ];
+        return mockJsonResponse({
+          home: {
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Die Less",
+                riotEvidence: {
+                  initialAssessment: {
+                    target: 3,
+                    completedCount: 3,
+                    completedMatchIds: ["NA1_current", "NA1_done_1", "NA1_done_2"],
+                    assessmentComplete: true,
+                    candidateGames
+                  },
+                  candidateGames
+                }
+              }
+            }
+          }
+        });
+      }
+      if (url === "/api/matches/NA1_current/evaluation") {
+        return mockJsonResponse({
+          matchId: "NA1_current",
+          activeGoalName: "Die Less",
+          matchSummary: { championName: "Jhin", queueLabel: "Ranked Solo/Duo", result: "Loss", kills: 1, deaths: 2, assists: 1 },
+          evaluationSummary: { deathCount: 2 },
+          deathEvents: [
+            { deathIndex: 1, timestampSeconds: 494, killerChampionName: "LeBlanc", tags: ["solo_death_candidate"] },
+            { deathIndex: 2, timestampSeconds: 620, killerChampionName: "Jinx", tags: ["death_count"] }
+          ],
+          deterministicTagCounts: { death_count: 2 },
+          reviewedMoments: []
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/review?matchId=NA1_current");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).not.toContain("Initial assessment");
+    expect(document.body.textContent).not.toContain("3 complete · 0 remaining");
+    expect(document.body.textContent).not.toContain("After 3 reviewed games");
   });
 
   it("uses server assessment state so stale candidate objects do not loop next assessment game", async () => {
