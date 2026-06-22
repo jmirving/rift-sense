@@ -1377,39 +1377,88 @@ function assessmentNextGame(assessment) {
     game.reviewStatus !== "triaged" &&
     game.reviewStatus !== "needs_manual_review"
   );
-  return eligible.find((game) => game.reviewStatus === "in_progress" || game.reviewStartedAt) ??
+  return eligible.find(isAssessmentReviewInProgress) ??
     eligible.find((game) => game.matchId === assessment.nextMatchId) ??
     [...eligible].sort((left, right) => reviewMomentCount(right) - reviewMomentCount(left))[0] ??
     null;
 }
 
 function assessmentNextGameReason(game, assessment) {
-  if (!game) return "Selected to complete your initial baseline.";
-  if (game.reviewStatus === "in_progress" || game.reviewStartedAt) {
+  if (!game) return null;
+  const eligible = eligibleUnreviewedAssessmentGames(assessment);
+  if (isAssessmentReviewInProgress(game)) {
     return "You already started reviewing this game.";
   }
-  if (game.matchId === assessment?.nextMatchId) {
-    return "RiftSense selected this as the next assessment game.";
+  if (!eligible.some((candidate) => candidate.matchId === game.matchId)) {
+    return null;
   }
+  if (hasMostReviewMoments(game, eligible)) {
+    return "It has the most review moments among your unreviewed assessment games.";
+  }
+  if (isMostRecentAssessmentGame(game, eligible)) {
+    return "It is your most recent unreviewed game with review moments ready.";
+  }
+  if (addsAssessmentContext(game, assessment)) {
+    return "It adds a different champion or game context to your baseline.";
+  }
+  if (hasIneligibleUnreviewedAssessmentGames(assessment)) {
+    return "It is the next eligible game with review moments ready.";
+  }
+  return null;
+}
 
-  const eligible = (assessment?.candidateGames ?? []).filter((candidate) =>
+function eligibleUnreviewedAssessmentGames(assessment) {
+  return (assessment?.candidateGames ?? []).filter((candidate) =>
     candidate?.matchId &&
     candidate.reviewStatus !== "triaged" &&
     candidate.reviewStatus !== "needs_manual_review" &&
-    candidate.reviewStatus !== "in_progress" &&
-    !candidate.reviewStartedAt
+    !isAssessmentReviewInProgress(candidate) &&
+    !candidate.reviewedAt &&
+    !candidate.lastReviewedAt &&
+    gameIsEvaluationReady(candidate) &&
+    reviewMomentCount(candidate) > 0
   );
-  const maxMoments = Math.max(...eligible.map(reviewMomentCount), 0);
-  if (reviewMomentCount(game) > 0 && reviewMomentCount(game) === maxMoments) {
-    return "Most review moments among your unreviewed assessment games.";
-  }
-  if (addsAssessmentContext(game, assessment)) {
-    return "Adds a different game context to the assessment baseline.";
-  }
-  if (game.playedAt || game.gameCreation || game.gameEndTimestamp) {
-    return "Most recent unreviewed game with review moments ready.";
-  }
-  return "Selected to complete your initial baseline.";
+}
+
+function isAssessmentReviewInProgress(game = {}) {
+  const triagedMomentCount = Number(game.triagedMomentCount ?? 0);
+  return Boolean(
+    game.reviewStatus === "in_progress" ||
+    game.reviewStartedAt ||
+    (triagedMomentCount > 0 && game.reviewStatus !== "triaged" && game.reviewStatus !== "needs_manual_review")
+  );
+}
+
+function hasMostReviewMoments(game, eligible) {
+  if (!eligible.length) return false;
+  const gameMoments = reviewMomentCount(game);
+  const maxMoments = Math.max(...eligible.map(reviewMomentCount));
+  return gameMoments > 0 && gameMoments === maxMoments;
+}
+
+function assessmentGameTimestamp(game = {}) {
+  const rawTimestamp = game.playedAt ?? game.gameCreation ?? game.gameEndTimestamp ?? game.gameCreationDate ?? game.startedAt ?? null;
+  const timestamp = rawTimestamp ? new Date(rawTimestamp).getTime() : NaN;
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function isMostRecentAssessmentGame(game, eligible) {
+  const gameTimestamp = assessmentGameTimestamp(game);
+  if (gameTimestamp === null) return false;
+  const timestamps = eligible.map(assessmentGameTimestamp).filter((timestamp) => timestamp !== null);
+  return timestamps.length > 0 && gameTimestamp === Math.max(...timestamps);
+}
+
+function hasIneligibleUnreviewedAssessmentGames(assessment) {
+  return (assessment?.candidateGames ?? []).some((candidate) =>
+    candidate?.matchId &&
+    candidate.reviewStatus !== "triaged" &&
+    candidate.reviewStatus !== "needs_manual_review" &&
+    !isAssessmentReviewInProgress(candidate) &&
+    !candidate.reviewedAt &&
+    !candidate.lastReviewedAt &&
+    (!gameIsEvaluationReady(candidate) || reviewMomentCount(candidate) <= 0)
+  );
 }
 
 function addsAssessmentContext(game, assessment) {
@@ -1565,7 +1614,8 @@ function initialAssessmentPanel(dashboardView, context = {}) {
   const nextKda = gameKdaLabel(nextGame ?? {}) ?? "KDA unknown";
   const nextMomentCount = reviewMomentCount(nextGame ?? {});
   const reason = assessmentNextGameReason(nextGame, assessment);
-  const ctaLabel = nextGame?.reviewStatus === "in_progress" || nextGame?.reviewStartedAt
+  const reasonLine = reason ? `<p class="muted">Why this game: ${escapeHtml(reason)}</p>` : "";
+  const ctaLabel = isAssessmentReviewInProgress(nextGame)
     ? "Continue this game"
     : "Review this game";
   return `
@@ -1579,7 +1629,7 @@ function initialAssessmentPanel(dashboardView, context = {}) {
           <p class="eyebrow">Recommended next review</p>
           <h3>${escapeHtml(nextChampion)} · ${escapeHtml(nextResult)}</h3>
           <p class="muted">${escapeHtml(nextQueue)} · ${escapeHtml(nextKda)} KDA · ${escapeHtml(nextMomentCount)} review ${nextMomentCount === 1 ? "moment" : "moments"}</p>
-          <p class="muted">Why this game: ${escapeHtml(reason)}</p>
+          ${reasonLine}
         </div>
         <div class="action-row">
           <a class="button" href="${escapeHtml(reviewHrefForGame(nextGame, context))}">${escapeHtml(ctaLabel)}</a>

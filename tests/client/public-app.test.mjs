@@ -1368,8 +1368,10 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Recommended next review");
     expect(document.body.textContent).toContain("Ashe · Win");
     expect(document.body.textContent).toContain("Ranked Solo/Duo · 4/1/8 KDA · 1 review moment");
-    expect(document.body.textContent).toContain("Why this game: RiftSense selected this as the next assessment game.");
+    expect(document.body.textContent).not.toContain("RiftSense selected this as the next assessment game.");
+    expect(document.body.textContent).not.toContain("Why this game: Next assessment game.");
     expect(document.body.textContent).not.toContain("Why this game: Next unreviewed assessment game.");
+    expect(document.body.textContent).not.toContain("Why this game: Highest-priority game.");
     expect(document.body.textContent).not.toContain("highest-priority");
     expect(document.querySelector('a[href="/review?matchId=NA1_next"]')?.textContent).toBe("Review this game");
     expect(document.querySelector('a[href="#review-ready-games"]')?.textContent).toBe("Choose a different game");
@@ -1477,9 +1479,133 @@ describe("public app routes", () => {
     await renderApp(document.querySelector("#app"));
 
     expect(document.body.textContent).toContain("Miss Fortune · Win");
-    expect(document.body.textContent).toContain("Why this game: Most review moments among your unreviewed assessment games.");
+    expect(document.body.textContent).toContain("Why this game: It has the most review moments among your unreviewed assessment games.");
     expect(document.querySelector(".game-evidence-row")?.textContent).toContain("Miss Fortune · Win");
     expect(document.querySelector(".game-evidence-row")?.textContent).toContain("10 review moments");
+  });
+
+  it("explains an in-progress assessment recommendation", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+      if (url === "/api/home") {
+        const candidateGames = [
+          { matchId: "NA1_started", championName: "Ashe", result: "Win", queueLabel: "Ranked Solo/Duo", kda: "4/1/8", evaluationStatus: "current", evaluationSummary: { deathCount: 1 }, triagedMomentCount: 1, totalReviewMomentCount: 3, reviewStatus: "not_started" },
+          { matchId: "NA1_other", championName: "Caitlyn", result: "Loss", queueLabel: "Ranked Solo/Duo", kda: "2/8/4", evaluationStatus: "current", evaluationSummary: { deathCount: 8 }, totalReviewMomentCount: 8, reviewStatus: "not_started" }
+        ];
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Improve teamfight deaths",
+                role: "ADC",
+                evidenceSource: {},
+                riotEvidence: {
+                  status: "all_recent_games_ready",
+                  summaryReadyCount: 2,
+                  evaluationReadyCount: 2,
+                  recentGames: candidateGames,
+                  candidateGames,
+                  initialAssessment: {
+                    target: 3,
+                    completedMatchIds: [],
+                    completedCount: 0,
+                    nextMatchId: null,
+                    assessmentComplete: false,
+                    candidateGames
+                  }
+                }
+              },
+              todaysAction: {},
+              activeTeamFocus: {},
+              recentInsights: [],
+              suggestedNextSteps: []
+            }
+          }
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("Ashe · Win");
+    expect(document.body.textContent).toContain("Why this game: You already started reviewing this game.");
+    expect(document.body.textContent).not.toContain("RiftSense selected this as the next assessment game.");
+  });
+
+  it("omits the assessment recommendation reason when no concrete reason is proven", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+      if (url === "/api/home") {
+        const candidateGames = [
+          { matchId: "NA1_next", championName: "Ashe", result: "Win", queueLabel: "Ranked Solo/Duo", kda: "4/1/8", evaluationStatus: "current", evaluationSummary: { deathCount: 1 }, totalReviewMomentCount: 1, reviewStatus: "not_started" },
+          { matchId: "NA1_more", championName: "Caitlyn", result: "Loss", queueLabel: "Ranked Solo/Duo", kda: "2/8/4", evaluationStatus: "current", evaluationSummary: { deathCount: 2 }, totalReviewMomentCount: 2, reviewStatus: "not_started" }
+        ];
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Improve teamfight deaths",
+                role: "ADC",
+                evidenceSource: {},
+                riotEvidence: {
+                  status: "all_recent_games_ready",
+                  summaryReadyCount: 2,
+                  evaluationReadyCount: 2,
+                  recentGames: candidateGames,
+                  candidateGames,
+                  initialAssessment: {
+                    target: 3,
+                    completedMatchIds: [],
+                    completedCount: 0,
+                    nextMatchId: "NA1_next",
+                    assessmentComplete: false,
+                    candidateGames
+                  }
+                }
+              },
+              todaysAction: {},
+              activeTeamFocus: {},
+              recentInsights: [],
+              suggestedNextSteps: []
+            }
+          }
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/");
+
+    await renderApp(document.querySelector("#app"));
+
+    const recommendedCard = document.querySelector(".recommended-review-card");
+    expect(recommendedCard?.textContent).toContain("Recommended next review");
+    expect(recommendedCard?.textContent).toContain("Ashe · Win");
+    expect(recommendedCard?.textContent).not.toContain("Why this game");
+    expect(document.body.textContent).not.toContain("RiftSense selected this as the next assessment game.");
   });
 
   it("renders failed recent-game preparation as an actionable status", async () => {
