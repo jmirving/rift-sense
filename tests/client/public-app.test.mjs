@@ -52,6 +52,10 @@ async function flushAsyncWork() {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function textOccurrences(text, needle) {
+  return (String(text).match(new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) ?? []).length;
+}
+
 describe("public app routes", () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="app"></div>';
@@ -2205,7 +2209,7 @@ describe("public app routes", () => {
       ]
     });
 
-    expect(lane2v2.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Bot lane 2v2 death");
+    expect(lane2v2.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("2v2 lane death");
     expect(lane2v2.reviewMoments[0].fightShape.bucket).toBe("2v2");
     expect(lane2v1.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Bot lane 2v1 punish");
     expect(collapse.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Collapsed on by multiple enemies");
@@ -2456,6 +2460,110 @@ describe("public app routes", () => {
     expect(facts).not.toMatch(/review whether|could affect|unclear/i);
   });
 
+  it("renders death cards without repeating chip context in facts or pattern choices", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/matches/NA1_dedupe/evaluation") {
+        return mockJsonResponse({
+          matchId: "NA1_dedupe",
+          activeGoalName: "Trading",
+          evaluationStatus: "current",
+          matchSummary: {
+            championName: "Jinx",
+            queueLabel: "Ranked Solo/Duo",
+            result: "Loss",
+            kills: 1,
+            deaths: 1,
+            assists: 0,
+            role: "ADC",
+            teamSide: "blue"
+          },
+          evaluationSummary: { deathCount: 1 },
+          deterministicTagCounts: {
+            death_count: 1,
+            bot_lane_2v2_death: 1,
+            level_up_all_in_candidate: 1
+          },
+          deathEvents: [{
+            deathIndex: 1,
+            timestampSeconds: 128,
+            x: 10400,
+            y: 3000,
+            playerSide: "blue",
+            role: "ADC",
+            gamePhaseLabel: "Lane phase",
+            laneDeathContext: "bot_lane_2v2_death",
+            laneDeathContextLabel: "2v2 lane death",
+            killerChampionName: "Shaco",
+            assistingChampionNames: ["Ashe"],
+            nearbyAllyChampionNames: ["Thresh"],
+            nearbyEnemyChampionNames: ["Ashe", "Shaco"],
+            nearbyEnemyCount: 2,
+            enemyRolesInvolved: ["bot", "support"],
+            tags: ["bot_lane_2v2_death", "level_up_all_in_candidate"],
+            enemyLevelUpsBeforeDeath: [{ level: 2 }],
+            localFightOutcomeContext: {
+              label: "lost_skirmish",
+              alliedDeaths: 2,
+              enemyDeaths: 1
+            },
+            evidenceSections: {
+              knownFromData: [
+                "Fight shape: 2 enemies vs 2 allies",
+                "Death happened during lane phase",
+                "Outcome: lost skirmish - 2 allied deaths, 1 enemy deaths",
+                "Outcome: lost local fight - 2 allied deaths, 1 enemy death",
+                "Death happened in blue-side bot outer area"
+              ],
+              replayCanAnswer: [
+                "Could nearby allies affect the fight?",
+                "Whether an objective was actually being set up or exited"
+              ]
+            }
+          }],
+          reviewedMoments: []
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/review?matchId=NA1_dedupe");
+
+    await renderApp(document.querySelector("#app"));
+
+    const card = document.querySelector("[data-death-review-item]");
+    const cardText = card.textContent;
+    const facts = [...card.querySelectorAll(".review-evidence-facts:first-child li")].map((item) => item.textContent);
+    const patternLabels = [...card.querySelectorAll(".review-factor-option span")].map((item) => item.textContent);
+
+    expect(textOccurrences(cardText, "Lane phase")).toBe(1);
+    expect(textOccurrences(cardText, "2 enemies vs 2 allies")).toBe(1);
+    expect(textOccurrences(cardText, "Lost local fight: 2 allied deaths, 1 enemy death")).toBe(1);
+    expect(cardText).not.toContain("1 enemy deaths");
+    expect(textOccurrences(cardText, "allied bot outer area")).toBe(1);
+    expect(cardText).not.toContain("Location: allied bot outer area");
+    expect(cardText).not.toContain("blue-side bot outer area");
+    expect(facts).toContain("Killed by Shaco");
+    expect(facts).toContain("Assisted by Ashe");
+    expect(facts.join(" ")).not.toMatch(/Lane phase|Fight shape|Outcome|allied bot outer area|blue-side bot outer area/);
+    expect(cardText).not.toMatch(/objective was actually being set up|objective.*exited/i);
+    expect(cardText).toContain("Was Thresh close enough to trade or peel when the fight started?");
+    expect(cardText).toContain("Did enemy level 2 timing change whether this 2v2 was playable?");
+    expect(patternLabels).toContain("2v2 lane death");
+    expect(patternLabels).not.toContain("Bot lane 2v2 death");
+  });
+
   it("shows level evidence only when it changes interpretation", () => {
     const plan = buildMatchReviewPlan({
       activeGoalName: "Die Less",
@@ -2518,7 +2626,7 @@ describe("public app routes", () => {
 
     expect(supportJungle.reviewMoments[0].factorOptions.map((option) => option.label)).not.toContain("Bot lane 2v1 punish");
     expect(supportJungle.reviewMoments[0].evidenceFacts.join(" ")).toContain("Enemy support + jungle were involved");
-    expect(botPair.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Bot lane 2v2 death");
+    expect(botPair.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("2v2 lane death");
     expect(botPair.reviewMoments[0].factorOptions[0].interpretationReasons.join(" ")).toContain("bot carry + support");
     expect(topGank.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Lane gank/collapse");
   });

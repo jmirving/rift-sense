@@ -929,7 +929,7 @@ function tagLabel(value) {
     enemy_level_up_recently_candidate: "Enemy level-up timing",
     level_up_all_in_candidate: "Enemy level-up timing",
     multi_enemy_collapse_candidate: "Walked forward with missing enemies",
-    bot_lane_2v2_death: "Bot lane 2v2 death",
+    bot_lane_2v2_death: "2v2 lane death",
     bot_lane_2v1_punish: "Bot lane 2v1 punish",
     bot_lane_gank: "Bot lane gank",
     bot_lane_roam: "Bot lane roam/collapse",
@@ -2408,13 +2408,13 @@ function fightOutcomeDisplayLabel(context = {}) {
   const duration = Number(context.durationSeconds ?? 0);
   const label = String(context.label ?? "");
   const counts = `${countNoun(alliedDeaths, "allied death")}, ${countNoun(enemyDeaths, "enemy death")}`;
-  if (label === "pick_death") return alliedDeaths <= 1 && enemyDeaths === 0 ? "Outcome: you died" : `Outcome: pick - ${counts}`;
-  if (label === "lost_skirmish") return `Outcome: lost local fight - ${counts}`;
-  if (label === "even_trade") return `Outcome: local trade - ${counts}`;
-  if (label === "won_fight_but_died") return `Outcome: won local fight but died - ${counts}`;
-  if (label === "teamfight_death") return `Outcome: local teamfight - ${countNoun(totalDeaths, "total death")}${duration > 0 ? ` in ${duration}s` : ""}`;
-  if (label === "stagger_death") return `Outcome: stagger - ${counts}`;
-  return totalDeaths > 0 ? `Outcome: ${counts}` : "";
+  if (label === "pick_death") return alliedDeaths <= 1 && enemyDeaths === 0 ? "You died" : `Pick: ${counts}`;
+  if (label === "lost_skirmish") return `Lost local fight: ${counts}`;
+  if (label === "even_trade") return `Local trade: ${counts}`;
+  if (label === "won_fight_but_died") return `Won local fight but died: ${counts}`;
+  if (label === "teamfight_death") return `Local teamfight: ${countNoun(totalDeaths, "total death")}${duration > 0 ? ` in ${duration}s` : ""}`;
+  if (label === "stagger_death") return `Stagger: ${counts}`;
+  return totalDeaths > 0 ? counts : "";
 }
 
 function matchupContextForDeath(death, context = {}) {
@@ -2789,9 +2789,22 @@ function reviewMomentFactorOptions(death, goalKind, context = {}) {
   ]);
   const factors = [];
   const seenLabels = new Set();
+  const factorDisplayLabel = (candidate) => {
+    const id = String(candidate?.id ?? "");
+    const label = String(candidate?.label ?? "").trim();
+    if (id === "bot_lane_2v2_death" || id === "lane_2v2_death" || /^bot lane 2v2 death$/i.test(label)) {
+      return "2v2 lane death";
+    }
+    return label;
+  };
+  const factorSemanticKey = (label) => {
+    const normalized = String(label ?? "").trim().toLowerCase();
+    if (normalized === "bot lane 2v2 death" || normalized === "2v2 lane death") return "lane_2v2_death";
+    return normalized;
+  };
   const addFactor = (candidate) => {
     const id = candidate?.id;
-    const label = candidate?.label;
+    const label = factorDisplayLabel(candidate);
     const normalizedId = String(id ?? "").toLowerCase();
     const normalizedLabel = String(label ?? "").trim();
     if (!normalizedLabel || invalidLabels.has(normalizedId) || normalizedId.includes("candidate") && !tagLabelForDeath(id, death)) {
@@ -2804,10 +2817,11 @@ function reviewMomentFactorOptions(death, goalKind, context = {}) {
       normalizedLabel.toLowerCase().includes("goal-relevant signals")) {
       return;
     }
-    if (seenLabels.has(normalizedLabel.toLowerCase())) {
+    const semanticKey = factorSemanticKey(normalizedLabel);
+    if (seenLabels.has(semanticKey)) {
       return;
     }
-    seenLabels.add(normalizedLabel.toLowerCase());
+    seenLabels.add(semanticKey);
     factors.push({ ...candidate, label: normalizedLabel });
   };
 
@@ -3004,11 +3018,6 @@ function reviewMomentEvidenceFacts(death, goalKind) {
 
   if (killer) facts.push(killer);
   if (assists) facts.push(assists);
-  facts.push(fightShape.helperText || fightShapeDisplayLabel(fightShape));
-  const outcome = fightOutcomeDisplayLabel(death?.localFightOutcomeContext ?? death?.fightOutcomeContext);
-  if (outcome) facts.push(outcome);
-  if (death?.gamePhaseLabel) facts.push(`Phase: ${death.gamePhaseLabel}`);
-  if (locationZone?.userRelativeZoneLabel) facts.push(`Death happened in ${locationZone.userRelativeZoneLabel}`);
   const intervention = laneInterventionFact(fightShape, death);
   if (intervention) facts.push(intervention);
   else if (participantRoles) facts.push(`Enemy ${participantRoles} were involved`);
@@ -3026,15 +3035,6 @@ function reviewMomentEvidenceFacts(death, goalKind) {
     if (objective.facts.length > 0) {
       facts.push(...objective.facts);
     }
-  }
-  if (tags.has("solo_death_candidate") || tags.has("isolated_forward_death_candidate")) {
-    if (deathAllyParticipants(death).length === 0 || Number(death?.nearbyAllyCount ?? NaN) === 0) {
-      facts.push("Allied participants nearby: not detected");
-    }
-  }
-  if (tags.has("multi_enemy_collapse_candidate") && Number(death?.nearbyEnemyCount ?? 0) >= 3) {
-    const enemies = (death?.nearbyEnemyChampionNames ?? []).slice(0, 5).join(", ");
-    facts.push(enemies ? `Nearby enemies: ${enemies}` : "Multiple enemies nearby");
   }
   if (tags.has("enemy_level_up_recently_candidate") || tags.has("level_up_all_in_candidate")) {
     const levelsHit = (death?.enemyLevelUpsBeforeDeath ?? [])
@@ -3089,6 +3089,79 @@ function normalizeDeathFacts(facts, death = {}, fightShape = {}) {
         if (hasAlliedParticipants) return false;
         hasAlliedParticipants = true;
       }
+      return true;
+    });
+}
+
+function normalizedDeathDisplayText(text) {
+  return String(text ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[–—]/g, "-")
+    .replace(/\s+/g, " ");
+}
+
+function deathDisplayFactKey(text, death = {}, fightShape = {}, locationLabel = "") {
+  const normalized = normalizedDeathDisplayText(text)
+    .replace(/^location:\s*/, "")
+    .replace(/^outcome:\s*/, "");
+  if (!normalized) return "";
+  if (/^(lane phase|phase: lane phase|death happened during lane phase)$/.test(normalized)) {
+    return "phase:lane";
+  }
+  if (/^(post-lane|post lane|phase: post-lane|phase: post lane|death happened during post-lane)$/.test(normalized)) {
+    return "phase:post-lane";
+  }
+  const fightShapeMatch = normalized.match(/(?:even fight|outnumbered|allied numbers advantage|fight shape):\s*(\d+)\s+enem(?:y|ies)\s+vs\s+(\d+)\s+all(?:y|ies)/);
+  if (fightShapeMatch) {
+    return `fight-shape:${fightShapeMatch[1]}v${fightShapeMatch[2]}`;
+  }
+  const fightShapeCount = normalized.match(/^(\d+)\s+enem(?:y|ies)\s+vs\s+(\d+)\s+all(?:y|ies)$/);
+  if (fightShapeCount) {
+    return `fight-shape:${fightShapeCount[1]}v${fightShapeCount[2]}`;
+  }
+  const outcome = normalized.match(/^(?:lost local fight|lost skirmish|local trade|won local fight but died|pick|stagger):?\s*-?\s*(\d+)\s+allied deaths?,\s*(\d+)\s+enemy deaths?/);
+  if (outcome) {
+    return `outcome:${outcome[1]}:${outcome[2]}`;
+  }
+  const rawLocation = normalizedDeathDisplayText(locationLabel);
+  if (rawLocation && normalized.includes(rawLocation)) {
+    return "location";
+  }
+  const userLocation = normalizedDeathDisplayText(death?.locationZone?.userRelativeZoneLabel);
+  if (userLocation && normalized.includes(userLocation)) {
+    return "location";
+  }
+  const absoluteLocation = normalizedDeathDisplayText(death?.locationZone?.absoluteZoneLabel);
+  if (absoluteLocation && normalized.includes(absoluteLocation)) {
+    return "location";
+  }
+  if (/death happened in .* (outer area|river|jungle|lane|pit|quadrant|base|inhibitor|brush)/.test(normalized)) {
+    return "location";
+  }
+  if (/^nearby allies:/.test(normalized) || /^allied participants nearby:/.test(normalized)) {
+    return "nearby-allies";
+  }
+  if (/^nearby enemies:/.test(normalized) || /^enemy participants:/.test(normalized)) {
+    return "nearby-enemies";
+  }
+  return normalized;
+}
+
+function dedupeDeathCardFacts(facts, { death = {}, fightShape = {}, contextFacts = [], locationLabel = "" } = {}) {
+  const hiddenKeys = new Set(
+    [...contextFacts, locationLabel]
+      .map((fact) => deathDisplayFactKey(fact, death, fightShape, locationLabel))
+      .filter(Boolean)
+  );
+  const seen = new Set();
+  return facts
+    .map((fact) => typeof fact === "string" ? fact.trim() : "")
+    .filter(Boolean)
+    .filter((fact) => {
+      const key = deathDisplayFactKey(fact, death, fightShape, locationLabel);
+      if (!key || seen.has(key) || hiddenKeys.has(key)) return false;
+      seen.add(key);
       return true;
     });
 }
@@ -3220,6 +3293,69 @@ function reviewQuestionForDeath(death) {
     return "Did the enemy hit the level breakpoint before you committed?";
   }
   return "What were you trying to accomplish before this death?";
+}
+
+function hasSupportedObjectiveReviewSignal(death = {}) {
+  const tags = new Set(death?.tags ?? []);
+  if (!tags.has("objective_window_candidate") &&
+    !tags.has("objective_setup_death_candidate") &&
+    !tags.has("objective_exit_death_candidate")) {
+    return false;
+  }
+  return objectiveEvidenceWithName(death).supported;
+}
+
+function allyTradePeelQuestion(death = {}) {
+  const allies = deathAllyParticipants(death);
+  if (allies.length > 0) {
+    return `Was ${allies.slice(0, 2).join(" and ")} close enough to trade or peel when the fight started?`;
+  }
+  return "Was your lane partner close enough to trade or peel when the fight started?";
+}
+
+function replayQuestionsForDeath(moment, reasons = []) {
+  const death = moment?.death ?? {};
+  const tags = new Set(death?.tags ?? []);
+  const objectiveSupported = hasSupportedObjectiveReviewSignal(death);
+  const sourceQuestions = Array.isArray(death?.evidenceSections?.replayCanAnswer)
+    ? death.evidenceSections.replayCanAnswer
+    : [];
+  const questions = [];
+  const addQuestion = (question) => {
+    const text = String(question ?? "").trim();
+    if (!text) return;
+    if (/objective|setup|exited|exit|spawn|dragon|baron|herald|grub/i.test(text) && !objectiveSupported) {
+      return;
+    }
+    if (/nearby allies|lane partner/i.test(text)) {
+      questions.push(allyTradePeelQuestion(death));
+      return;
+    }
+    questions.push(text);
+  };
+
+  if (moment?.fightShape?.id === "lane_2v2_death" || moment?.fightShape?.id === "bot_lane_2v2_death") {
+    addQuestion(allyTradePeelQuestion(death));
+    if (tags.has("enemy_level_up_recently_candidate") || tags.has("level_up_all_in_candidate")) {
+      const level = (death.enemyLevelUpsBeforeDeath ?? [])
+        .map((event) => Number(event?.level))
+        .find((entry) => [2, 3, 6].includes(entry));
+      addQuestion(level
+        ? `Did enemy level ${level} timing change whether this 2v2 was playable?`
+        : "Did enemy level timing change whether this 2v2 was playable?");
+    } else {
+      addQuestion("Did both bot-lane players commit to the same trade?");
+    }
+  }
+
+  sourceQuestions.forEach(addQuestion);
+  if (questions.length === 0) {
+    reasons.forEach(addQuestion);
+  }
+  if (questions.length === 0) {
+    addQuestion(moment?.reviewQuestion || "What should the replay confirm?");
+  }
+  return [...new Map(questions.map((question) => [normalizedDeathDisplayText(question), question])).values()].slice(0, 3);
 }
 
 function scoreReviewDeath(death, tagCounts = {}) {
@@ -3851,7 +3987,6 @@ function renderDeathReviewList(plan, review) {
       </div>
       <section class="death-review-list">
         ${plan.reviewMoments.map((moment) => {
-          const facts = moment.evidenceFacts?.length ? moment.evidenceFacts : ["No clear pattern yet - review this death manually."];
           const reviewedMoment = reviewedMomentForUiMoment(moment, reviewedMoments);
           const statusUi = reviewStatusUi(reviewedMoment);
           const selectedFactor = selectedPatternIdForMoment(moment, reviewedMoment);
@@ -3859,12 +3994,17 @@ function renderDeathReviewList(plan, review) {
           const reasons = selectedCandidate?.interpretationReasons?.length
             ? selectedCandidate.interpretationReasons
             : [moment.reviewQuestion || "Needs replay check."];
-          const replayQuestions = moment.death?.evidenceSections?.replayCanAnswer?.length
-            ? moment.death.evidenceSections.replayCanAnswer
-            : reasons;
           const impactFacts = moment.consequenceFacts?.length ? moment.consequenceFacts : [];
           const contextFacts = deathContextFacts(moment);
           const locationLabel = moment.locationZone?.userRelativeZoneLabel || "";
+          const facts = dedupeDeathCardFacts(moment.evidenceFacts ?? [], {
+            death: moment.death,
+            fightShape: moment.fightShape,
+            contextFacts,
+            locationLabel
+          });
+          const displayFacts = facts.length ? facts : ["No clear pattern yet - review this death manually."];
+          const replayQuestions = replayQuestionsForDeath(moment, reasons);
           return `
             <article class="death-review-item ${reviewedMoment ? "is-reviewed" : "is-unreviewed"}" id="death-${escapeHtml(String(moment.deathIndex))}" data-death-review-item data-death-index="${escapeHtml(String(moment.deathIndex))}">
               <div class="death-review-head">
@@ -3875,7 +4015,6 @@ function renderDeathReviewList(plan, review) {
                 <span class="${escapeHtml(statusUi.badgeClass)}">${escapeHtml(statusUi.label)}</span>
               </div>
               ${reviewedMoment ? `<p class="reviewed-summary-line">${escapeHtml(statusUi.label)} · ${escapeHtml(selectedCandidate?.label ?? "Pattern recorded")}</p>` : ""}
-              ${locationLabel ? `<p class="death-location-line">Location: ${escapeHtml(locationLabel)}</p>` : ""}
               ${contextFacts.length > 0 ? `
                 <div class="death-context-row">
                   ${contextFacts.map((fact) => `<span>${escapeHtml(fact)}</span>`).join("")}
@@ -3885,7 +4024,7 @@ function renderDeathReviewList(plan, review) {
                 <div class="review-evidence-facts">
                   <p class="eyebrow">Facts</p>
                   <ul>
-                    ${facts.map((fact) => `<li>${escapeHtml(fact)}</li>`).join("")}
+                    ${displayFacts.map((fact) => `<li>${escapeHtml(fact)}</li>`).join("")}
                   </ul>
                 </div>
                 ${impactFacts.length > 0 ? `
