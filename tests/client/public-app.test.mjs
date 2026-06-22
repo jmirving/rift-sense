@@ -2564,6 +2564,81 @@ describe("public app routes", () => {
     expect(patternLabels).not.toContain("Bot lane 2v2 death");
   });
 
+  it("omits replay question section when only generic fallback questions exist", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+
+      if (url === "/api/matches/NA1_generic_replay/evaluation") {
+        return mockJsonResponse({
+          matchId: "NA1_generic_replay",
+          activeGoalName: "Die Less",
+          evaluationStatus: "current",
+          matchSummary: { championName: "Jinx", deaths: 1, role: "ADC", teamSide: "blue" },
+          evaluationSummary: { deathCount: 1 },
+          deterministicTagCounts: { death_count: 1 },
+          deathEvents: [{
+            deathIndex: 1,
+            timestampSeconds: 128,
+            tags: ["death_count"],
+            killerChampionName: "Zed",
+            localFightOutcomeContext: { label: "pick_death", alliedDeaths: 1, enemyDeaths: 0, totalDeaths: 1 },
+            evidenceSections: {
+              knownFromData: ["Outcome: you died"],
+              replayCanAnswer: ["What should the replay confirm?"]
+            }
+          }],
+          reviewedMoments: []
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/review?matchId=NA1_generic_replay");
+
+    await renderApp(document.querySelector("#app"));
+
+    const cardText = document.querySelector("[data-death-review-item]").textContent;
+    expect(cardText).not.toContain("Replay can answer");
+    expect(cardText).not.toContain("What should the replay confirm?");
+    expect(cardText).not.toContain("Outcome: you died");
+  });
+
+  it("keeps meaningful death outcomes visible", () => {
+    const plan = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      evaluationSummary: { deathCount: 2 },
+      deterministicTagCounts: { death_count: 2 },
+      deathEvents: [
+        {
+          deathIndex: 1,
+          timestampSeconds: 100,
+          tags: ["death_count"],
+          localFightOutcomeContext: { label: "pick_death", alliedDeaths: 1, enemyDeaths: 0, totalDeaths: 1 }
+        },
+        {
+          deathIndex: 2,
+          timestampSeconds: 200,
+          tags: ["death_count"],
+          localFightOutcomeContext: { label: "even_trade", alliedDeaths: 1, enemyDeaths: 1, totalDeaths: 2 }
+        }
+      ]
+    });
+
+    const byDeath = new Map(plan.reviewMoments.map((moment) => [moment.deathIndex, moment]));
+    expect(byDeath.get(1).contextChips.join(" ")).not.toContain("You died");
+    expect(byDeath.get(2).contextChips).toContain("Local trade: 1 allied death, 1 enemy death");
+  });
+
   it("classifies objective contest, tempo, exit, and context-only deaths by sequence", () => {
     const plan = buildMatchReviewPlan({
       activeGoalName: "Die Less",

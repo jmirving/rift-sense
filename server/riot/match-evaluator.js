@@ -512,7 +512,7 @@ function fightOutcomeFact(context) {
   const totalDeaths = normalizeNumber(context.totalDeaths) ?? 0;
   if (totalDeaths <= 0) return "";
   const counts = `${countNoun(alliedDeaths, "allied death")}, ${countNoun(enemyDeaths, "enemy death")}`;
-  if (context.label === "pick_death") return alliedDeaths <= 1 && enemyDeaths === 0 ? "Outcome: you died" : `Outcome: pick — ${counts}`;
+  if (context.label === "pick_death") return enemyDeaths > 0 ? `Outcome: pick — ${counts}` : "";
   if (context.label === "lost_skirmish") return `Outcome: lost local fight — ${counts}`;
   if (context.label === "even_trade") return `Outcome: local trade — ${counts}`;
   if (context.label === "won_fight_but_died") return `Outcome: won local fight but died — ${counts}`;

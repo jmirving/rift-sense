@@ -2408,7 +2408,7 @@ function fightOutcomeDisplayLabel(context = {}) {
   const duration = Number(context.durationSeconds ?? 0);
   const label = String(context.label ?? "");
   const counts = `${countNoun(alliedDeaths, "allied death")}, ${countNoun(enemyDeaths, "enemy death")}`;
-  if (label === "pick_death") return alliedDeaths <= 1 && enemyDeaths === 0 ? "You died" : `Pick: ${counts}`;
+  if (label === "pick_death") return enemyDeaths > 0 ? `Pick: ${counts}` : "";
   if (label === "lost_skirmish") return `Lost local fight: ${counts}`;
   if (label === "even_trade") return `Local trade: ${counts}`;
   if (label === "won_fight_but_died") return `Won local fight but died: ${counts}`;
@@ -3347,7 +3347,7 @@ function replayQuestionsFromSequence({ death = {}, fightShape = {}, objectiveSeq
   const questions = [];
   const add = (text) => {
     const value = String(text ?? "").trim();
-    if (!value || /not enough position data|raw|detector/i.test(value)) return;
+    if (!isUsefulReplayQuestion(value)) return;
     if (!questions.some((entry) => deathDisplayConceptKey(entry) === deathDisplayConceptKey(value))) {
       questions.push(value);
     }
@@ -3383,8 +3383,28 @@ function replayQuestionsFromSequence({ death = {}, fightShape = {}, objectiveSeq
       ? `Did enemy level ${level} timing change whether this 2v2 was playable?`
       : "Did enemy level timing change whether this 2v2 was playable?");
   }
-  add("What should the replay confirm?");
   return questions.slice(0, 3);
+}
+
+function isUsefulReplayQuestion(question) {
+  const text = String(question ?? "").trim();
+  if (!text) return false;
+  if (/not enough position data|raw|detector/i.test(text)) return false;
+  const normalized = normalizedDeathDisplayText(text);
+  return ![
+    "what should the replay confirm?",
+    "needs replay check.",
+    "what were you trying to accomplish before this death?",
+    "review this death manually before confirming a pattern"
+  ].includes(normalized);
+}
+
+function usefulReplayQuestions(questions = []) {
+  return [...new Map(
+    questions
+      .filter(isUsefulReplayQuestion)
+      .map((question) => [normalizedDeathDisplayText(question), String(question).trim()])
+  ).values()];
 }
 
 function buildDeathDisplayContract({ death = {}, goalKind = "", context = {}, fightShape = {}, locationZone = {}, factorOptions = [] } = {}) {
@@ -3478,6 +3498,7 @@ function buildDeathDisplayContract({ death = {}, goalKind = "", context = {}, fi
     });
   }
   for (const fact of death?.evidenceSections?.knownFromData ?? []) {
+    if (/^Outcome:\s*you died$/i.test(String(fact ?? "").trim())) continue;
     const key = deathDisplayConceptKey(fact, death, fightShape, locationZone.userRelativeZoneLabel);
     const debug = /not enough position data|review whether|replay|unclear|could .* affect|objective relevance|use this when|whether an objective|lane context:/i.test(fact);
     addConcept({ id: key, text: fact, preferredRole: debug ? "debug" : "fact", eligibleRoles: debug ? ["debug"] : ["fact"] });
@@ -3673,7 +3694,7 @@ function replayQuestionsForDeath(moment, reasons = []) {
   const questions = [];
   const addQuestion = (question) => {
     const text = String(question ?? "").trim();
-    if (!text) return;
+    if (!isUsefulReplayQuestion(text)) return;
     if (/objective|setup|exited|exit|spawn|dragon|baron|herald|grub/i.test(text) && !objectiveSupported) {
       return;
     }
@@ -3702,10 +3723,10 @@ function replayQuestionsForDeath(moment, reasons = []) {
   if (questions.length === 0) {
     reasons.forEach(addQuestion);
   }
-  if (questions.length === 0) {
-    addQuestion(moment?.reviewQuestion || "What should the replay confirm?");
+  if (questions.length === 0 && isUsefulReplayQuestion(moment?.reviewQuestion)) {
+    addQuestion(moment.reviewQuestion);
   }
-  return [...new Map(questions.map((question) => [normalizedDeathDisplayText(question), question])).values()].slice(0, 3);
+  return usefulReplayQuestions(questions).slice(0, 3);
 }
 
 function scoreReviewDeath(death, tagCounts = {}) {
@@ -4353,7 +4374,8 @@ function renderDeathReviewList(plan, review) {
           const impactFacts = moment.consequenceFacts?.length ? moment.consequenceFacts : [];
           const contextFacts = moment.contextChips?.length ? moment.contextChips : deathContextFacts(moment);
           const displayFacts = (moment.evidenceFacts ?? []).length ? moment.evidenceFacts : ["No clear pattern yet - review this death manually."];
-          const replayQuestions = moment.replayQuestions?.length ? moment.replayQuestions : replayQuestionsForDeath(moment, reasons);
+          const replayQuestions = usefulReplayQuestions(moment.replayQuestions?.length ? moment.replayQuestions : replayQuestionsForDeath(moment, reasons));
+          const questionItems = impactFacts.length > 0 ? usefulReplayQuestions([moment.reviewQuestion]) : replayQuestions;
           return `
             <article class="death-review-item ${reviewedMoment ? "is-reviewed" : "is-unreviewed"}" id="death-${escapeHtml(String(moment.deathIndex))}" data-death-review-item data-death-index="${escapeHtml(String(moment.deathIndex))}">
               <div class="death-review-head">
@@ -4384,12 +4406,14 @@ function renderDeathReviewList(plan, review) {
                     </ul>
                   </div>
                 ` : ""}
-                <div class="review-evidence-facts">
-                  <p class="eyebrow">${impactFacts.length > 0 ? "Review question" : "Replay can answer"}</p>
-                  <ul>
-                    ${(impactFacts.length > 0 ? [moment.reviewQuestion] : replayQuestions).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}
-                  </ul>
-                </div>
+                ${questionItems.length > 0 ? `
+                  <div class="review-evidence-facts">
+                    <p class="eyebrow">${impactFacts.length > 0 ? "Review question" : "Replay can answer"}</p>
+                    <ul>
+                      ${questionItems.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}
+                    </ul>
+                  </div>
+                ` : ""}
                 ${(moment.debugDetails ?? []).length > 0 ? `
                   <details class="technical-evidence">
                     <summary>Debug details</summary>
