@@ -3008,6 +3008,13 @@ function primarySignalForDeath(death) {
   return (death?.tags ?? []).find((tag) => tag !== "death_count") ?? "death_count";
 }
 
+function primarySignalForGoal(death, goalKind) {
+  if (goalKind === "objective") {
+    return (death?.tags ?? []).find((tag) => tag.includes("objective")) ?? primarySignalForDeath(death);
+  }
+  return primarySignalForDeath(death);
+}
+
 function renderDeathFacts(deaths, reviewedMoments = []) {
   if (!Array.isArray(deaths) || deaths.length === 0) {
     return '<p class="muted">No deterministic death facts are available for this match.</p>';
@@ -3354,7 +3361,7 @@ export function buildMatchReviewPlan(review) {
     .sort((left, right) => Number(left.death.timestampSeconds ?? 0) - Number(right.death.timestampSeconds ?? 0))
     .map(({ death, priority }, index) => {
       const deathIndex = Number(death.deathIndex ?? index + 1);
-      const primarySignal = primarySignalForDeath(death);
+      const primarySignal = primarySignalForGoal(death, goalKind);
       const locationZone = deathLocationZone(death, reviewContext);
       const deathWithIndex = { ...death, deathIndex, role: reviewContext.role, locationZone };
       const fightShape = inferFightShape(deathWithIndex, { ...reviewContext, locationZone });
@@ -3365,9 +3372,13 @@ export function buildMatchReviewPlan(review) {
         deathsByRepeatedSignature
       });
       const consequence = deathConsequenceFacts(deathWithIndex);
-      const primaryFactor = factorOptions.find((option) =>
-        !["no_clear_deterministic_cause", "manual_other_pattern"].includes(option.id)
-      ) ?? factorOptions[0];
+      const primaryFactor = goalKind === "objective"
+        ? factorOptions.find((option) => option.id?.includes("objective")) ??
+          factorOptions.find((option) => !["no_clear_deterministic_cause", "manual_other_pattern"].includes(option.id)) ??
+          factorOptions[0]
+        : factorOptions.find((option) =>
+          !["no_clear_deterministic_cause", "manual_other_pattern"].includes(option.id)
+        ) ?? factorOptions[0];
       return {
         id: reviewMomentKey(deathIndex, primarySignal),
         death: deathWithIndex,

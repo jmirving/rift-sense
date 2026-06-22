@@ -9,6 +9,7 @@
     "local:token": "node scripts/mint-dev-token.mjs",
     "start:api": "node server/index.js",
     "test": "vitest run",
+    "test:review-quality": "vitest run tests/review-quality",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
