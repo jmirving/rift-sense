@@ -2121,7 +2121,7 @@ describe("public app routes", () => {
     expect(byDeath.get(2).detectedSignals.map((signal) => signal.id)).toEqual(["solo_death_candidate"]);
     expect(byDeath.get(3).detectedSignals.map((signal) => signal.label)).toEqual(["Enemy ultimate timing"]);
     expect(byDeath.get(1).progressLabel).toBe("Death 1 of 3");
-    expect(byDeath.get(1).reviewQuestion).toBe("Were you early, grouped, or late to dragon setup?");
+    expect(byDeath.get(1).reviewQuestion).toBe("Did this death cost tempo or numbers for the upcoming objective?");
     expect(byDeath.get(2).reviewQuestion).toBe("Who was close enough to cover you when you walked forward?");
     expect(byDeath.get(3).reviewQuestion).toBe("Did the enemy hit the level breakpoint before you committed?");
   });
@@ -2416,9 +2416,9 @@ describe("public app routes", () => {
     });
 
     expect(unsupported.reviewMoments[0].factorOptions.map((option) => option.label)).not.toContain("Died before objective setup completed");
-    expect(supported.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Died before dragon setup completed");
+    expect(supported.reviewMoments[0].factorOptions.map((option) => option.label)).toContain("Died before dragon timing");
     expect(supported.reviewMoments[0].evidenceFacts.join(" ")).toContain("dragon spawned 35s after the death");
-    expect(supported.reviewMoments[0].reviewQuestion).toBe("Were you early, grouped, or late to dragon setup?");
+    expect(supported.reviewMoments[0].reviewQuestion).toBe("Did this death cost tempo or numbers for the upcoming objective?");
     expect(supported.reviewMoments[0].whyReview).toContain("dragon");
     expect(unsupported.reviewMoments[0].factorOptions.map((option) => option.label).join(" ")).not.toContain("objective setup/window");
   });
@@ -2454,7 +2454,7 @@ describe("public app routes", () => {
     });
 
     const facts = plan.reviewMoments[0].evidenceFacts.join(" ");
-    expect(facts).toContain("Fight shape: 2 enemies vs 2 allies");
+    expect(plan.reviewMoments[0].contextChips.join(" ")).toContain("2 enemies vs 2 allies");
     expect(facts).not.toContain("Even fight: 2 enemies vs 2 allies");
     expect(facts).not.toContain("Lane context: 2v2 lane death");
     expect(facts).not.toMatch(/review whether|could affect|unclear/i);
@@ -2562,6 +2562,99 @@ describe("public app routes", () => {
     expect(cardText).toContain("Did enemy level 2 timing change whether this 2v2 was playable?");
     expect(patternLabels).toContain("2v2 lane death");
     expect(patternLabels).not.toContain("Bot lane 2v2 death");
+  });
+
+  it("classifies objective contest, tempo, exit, and context-only deaths by sequence", () => {
+    const plan = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      matchSummary: { role: "ADC", teamSide: "blue" },
+      evaluationSummary: { deathCount: 4 },
+      deterministicTagCounts: {
+        death_count: 4,
+        objective_window_candidate: 2,
+        objective_setup_death_candidate: 1,
+        objective_exit_death_candidate: 1
+      },
+      deathEvents: [
+        {
+          deathIndex: 1,
+          timestampSeconds: 600,
+          x: 9866,
+          y: 4414,
+          tags: ["objective_window_candidate"],
+          objectiveFacts: [{ name: "dragon", reviewWindow: "contest", secondsFromDeath: 0 }],
+          nearbyEnemyCount: 4,
+          localFightOutcomeContext: { label: "teamfight_death", alliedDeaths: 3, enemyDeaths: 2, totalDeaths: 5 }
+        },
+        {
+          deathIndex: 2,
+          timestampSeconds: 900,
+          x: 13000,
+          y: 3000,
+          tags: ["objective_setup_death_candidate"],
+          objectiveName: "dragon",
+          objectiveSpawnSecondsAfterDeath: 45
+        },
+        {
+          deathIndex: 3,
+          timestampSeconds: 1200,
+          x: 9866,
+          y: 4414,
+          tags: ["objective_exit_death_candidate"],
+          objectiveFacts: [{ name: "dragon", source: "timeline_event", teamRelation: "allied", secondsFromDeath: -6 }],
+          localFightOutcomeContext: { label: "stagger_death", alliedDeaths: 2, enemyDeaths: 2 }
+        },
+        {
+          deathIndex: 4,
+          timestampSeconds: 1500,
+          x: 11200,
+          y: 5000,
+          tags: ["objective_window_candidate"],
+          objectiveName: "baron",
+          objectiveSpawnSecondsAfterDeath: 180
+        }
+      ]
+    });
+
+    const byDeath = new Map(plan.reviewMoments.map((moment) => [moment.deathIndex, moment]));
+    expect(byDeath.get(1).primaryLabel).toBe("Died during objective contest");
+    expect(byDeath.get(1).reviewQuestion).toBe("Was contesting this objective correct?");
+    expect(byDeath.get(2).primaryLabel).toBe("Caught side lane before objective");
+    expect(byDeath.get(2).reviewQuestion).toBe("Did this death cost tempo or numbers for the upcoming objective?");
+    expect(byDeath.get(2).reviewQuestion).not.toBe("Was contesting this objective correct?");
+    expect(byDeath.get(3).primaryLabel).toBe("Post-objective stagger death");
+    expect(byDeath.get(3).reviewQuestion).toBe("After the objective was decided, was there a safe exit?");
+    expect(byDeath.get(4).objectiveSequence.type).toBe("objective_context_only");
+    expect(byDeath.get(4).factorOptions.map((option) => option.label).join(" ")).not.toMatch(/objective.*contest|before baron timing/i);
+  });
+
+  it("keeps stagger sequence and debug uncertainty out of normal facts", () => {
+    const plan = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1, multi_enemy_collapse_candidate: 1 },
+      deathEvents: [{
+        deathIndex: 1,
+        timestampSeconds: 1000,
+        tags: ["multi_enemy_collapse_candidate"],
+        nearbyEnemyCount: 4,
+        killerChampionName: "Viego",
+        assistingChampionNames: ["Taric"],
+        nearbyEnemyChampionNames: ["Viego", "Taric"],
+        localFightOutcomeContext: { label: "stagger_death", alliedDeaths: 2, enemyDeaths: 1 },
+        nearbyDeathWindowContext: { totalDeaths: 3 },
+        evidenceSections: {
+          knownFromData: ["not enough position data to confirm same fight"]
+        }
+      }]
+    });
+
+    const moment = plan.reviewMoments[0];
+    expect(moment.primaryLabel).toBe("Post-fight stagger death");
+    expect(moment.factorOptions[0].label).toBe("Post-fight stagger death");
+    expect(moment.evidenceFacts.join(" ")).not.toContain("Enemy participants");
+    expect(moment.evidenceFacts.join(" ")).not.toContain("not enough position data");
+    expect(moment.debugDetails.join(" ")).toContain("not enough position data");
   });
 
   it("shows level evidence only when it changes interpretation", () => {

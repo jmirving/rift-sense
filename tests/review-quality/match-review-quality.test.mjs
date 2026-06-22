@@ -233,8 +233,10 @@ describe("review-quality role scenarios", () => {
     });
     expect(plan.reviewMoments[0].primaryLabel).toMatch(/2v2|lane/i);
     expect(text).toMatch(/2v2|lane fight|even fight/i);
-    expect(text).toMatch(/enemy participants:.*jinx.*nautilus/i);
-    expect(text).toMatch(/allied participants nearby:.*leona/i);
+    expect(text).toMatch(/killed by jinx/i);
+    expect(text).toMatch(/assisted by nautilus/i);
+    expect(text).not.toMatch(/enemy participants:.*jinx.*nautilus/i);
+    expect(text).toMatch(/leona.*trade or peel|lane partners commit/i);
     expect(text).not.toMatch(/multiple enemies|collapse/i);
     expectNoKnownBadSmells(plan);
     expect(scoreReviewQuality(plan, { role: "SUPPORT", expectedGoalKind: "die_less", laneTagged: true }).score).toBeGreaterThanOrEqual(80);
