@@ -1064,6 +1064,22 @@ body.auth-page.nav-collapsed {
   gap: 4px;
 }
 
+.initial-assessment-panel .button {
+  width: fit-content;
+}
+
+.assessment-game-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.assessment-game-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .active-goal-targets {
   align-content: start;
   border: 1px solid var(--border);

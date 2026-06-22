@@ -174,7 +174,7 @@ function buildInsights({ goal, evidenceTotals }) {
   if (knownDangerDeaths > 0) {
     insights.push({
       id: "insight-known-threat",
-      title: "Known threat is the main leak",
+      title: "Early signal: known-danger deaths showing up",
       summary:
         "Most preventable deaths this week came from respecting visible or inferable danger, not pure mechanics.",
       linkedGoalId: goal.id,

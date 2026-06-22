@@ -1248,14 +1248,23 @@ function reviewQueueGames(riotEvidence, limit = 3) {
 function dashboardState({ dashboard = {}, goal = {}, riotEvidence = {} }) {
   const reviewQueue = reviewQueueGames(riotEvidence);
   const initialAssessment = riotEvidence?.initialAssessment ?? null;
+  const assessmentTarget = Number(initialAssessment?.target ?? INITIAL_ASSESSMENT_TARGET);
+  const assessmentAvailable = Array.isArray(initialAssessment?.candidateGames) ? initialAssessment.candidateGames.length : 0;
+  const assessmentCompleted = Number(initialAssessment?.completedCount ?? 0);
+  const assessmentComplete = Boolean(initialAssessment?.assessmentComplete) ||
+    (initialAssessment && assessmentCompleted >= Math.min(assessmentTarget, assessmentAvailable || assessmentTarget));
+  const inInitialAssessment = Boolean(initialAssessment && !assessmentComplete);
   const hasReviewedGames = hasReviewedEvidence(goal, dashboard);
-  const weeklyTargets = hasReviewedGames ? (goal.weeklyTargets ?? []) : [];
-  const patterns = hasReviewedGames ? (dashboard.recentInsights ?? []) : [];
-  const goalSignals = hasReviewedGames ? (goal.signals ?? []) : [];
+  const weeklyTargets = hasReviewedGames && !inInitialAssessment ? (goal.weeklyTargets ?? []) : [];
+  const patterns = hasReviewedGames && !inInitialAssessment ? (dashboard.recentInsights ?? []) : [];
+  const goalSignals = hasReviewedGames && !inInitialAssessment ? (goal.signals ?? []) : [];
   const inProgressReview = dashboard.inProgressReview ?? dashboard.currentReview ?? null;
   const reviewedCount = Number(goal.reviewedGameCount ?? goal.reviewedGamesCount ?? dashboard.reviewedGameCount ?? 0);
 
   return {
+    inInitialAssessment,
+    assessmentTarget,
+    assessmentCompleted,
     hasReviewedGames,
     hasReviewReadyGames: reviewQueue.length > 0,
     hasInProgressReview: Boolean(inProgressReview?.matchId || inProgressReview?.href),
@@ -1272,33 +1281,13 @@ function dashboardState({ dashboard = {}, goal = {}, riotEvidence = {} }) {
   };
 }
 
-function primaryDashboardAction({ state: dashboardView, action = {}, context = {} }) {
-  const assessment = dashboardView.initialAssessment;
-  if (assessment?.candidateGames?.length) {
-    const target = Number(assessment.target ?? INITIAL_ASSESSMENT_TARGET);
-    const completedCount = Number(assessment.completedCount ?? 0);
-    const nextGame = assessment.candidateGames.find((game) => game.matchId === assessment.nextMatchId) ??
-      assessment.candidateGames.find((game) => game.reviewStatus !== "triaged" && game.reviewStatus !== "needs_manual_review") ??
-      null;
-    if (completedCount >= Math.min(target, assessment.candidateGames.length)) {
-      return {
-        title: "Initial assessment complete",
-        body: `${completedCount} of ${target} games reviewed.`,
-        primaryLabel: "View suggested mini-goals",
-        primaryHref: toAppHref("/", context) ?? "#",
-        disabled: true
-      };
-    }
-    if (nextGame) {
-      return {
-        title: completedCount > 0 ? "Continue initial assessment" : "Start initial assessment",
-        body: `Initial assessment: ${completedCount} of ${target} games reviewed.`,
-        primaryLabel: completedCount > 0 ? "Continue initial assessment" : "Start initial assessment",
-        primaryHref: reviewHrefForGame(nextGame, context)
-      };
-    }
-  }
+function assessmentNextGame(assessment) {
+  return assessment?.candidateGames?.find((game) => game.matchId === assessment.nextMatchId) ??
+    assessment?.candidateGames?.find((game) => game.reviewStatus !== "triaged" && game.reviewStatus !== "needs_manual_review") ??
+    null;
+}
 
+function primaryDashboardAction({ state: dashboardView, action = {}, context = {} }) {
   if (dashboardView.hasInProgressReview) {
     const href = toAppHref(dashboardView.inProgressReview.href, context)
       ?? (dashboardView.inProgressReview.matchId ? reviewHrefForGame(dashboardView.inProgressReview, context) : toAppHref("/review", context))
@@ -1384,33 +1373,77 @@ function reviewQueueSummary(reviewQueue, context = {}) {
   `;
 }
 
-function evidenceProgressCard(dashboardView) {
-  const assessment = dashboardView.initialAssessment;
-  if (assessment) {
-    const target = Number(assessment.target ?? INITIAL_ASSESSMENT_TARGET);
-    const completedCount = Number(assessment.completedCount ?? 0);
-    const availableCount = Array.isArray(assessment.candidateGames) ? assessment.candidateGames.length : 0;
-    const latest = [...assessment.candidateGames]
-      .filter((game) => game.lastReviewedAt || game.reviewedAt)
-      .sort((left, right) => new Date(right.lastReviewedAt ?? right.reviewedAt).getTime() - new Date(left.lastReviewedAt ?? left.reviewedAt).getTime())[0] ?? null;
-    const manualCount = assessment.candidateGames.filter((game) => game.reviewStatus === "needs_manual_review").length;
-    const latestText = latest
-      ? `${latest.champion ?? latest.championName ?? "Latest game"} ${String(latest.result ?? "").toLowerCase()} · ${Number(latest.triagedMomentCount ?? 0)} moments triaged`
-      : "No games reviewed yet";
-    return `
-      <section class="panel evidence-progress-panel">
-        <p class="eyebrow">Initial assessment</p>
-        <h2>${escapeHtml(completedCount)} of ${escapeHtml(target)} games reviewed</h2>
-        <div class="progress-checklist">
-          <span>Initial assessment: ${escapeHtml(completedCount)} of ${escapeHtml(target)} games reviewed</span>
-          <span>Last reviewed: ${escapeHtml(latestText)}</span>
-          <span>${escapeHtml(manualCount)} ${manualCount === 1 ? "game has" : "games have"} moments marked for manual review</span>
-          ${availableCount > 0 && availableCount < target ? `<span>${escapeHtml(availableCount)} of ${escapeHtml(target)} assessment games available</span>` : ""}
-        </div>
-      </section>
-    `;
-  }
+function gameKdaLabel(game = {}) {
+  if (game.kda) return game.kda;
+  const kills = Number(game.kills);
+  const deaths = Number(game.deaths);
+  const assists = Number(game.assists);
+  return [kills, deaths, assists].every(Number.isFinite) ? `${kills}/${deaths}/${assists}` : null;
+}
 
+function assessmentGameStatus(game = {}, assessment = {}) {
+  if (game.matchId === assessment.nextMatchId) return "Next";
+  if (game.reviewStatus === "needs_manual_review") return "Needs manual review";
+  if (game.reviewStatus === "triaged") return "Triaged";
+  if (game.lastReviewedAt || game.reviewedAt) return "Reviewed";
+  if (game.evaluationStatus && game.evaluationStatus !== "current") return "Evaluation pending";
+  if (game.queueLabel || game.result || game.kda) return "Summary ready";
+  return "Not started";
+}
+
+function assessmentGameRow(game, assessment, context = {}) {
+  const champion = game.champion ?? game.championName ?? "Unknown champion";
+  const result = game.result ?? "Result unknown";
+  const kda = gameKdaLabel(game);
+  const triaged = Number(game.triagedMomentCount ?? 0);
+  const total = Number(game.totalReviewMomentCount ?? game.evaluationSummary?.deathCount ?? game.evaluationDeaths?.length ?? 0);
+  const momentText = total > 0 ? `${triaged}/${total} moments triaged` : reviewMomentLabel(game);
+  return `
+    <article class="compact-row dashboard-queue-row assessment-game-row">
+      <div>
+        <span class="compact-row-main">${escapeHtml(champion)} · ${escapeHtml(result)}</span>
+        <span class="compact-row-value">${escapeHtml(game.queueLabel ?? "Queue unknown")}${kda ? ` · ${escapeHtml(kda)}` : ""} · ${escapeHtml(momentText)}</span>
+      </div>
+      <div class="assessment-game-actions">
+        <span class="context-badge">${escapeHtml(assessmentGameStatus(game, assessment))}</span>
+        <a class="button secondary compact-row-action" href="${escapeHtml(reviewHrefForGame(game, context))}">Review</a>
+      </div>
+    </article>
+  `;
+}
+
+function initialAssessmentPanel(dashboardView, context = {}) {
+  const assessment = dashboardView.initialAssessment;
+  if (!assessment || !dashboardView.inInitialAssessment) return "";
+  const target = dashboardView.assessmentTarget;
+  const completedCount = dashboardView.assessmentCompleted;
+  const remaining = Math.max(0, target - completedCount);
+  const nextGame = assessmentNextGame(assessment);
+  const nextChampion = nextGame?.champion ?? nextGame?.championName;
+  const nextResult = nextGame?.result;
+  const ctaLabel = nextGame && nextChampion && nextResult
+    ? `Continue with ${nextChampion} ${String(nextResult).toLowerCase()}`
+    : "Review next assessment game";
+  return `
+    <section class="panel primary-action-panel initial-assessment-panel">
+      <p class="eyebrow">Initial assessment</p>
+      <h2>${escapeHtml(completedCount)} of ${escapeHtml(target)} games reviewed</h2>
+      <p class="muted">${remaining === 1 ? "Review one more game to finish the baseline." : `Review ${remaining} more games to finish the baseline.`}</p>
+      ${nextGame ? `<a class="button" href="${escapeHtml(reviewHrefForGame(nextGame, context))}">${escapeHtml(ctaLabel)}</a>` : ""}
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Assessment games</p>
+          <h3>Assessment games</h3>
+        </div>
+      </div>
+      <section class="compact-list">
+        ${(assessment.candidateGames ?? []).map((game) => assessmentGameRow(game, assessment, context)).join("")}
+      </section>
+    </section>
+  `;
+}
+
+function evidenceProgressCard(dashboardView) {
   if (dashboardView.hasReviewedGames) {
     const reviewedCount = dashboardView.goalReviewedCount;
     const latestPattern = dashboardView.patterns[0];
@@ -3192,7 +3225,7 @@ function assessmentState(review, { currentMatchTriaged = false } = {}) {
   return {
     target,
     availableCount,
-    currentNumber: currentIndex >= 0 ? Math.min(currentIndex + 1, target) : Math.min(completedCount + 1, target),
+    currentNumber: Math.min(completedCount + 1, target),
     completedCount,
     remainingCount: Math.max(0, Math.min(target, availableCount || target) - completedCount),
     nextGame,
@@ -3204,6 +3237,8 @@ function assessmentState(review, { currentMatchTriaged = false } = {}) {
 function renderAssessmentProgress(review, complete) {
   const assessment = assessmentState(review);
   const completedCount = complete ? Math.max(assessment.completedCount, assessment.currentNumber) : assessment.completedCount;
+  const currentChampion = review?.matchSummary?.championName ?? review?.championName ?? "Current game";
+  const currentResult = review?.matchSummary?.result ?? review?.result ?? "result unknown";
   const availableText = assessment.availableCount > 0 && assessment.availableCount < assessment.target
     ? `${completedCount} of ${assessment.availableCount} available games reviewed`
     : `${completedCount} complete · ${Math.max(0, assessment.target - completedCount)} remaining`;
@@ -3212,9 +3247,9 @@ function renderAssessmentProgress(review, complete) {
       <div class="panel-header">
         <div>
           <p class="eyebrow">Initial assessment</p>
-          <h3>Game ${escapeHtml(String(assessment.currentNumber))} of ${escapeHtml(String(assessment.target))}</h3>
+          <h3>${escapeHtml(availableText)}</h3>
         </div>
-        <span class="context-badge">${escapeHtml(availableText)}</span>
+        <span class="context-badge">Current game: ${escapeHtml(currentChampion)} ${escapeHtml(String(currentResult).toLowerCase())}</span>
       </div>
       <p class="muted">${assessment.availableCount > 0 && assessment.availableCount < assessment.target
         ? "Review more games as they become available."
@@ -4154,7 +4189,12 @@ async function renderHome(root, context = getRouteContext()) {
     );
     const riotEvidence = goal.riotEvidence ?? null;
     const dashboardView = dashboardState({ dashboard, goal, riotEvidence });
-    const activeReviewStatus = dashboardView.hasReviewedGames ? (goal.goalStatus ?? "Evidence started") : "No reviewed games yet";
+    const activeReviewStatus = dashboardView.inInitialAssessment
+      ? `Initial assessment: ${dashboardView.assessmentCompleted}/${dashboardView.assessmentTarget} reviewed`
+      : dashboardView.hasReviewedGames ? (goal.goalStatus ?? "Evidence started") : "No reviewed games yet";
+    const activeReviewTrend = dashboardView.inInitialAssessment
+      ? "watch"
+      : dashboardView.hasReviewedGames ? (goal.goalStatusTrend ?? "unknown") : "unknown";
     const primaryAction = primaryDashboardAction({ state: dashboardView, action, context });
     const setupHref = canonicalSetupHref(context);
     const reviewHref = toAppHref("/review", context) ?? "#";
@@ -4199,16 +4239,16 @@ async function renderHome(root, context = getRouteContext()) {
             <h2>${escapeHtml(goal.title ?? "No active goal yet")}</h2>
             <div class="badge-row">
               <span class="context-badge">${escapeHtml(focusTagline)}</span>
-              ${statusBadge(activeReviewStatus, dashboardView.hasReviewedGames ? (goal.goalStatusTrend ?? "unknown") : "unknown")}
+              ${statusBadge(activeReviewStatus, activeReviewTrend)}
             </div>
           </div>
           <a class="button secondary" href="${escapeHtml(setupHref)}">Edit setup</a>
         </div>
       </section>
 
-      ${primaryActionCard(primaryAction)}
-      ${reviewQueueSummary(dashboardView.reviewQueue, context)}
-      ${evidenceProgressCard(dashboardView)}
+      ${dashboardView.inInitialAssessment ? initialAssessmentPanel(dashboardView, context) : primaryActionCard(primaryAction)}
+      ${dashboardView.inInitialAssessment ? "" : reviewQueueSummary(dashboardView.reviewQueue, context)}
+      ${dashboardView.inInitialAssessment ? "" : evidenceProgressCard(dashboardView)}
 
       <section class="dashboard-muted-grid">
         ${dashboardView.hasWeeklyTargets
@@ -4221,8 +4261,8 @@ async function renderHome(root, context = getRouteContext()) {
           `
           : inactiveDashboardSection({
             title: "Weekly targets",
-            status: "Not ready yet",
-            body: "Unlocks after your first reviewed game."
+            status: dashboardView.inInitialAssessment ? "Early signal preview" : "Not ready yet",
+            body: dashboardView.inInitialAssessment ? "Finish the initial assessment to unlock weekly targets." : "Unlocks after reviewed evidence is ready."
           })}
         ${dashboardView.hasConfirmedPatterns
           ? `
@@ -4238,8 +4278,8 @@ async function renderHome(root, context = getRouteContext()) {
           `
           : inactiveDashboardSection({
             title: "Latest pattern",
-            status: "Under construction",
-            body: "RiftSense needs reviewed games before it can identify patterns."
+            status: dashboardView.inInitialAssessment ? "Early signal preview" : "Under construction",
+            body: dashboardView.inInitialAssessment ? "Finish the initial assessment to confirm patterns." : "RiftSense needs reviewed games before it can identify patterns."
           })}
         <section class="panel dashboard-inactive-panel team-focus-panel">
           <div class="panel-header">
@@ -4284,7 +4324,9 @@ async function renderHome(root, context = getRouteContext()) {
               })
               .join("")
             : `
-              ${nextStepCard({ title: "Review queue", summary: "Pick a prepared game and review its moments.", href: reviewHref, label: "Open review" })}
+              ${nextStepCard(dashboardView.inInitialAssessment
+                ? { title: "Assessment games", summary: "Review the remaining assessment games.", href: reviewHref, label: "Open assessment games" }
+                : { title: "Review queue", summary: "Pick a prepared game and review its moments.", href: reviewHref, label: "Open review" })}
               ${nextStepCard({ title: "Setup", summary: "Update your active goal, role, and team focus.", href: setupHref, label: "Edit setup" })}
               ${nextStepCard({ title: "Library", summary: "Library fills as you review games.", status: "Under construction" })}
             `}

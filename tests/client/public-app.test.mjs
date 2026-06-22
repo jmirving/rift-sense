@@ -1324,7 +1324,10 @@ describe("public app routes", () => {
               activePersonalGoal: {
                 title: "Improve teamfight deaths",
                 role: "ADC",
+                goalStatus: "Needs attention",
+                goalStatusTrend: "needs-attention",
                 evidenceSource: {},
+                weeklyTargets: [{ label: "0 known gank deaths", currentValue: 1, targetValue: 0, statusLabel: "Missed", trend: "needs-attention" }],
                 riotEvidence: {
                   status: "all_recent_games_ready",
                   summaryReadyCount: 3,
@@ -1343,7 +1346,7 @@ describe("public app routes", () => {
               },
               todaysAction: {},
               activeTeamFocus: {},
-              recentInsights: [],
+              recentInsights: [{ title: "Known threat is the main leak", summary: "Old copy should not render during assessment." }],
               suggestedNextSteps: []
             }
           }
@@ -1357,12 +1360,25 @@ describe("public app routes", () => {
     await renderApp(document.querySelector("#app"));
 
     expect(document.body.textContent).toContain("2 of 3 games reviewed");
-    expect(document.body.textContent).toContain("Initial assessment: 2 of 3 games reviewed");
-    expect(document.body.textContent).toContain("Continue initial assessment");
-    expect(document.querySelector('a[href="/review?matchId=NA1_next"]')?.textContent).toContain("Continue initial assessment");
+    expect(document.body.textContent).toContain("Initial assessment: 2/3 reviewed");
+    expect(document.body.textContent).not.toContain("Needs attention");
+    expect(document.body.textContent).toContain("Review one more game to finish the baseline.");
+    expect(document.querySelector('a[href="/review?matchId=NA1_next"]')?.textContent).toContain("Continue with Ashe win");
+    expect(document.body.textContent.indexOf("Initial assessment")).toBeLessThan(document.body.textContent.indexOf("Assessment games"));
+    expect(document.body.textContent).not.toContain("Review queue");
+    expect(document.body.textContent).toContain("Caitlyn · Loss");
+    expect(document.body.textContent).toContain("2/4/5");
+    expect(document.body.textContent).toContain("4/4 moments triaged");
+    expect(document.body.textContent).toContain("Jinx · Loss");
+    expect(document.body.textContent).toContain("2/2 moments triaged");
+    expect(document.body.textContent).toContain("Ashe · Win");
+    expect(document.body.textContent).toContain("0/1 moments triaged");
     expect(document.body.textContent).toContain("Triaged");
     expect(document.body.textContent).toContain("Needs manual review");
-    expect(document.body.textContent).toContain("1 game has moments marked for manual review");
+    expect(document.body.textContent).toContain("Next");
+    expect(document.body.textContent).toContain("Early signal preview");
+    expect(document.body.textContent).not.toContain("0 known gank deaths");
+    expect(document.body.textContent).not.toContain("Known threat is the main leak");
   });
 
   it("renders failed recent-game preparation counts", async () => {
@@ -2253,7 +2269,9 @@ describe("public app routes", () => {
     window.history.pushState({}, "", "/review?matchId=NA1_flow");
 
     await renderApp(document.querySelector("#app"));
-    expect(document.body.textContent).toContain("Game 1 of 3");
+    expect(document.body.textContent).toContain("0 complete · 3 remaining");
+    expect(document.body.textContent).toContain("Current game: Jhin loss");
+    expect(document.body.textContent).not.toContain("Game 1 of 3");
     expect(document.body.textContent).toContain("0 Reviewed");
     expect(document.body.textContent).toContain("2 Not reviewed");
     expect(document.body.textContent).not.toContain("Game review complete");
@@ -2270,6 +2288,71 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Game review complete");
     expect(document.body.textContent).toContain("1 reviewed · 1 needs manual review · 2 total");
     expect(document.querySelector('a[href="/review?matchId=NA1_next"]')?.textContent).toContain("Go to next assessment game");
+  });
+
+  it("does not mix candidate order with assessment progress on review pages", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+      if (url === "/api/home") {
+        const candidateGames = [
+          { matchId: "NA1_current", championName: "Jhin", result: "Loss", queueLabel: "Ranked Solo/Duo", kda: "1/2/1", evaluationSummary: { deathCount: 2 } },
+          { matchId: "NA1_done_1", championName: "Ashe", result: "Win", queueLabel: "Ranked Solo/Duo", kda: "4/1/8", evaluationSummary: { deathCount: 1 }, reviewStatus: "triaged" },
+          { matchId: "NA1_done_2", championName: "Caitlyn", result: "Loss", queueLabel: "Ranked Solo/Duo", kda: "2/4/5", evaluationSummary: { deathCount: 4 }, reviewStatus: "triaged" }
+        ];
+        return mockJsonResponse({
+          home: {
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Die Less",
+                riotEvidence: {
+                  initialAssessment: {
+                    target: 3,
+                    completedCount: 2,
+                    completedMatchIds: ["NA1_done_1", "NA1_done_2"],
+                    nextMatchId: "NA1_current",
+                    assessmentComplete: false,
+                    candidateGames
+                  },
+                  candidateGames
+                }
+              }
+            }
+          }
+        });
+      }
+      if (url === "/api/matches/NA1_current/evaluation") {
+        return mockJsonResponse({
+          matchId: "NA1_current",
+          activeGoalName: "Die Less",
+          matchSummary: { championName: "Jhin", queueLabel: "Ranked Solo/Duo", result: "Loss", kills: 1, deaths: 2, assists: 1 },
+          evaluationSummary: { deathCount: 2 },
+          deathEvents: [
+            { deathIndex: 1, timestampSeconds: 494, killerChampionName: "LeBlanc", tags: ["solo_death_candidate"] },
+            { deathIndex: 2, timestampSeconds: 620, killerChampionName: "Jinx", tags: ["death_count"] }
+          ],
+          deterministicTagCounts: { death_count: 2 },
+          reviewedMoments: []
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/review?matchId=NA1_current");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("2 complete · 1 remaining");
+    expect(document.body.textContent).toContain("Current game: Jhin loss");
+    expect(document.body.textContent).not.toContain("Game 1 of 3");
   });
 
   it("uses server assessment state so stale candidate objects do not loop next assessment game", async () => {

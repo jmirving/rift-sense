@@ -34,7 +34,7 @@ const goalTemplates = [
       {
         signalId: "signal-known-danger-death",
         targetValue: 0,
-        label: "0 known gank deaths"
+        label: "0 preventable known-danger deaths"
       },
       {
         signalId: "signal-bad-pre6-allin",
