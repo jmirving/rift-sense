@@ -714,8 +714,25 @@ function statusBadge(label, trend = "unknown") {
   return `<span class="status-badge ${trendClass(trend)}">${escapeHtml(label)}</span>`;
 }
 
+const REVIEW_STATUS_HELP = {
+  "Next review": "Recommended next game to continue the initial assessment.",
+  "Not reviewed": "No review moments in this game have been triaged yet.",
+  "In progress": "Some review moments have been triaged, but the game is not complete.",
+  "Triaged": "Every review moment was marked reviewed or needs manual review.",
+  "Needs manual review": "At least one moment was marked uncertain and should be replay-checked.",
+  "Evaluation pending": "The match summary is ready, but review moments are still being prepared.",
+  "Evaluation failed": "RiftSense could not prepare review moments for this game."
+};
+
+function reviewStatusBadge(label, trend = "unknown") {
+  const help = REVIEW_STATUS_HELP[label] ?? "";
+  const title = help ? ` title="${escapeHtml(help)}" aria-label="${escapeHtml(`${label}: ${help}`)}" tabindex="0"` : "";
+  return `<span class="status-badge ${trendClass(trend)}"${title}>${escapeHtml(label)}</span>`;
+}
+
 function targetChip(target) {
-  const label = typeof target === "string" ? target : target.label;
+  const rawLabel = typeof target === "string" ? target : target.label;
+  const label = String(rawLabel ?? "Weekly target").replaceAll("known gank deaths", "preventable known-danger deaths");
   const currentValue = typeof target === "string" ? null : target.currentValue;
   const targetValue = typeof target === "string" ? null : target.targetValue;
   const statusLabel = typeof target === "string" ? "Needs review" : target.statusLabel;
@@ -729,7 +746,7 @@ function targetChip(target) {
     <article class="target-chip">
       <div>
         <p class="target-chip-value">${escapeHtml(valueLabel)}</p>
-        <p class="target-chip-label">${escapeHtml(label ?? "Weekly target")}</p>
+        <p class="target-chip-label">${escapeHtml(label)}</p>
       </div>
       ${statusBadge(statusLabel ?? "Needs review", trend)}
     </article>
@@ -1092,18 +1109,19 @@ function reviewHrefForGame(game, context = {}) {
 function evaluationSummaryBlock(game) {
   const summary = game?.evaluationSummary ?? null;
   const status = game?.evaluationStatus ?? "none";
-  if (!summary) {
-    return `<p class="muted">Review preparation: ${escapeHtml(status)}</p>`;
+  if (status === "failed") {
+    return '<p class="muted">Evaluation failed</p>';
+  }
+  if (!summary || status !== "current") {
+    return '<p class="muted">Evaluation pending</p>';
   }
 
-  const deathCount = Number(summary.deathCount ?? 0);
-  const plainSummary = deathCount > 0
-    ? `${deathCount} ${deathCount === 1 ? "moment" : "moments"} ready`
-    : "Summary ready";
+  const momentCount = reviewMomentCount(game);
+  const plainSummary = `${momentCount} review ${momentCount === 1 ? "moment" : "moments"}`;
 
   return `
     <div class="evaluation-summary">
-      <p class="muted">${escapeHtml(plainSummary)}${status ? ` · ${escapeHtml(status)}` : ""}</p>
+      <p class="muted">${escapeHtml(plainSummary)}</p>
     </div>
   `;
 }
@@ -1116,33 +1134,54 @@ function recentGameState(game) {
     return { label: "Triaged", actionLabel: "Open review", canReview: true };
   }
   if (game?.reviewStatus === "in_progress") {
-    const triaged = Number(game.triagedMomentCount ?? game.reviewedMomentCount ?? 0);
-    const total = Number(game.totalReviewMomentCount ?? game.deathCount ?? 0);
-    return {
-      label: total > 0 ? `${triaged}/${total} moments reviewed` : "In review",
-      actionLabel: "Continue review",
-      canReview: true
-    };
+    return { label: "In progress", actionLabel: "Continue review", canReview: true };
   }
   if (game?.reviewedAt) {
-    return { label: "Reviewed", actionLabel: "Open summary", canReview: true };
+    return { label: "Triaged", actionLabel: "Open review", canReview: true };
   }
   if (game?.reviewStartedAt) {
-    return { label: "In review", actionLabel: "Review", canReview: true };
+    return { label: "In progress", actionLabel: "Continue review", canReview: true };
   }
   if (gameIsEvaluationReady(game)) {
     return { label: "Not reviewed", actionLabel: "Review", canReview: true };
   }
   if (game?.evaluationStatus === "failed") {
-    return { label: "Preparation failed", actionLabel: null, canReview: false };
+    return { label: "Evaluation failed", actionLabel: null, canReview: false };
   }
   if (gameHasSummaryMetadata(game)) {
-    return { label: "Summary ready", actionLabel: "Open summary", canReview: true };
+    return { label: "Evaluation pending", actionLabel: null, canReview: false };
   }
   if (game?.parseStatus === "parse_failed" || game?.sourceMetadata?.parseStatus === "parse_failed") {
-    return { label: "Summary failed", actionLabel: null, canReview: false };
+    return { label: "Evaluation failed", actionLabel: null, canReview: false };
   }
-  return { label: "Preparing", actionLabel: null, canReview: false };
+  return { label: "Evaluation pending", actionLabel: null, canReview: false };
+}
+
+function reviewStatusTrend(label) {
+  return {
+    "Next review": "watch",
+    "Not reviewed": "unknown",
+    "In progress": "watch",
+    "Triaged": "positive",
+    "Needs manual review": "needs-attention",
+    "Evaluation pending": "watch",
+    "Evaluation failed": "needs-attention"
+  }[label] ?? "unknown";
+}
+
+function riotPreparationStatusBlock(riotEvidence) {
+  const counts = riotReadinessCounts(riotEvidence);
+  const status = riotEvidence?.status ?? "";
+  if (status === "riot_access_not_configured" || status === "recent_games_unavailable") {
+    return '<p class="muted">Riot data unavailable.</p>';
+  }
+  if (counts.failedCount > 0) {
+    return '<p class="muted">Some evaluations failed.</p>';
+  }
+  if (counts.evaluationsPendingCount > 0) {
+    return '<p class="muted">Evaluations are being prepared.</p>';
+  }
+  return "";
 }
 
 function riotEvidenceCard(riotEvidence, context = {}) {
@@ -1152,8 +1191,16 @@ function riotEvidenceCard(riotEvidence, context = {}) {
 
   const recentGames = riotEvidence.recentGames ?? riotEvidence.candidateGames ?? [];
   const sourceLabel = riotEvidence.sourceLabel ? `<p class="eyebrow">${escapeHtml(riotEvidence.sourceLabel)}</p>` : "";
+  const counts = riotReadinessCounts(riotEvidence);
+  const availabilityLabel = counts.evaluationReadyCount > 0
+    ? `${counts.evaluationReadyCount} evaluated ${counts.evaluationReadyCount === 1 ? "game" : "games"} available`
+    : riotEvidenceSummary(riotEvidence);
+  const sortLabel = riotEvidence.initialAssessment?.nextMatchId
+    ? "Assessment recommendation appears first."
+    : "Sorted by recency.";
+  const preparationStatus = riotPreparationStatusBlock(riotEvidence);
   return `
-    <section class="panel riot-evidence-panel">
+    <section class="panel riot-evidence-panel" id="review-ready-games">
       <div class="panel-header">
         <div>
           <p class="eyebrow">Recent Games</p>
@@ -1162,25 +1209,25 @@ function riotEvidenceCard(riotEvidence, context = {}) {
         </div>
         <div class="action-row">
           ${getSessionState().authenticated ? '<button class="button secondary" type="button" data-refresh-recent-games>Refresh recent games</button>' : ""}
-          ${riotEvidence.confidence ? statusBadge(riotEvidence.confidence, riotEvidence.status === "seeded-demo" ? "watch" : riotStatusTrend(riotEvidence.status)) : ""}
         </div>
       </div>
       <p class="muted recent-games-refresh-status" aria-live="polite">${escapeHtml(state.recentGamesRefreshMessage)}</p>
-      <p class="muted">${escapeHtml(riotEvidenceSummary(riotEvidence))}</p>
-      <details class="debug-evidence">
-        <summary>Preparation details</summary>
-        ${riotReadinessLine(riotEvidence)}
-      </details>
+      ${availabilityLabel ? `<p class="muted">${escapeHtml(availabilityLabel)}</p>` : ""}
+      ${recentGames.length > 1 ? `<p class="muted">${escapeHtml(sortLabel)}</p>` : ""}
+      ${preparationStatus}
       <section class="compact-list">
         ${recentGames.length > 0
           ? recentGames.map((game) => {
             const hasSummaryMetadata = gameHasSummaryMetadata(game);
             const state = recentGameState(game);
+            const displayStatus = state.label === "Not reviewed" && game.matchId === riotEvidence.initialAssessment?.nextMatchId
+              ? "Next review"
+              : state.label;
             const title = hasSummaryMetadata
-              ? `${game.champion ?? game.championName ?? "Unknown champion"} · ${game.queueLabel} · ${game.result}`
+              ? `${game.champion ?? game.championName ?? "Unknown champion"} · ${game.result}`
               : `${game.champion ?? game.championName ?? "Unknown champion"} · ${state.label}`;
             const value = hasSummaryMetadata
-              ? `${game.kda} KDA${game.csPerMinute ? ` · ${game.csPerMinute} cs/min` : ""}`
+              ? `${game.queueLabel} · ${game.kda} KDA${game.csPerMinute ? ` · ${game.csPerMinute} cs/min` : ""}`
               : state.label;
             const action = state.canReview
               ? `<a class="button secondary compact-row-action" href="${escapeHtml(reviewHrefForGame(game, context))}">${escapeHtml(state.actionLabel)}</a>`
@@ -1194,8 +1241,7 @@ function riotEvidenceCard(riotEvidence, context = {}) {
                   ${evaluationSummaryBlock(game)}
                 </div>
                 <div class="game-evidence-actions">
-                  <span class="context-badge">${escapeHtml(state.label)}</span>
-                  <span class="muted">${escapeHtml((game.confidenceLabel ?? "").toUpperCase())}</span>
+                  ${reviewStatusBadge(displayStatus, reviewStatusTrend(displayStatus))}
                   ${action}
                 </div>
               </article>
@@ -1218,10 +1264,7 @@ function reviewMomentCount(game = {}) {
 
 function reviewMomentLabel(game = {}) {
   const count = reviewMomentCount(game);
-  if (count > 0) {
-    return `${count} review ${count === 1 ? "moment" : "moments"} ready`;
-  }
-  return "Summary ready";
+  return `${count} review ${count === 1 ? "moment" : "moments"}`;
 }
 
 function reviewQueueGames(riotEvidence, limit = 3) {
@@ -1282,9 +1325,42 @@ function dashboardState({ dashboard = {}, goal = {}, riotEvidence = {} }) {
 }
 
 function assessmentNextGame(assessment) {
-  return assessment?.candidateGames?.find((game) => game.matchId === assessment.nextMatchId) ??
-    assessment?.candidateGames?.find((game) => game.reviewStatus !== "triaged" && game.reviewStatus !== "needs_manual_review") ??
+  const candidates = assessment?.candidateGames ?? [];
+  const eligible = candidates.filter((game) =>
+    game?.matchId &&
+    game.reviewStatus !== "triaged" &&
+    game.reviewStatus !== "needs_manual_review"
+  );
+  return eligible.find((game) => game.reviewStatus === "in_progress" || game.reviewStartedAt) ??
+    eligible.find((game) => game.matchId === assessment.nextMatchId) ??
+    [...eligible].sort((left, right) => reviewMomentCount(right) - reviewMomentCount(left))[0] ??
     null;
+}
+
+function assessmentNextGameReason(game, assessment) {
+  if (!game) return "Selected to complete your initial baseline.";
+  if (game.reviewStatus === "in_progress" || game.reviewStartedAt) {
+    return "You already started reviewing this game.";
+  }
+  if (game.matchId === assessment?.nextMatchId) {
+    return "Next unreviewed assessment game.";
+  }
+
+  const eligible = (assessment?.candidateGames ?? []).filter((candidate) =>
+    candidate?.matchId &&
+    candidate.reviewStatus !== "triaged" &&
+    candidate.reviewStatus !== "needs_manual_review" &&
+    candidate.reviewStatus !== "in_progress" &&
+    !candidate.reviewStartedAt
+  );
+  const maxMoments = Math.max(...eligible.map(reviewMomentCount), 0);
+  if (reviewMomentCount(game) > 0 && reviewMomentCount(game) === maxMoments) {
+    return "Most review moments among your unreviewed assessment games.";
+  }
+  if (game.playedAt || game.gameCreation || game.gameEndTimestamp) {
+    return "Most recent unreviewed game with review moments ready.";
+  }
+  return "Selected to complete your initial baseline.";
 }
 
 function primaryDashboardAction({ state: dashboardView, action = {}, context = {} }) {
@@ -1295,7 +1371,7 @@ function primaryDashboardAction({ state: dashboardView, action = {}, context = {
     return {
       title: "Finish current review",
       body: "You have an unfinished review in progress.",
-      primaryLabel: "Continue review",
+      primaryLabel: "Continue this game",
       primaryHref: href
     };
   }
@@ -1305,7 +1381,7 @@ function primaryDashboardAction({ state: dashboardView, action = {}, context = {
     return {
       title: "Pick a game to review",
       body: "Start with the most recent review-ready game, or choose another from the queue.",
-      primaryLabel: "Review recommended game",
+      primaryLabel: "Review this game",
       primaryHref: reviewHrefForGame(recommended, context),
       secondaryLabel: "View review queue",
       secondaryHref: toAppHref("/review", context) ?? "/review"
@@ -1316,7 +1392,7 @@ function primaryDashboardAction({ state: dashboardView, action = {}, context = {
     return {
       title: "Review your latest game",
       body: "Start with one short review so RiftSense can learn what is actually causing deaths in your recent games.",
-      primaryLabel: "Review latest game",
+      primaryLabel: "Review this game",
       primaryHref: reviewHrefForGame(recommended, context)
     };
   }
@@ -1382,13 +1458,13 @@ function gameKdaLabel(game = {}) {
 }
 
 function assessmentGameStatus(game = {}, assessment = {}) {
-  if (game.matchId === assessment.nextMatchId) return "Next";
+  if (game.matchId === assessment.nextMatchId) return "Next review";
   if (game.reviewStatus === "needs_manual_review") return "Needs manual review";
   if (game.reviewStatus === "triaged") return "Triaged";
-  if (game.lastReviewedAt || game.reviewedAt) return "Reviewed";
+  if (game.lastReviewedAt || game.reviewedAt) return "Triaged";
   if (game.evaluationStatus && game.evaluationStatus !== "current") return "Evaluation pending";
-  if (game.queueLabel || game.result || game.kda) return "Summary ready";
-  return "Not started";
+  if (game.queueLabel || game.result || game.kda) return "Not reviewed";
+  return "Evaluation pending";
 }
 
 function assessmentGameRow(game, assessment, context = {}) {
@@ -1419,26 +1495,33 @@ function initialAssessmentPanel(dashboardView, context = {}) {
   const completedCount = dashboardView.assessmentCompleted;
   const remaining = Math.max(0, target - completedCount);
   const nextGame = assessmentNextGame(assessment);
-  const nextChampion = nextGame?.champion ?? nextGame?.championName;
-  const nextResult = nextGame?.result;
-  const ctaLabel = nextGame && nextChampion && nextResult
-    ? `Continue with ${nextChampion} ${String(nextResult).toLowerCase()}`
-    : "Review next assessment game";
+  const nextChampion = nextGame?.champion ?? nextGame?.championName ?? "Unknown champion";
+  const nextResult = nextGame?.result ?? "Result unknown";
+  const nextQueue = nextGame?.queueLabel ?? "Queue unknown";
+  const nextKda = gameKdaLabel(nextGame ?? {}) ?? "KDA unknown";
+  const nextMomentCount = reviewMomentCount(nextGame ?? {});
+  const reason = assessmentNextGameReason(nextGame, assessment);
+  const ctaLabel = nextGame?.reviewStatus === "in_progress" || nextGame?.reviewStartedAt
+    ? "Continue this game"
+    : "Review this game";
   return `
     <section class="panel primary-action-panel initial-assessment-panel">
       <p class="eyebrow">Initial assessment</p>
       <h2>${escapeHtml(completedCount)} of ${escapeHtml(target)} games reviewed</h2>
       <p class="muted">${remaining === 1 ? "Review one more game to finish the baseline." : `Review ${remaining} more games to finish the baseline.`}</p>
-      ${nextGame ? `<a class="button" href="${escapeHtml(reviewHrefForGame(nextGame, context))}">${escapeHtml(ctaLabel)}</a>` : ""}
-      <div class="panel-header">
+      ${nextGame ? `
+      <article class="recommended-review-card">
         <div>
-          <p class="eyebrow">Assessment games</p>
-          <h3>Assessment games</h3>
+          <p class="eyebrow">Recommended next review</p>
+          <h3>${escapeHtml(nextChampion)} · ${escapeHtml(nextResult)}</h3>
+          <p class="muted">${escapeHtml(nextQueue)} · ${escapeHtml(nextKda)} KDA · ${escapeHtml(nextMomentCount)} review ${nextMomentCount === 1 ? "moment" : "moments"}</p>
+          <p class="muted">Why this game: ${escapeHtml(reason)}</p>
         </div>
-      </div>
-      <section class="compact-list">
-        ${(assessment.candidateGames ?? []).map((game) => assessmentGameRow(game, assessment, context)).join("")}
-      </section>
+        <div class="action-row">
+          <a class="button" href="${escapeHtml(reviewHrefForGame(nextGame, context))}">${escapeHtml(ctaLabel)}</a>
+          <a class="button secondary" href="#review-ready-games">Choose a different game</a>
+        </div>
+      </article>` : ""}
     </section>
   `;
 }
@@ -1486,6 +1569,64 @@ function inactiveDashboardSection({ title, status, body, href, cta }) {
       ${statusBadge(status, "unknown")}
       <p class="muted">${escapeHtml(body)}</p>
       ${href ? `<a class="button secondary" href="${escapeHtml(href)}">${escapeHtml(cta ?? "Open")}</a>` : ""}
+    </section>
+  `;
+}
+
+function dashboardContextCards(dashboardView, teamFocus = {}) {
+  const reviewedCount = dashboardView.goalReviewedCount || dashboardView.assessmentCompleted;
+  const previewBody = `Based on ${reviewedCount} reviewed ${reviewedCount === 1 ? "game" : "games"}. Final targets unlock after the initial assessment.`;
+  const teamEvidenceConnected = dashboardView.hasActionableTeamFocus && dashboardView.hasReviewedGames;
+  return `
+    <section class="dashboard-context-column">
+      ${dashboardView.hasWeeklyTargets
+        ? `
+          <section class="panel dashboard-compact-panel">
+            <p class="eyebrow">Weekly targets</p>
+            <h2>Weekly targets</h2>
+            ${targetChipGrid(dashboardView.weeklyTargets, "No weekly targets ready.")}
+          </section>
+        `
+        : inactiveDashboardSection({
+          title: dashboardView.inInitialAssessment ? "Early target preview" : "Weekly targets",
+          status: dashboardView.inInitialAssessment ? "Early target preview" : "Not ready yet",
+          body: dashboardView.inInitialAssessment ? previewBody : "Unlocks after reviewed evidence is ready."
+        })}
+      ${dashboardView.hasConfirmedPatterns
+        ? `
+          <section class="panel dashboard-compact-panel">
+            <p class="eyebrow">${dashboardView.inInitialAssessment ? "Early signal preview" : "Latest pattern"}</p>
+            <h2>${dashboardView.inInitialAssessment ? "Early signal preview" : "Latest pattern"}</h2>
+            <section class="insight-grid">
+              ${dashboardView.patterns.length > 0
+                ? dashboardView.patterns.slice(0, 1).map(insightCard).join("")
+                : dashboardView.goalSignals.slice(0, 2).map(signalCard).join("")}
+            </section>
+            ${dashboardView.inInitialAssessment ? `<p class="muted">${escapeHtml(previewBody)}</p>` : ""}
+          </section>
+        `
+        : inactiveDashboardSection({
+          title: dashboardView.inInitialAssessment ? "Early signal preview" : "Latest pattern",
+          status: dashboardView.inInitialAssessment ? "Early signal preview" : "Under construction",
+          body: dashboardView.inInitialAssessment ? previewBody : "RiftSense needs reviewed games before it can identify patterns."
+        })}
+      <section class="panel dashboard-inactive-panel team-focus-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Team focus</p>
+            <h2>${escapeHtml(teamFocus.title ?? "No team focus configured")}</h2>
+          </div>
+          <span class="button is-disabled" aria-disabled="true">Under construction</span>
+        </div>
+        ${statusBadge(teamEvidenceConnected ? "Updated from team evidence" : "Not connected to this assessment yet", teamEvidenceConnected ? "positive" : "unknown")}
+        <p class="muted">${teamEvidenceConnected
+          ? "Team-focused review evidence is available."
+          : "Team focus will use team reviews and shared practice goals. Personal initial assessment does not update this yet."}</p>
+        <div class="team-focus-meta">
+          <p><strong>Current focus:</strong> ${escapeHtml(teamFocus.practiceTopic ?? teamFocus.title ?? "Not set")}</p>
+          <p><strong>Assignment:</strong> ${escapeHtml(teamFocus.assignment ?? teamFocus.assignedReview ?? "Not set")}</p>
+        </div>
+      </section>
     </section>
   `;
 }
@@ -4199,9 +4340,6 @@ async function renderHome(root, context = getRouteContext()) {
     const setupHref = canonicalSetupHref(context);
     const reviewHref = toAppHref("/review", context) ?? "#";
     const focusTagline = `${goal.role ?? profile.primaryRole ?? "Player"} · ${goal.scope ?? "Personal"}`;
-    const teamStatus = dashboardView.hasActionableTeamFocus && dashboardView.hasReviewedGames
-      ? "Updated from reviewed evidence"
-      : "Waiting for reviewed evidence";
     const demoBanner = context.demoMode
       ? `
       <section class="panel panel-slim">
@@ -4232,72 +4370,28 @@ async function renderHome(root, context = getRouteContext()) {
     <section class="goal-dashboard-stack">
       ${demoBanner}
       ${setupGuide}
-      <section class="panel active-goal-panel">
-        <div class="active-goal-hero">
-          <div class="active-goal-copy">
-            <p class="eyebrow">Active Goal</p>
-            <h2>${escapeHtml(goal.title ?? "No active goal yet")}</h2>
-            <div class="badge-row">
-              <span class="context-badge">${escapeHtml(focusTagline)}</span>
-              ${statusBadge(activeReviewStatus, activeReviewTrend)}
+      <section class="dashboard-home-layout">
+        <section class="dashboard-main-column">
+          <section class="panel active-goal-panel">
+            <div class="active-goal-hero">
+              <div class="active-goal-copy">
+                <p class="eyebrow">Active Goal</p>
+                <h2>${escapeHtml(goal.title ?? "No active goal yet")}</h2>
+                <div class="badge-row">
+                  <span class="context-badge">${escapeHtml(focusTagline)}</span>
+                  ${statusBadge(activeReviewStatus, activeReviewTrend)}
+                </div>
+              </div>
+              <a class="button secondary" href="${escapeHtml(setupHref)}">Edit setup</a>
             </div>
-          </div>
-          <a class="button secondary" href="${escapeHtml(setupHref)}">Edit setup</a>
-        </div>
-      </section>
-
-      ${dashboardView.inInitialAssessment ? initialAssessmentPanel(dashboardView, context) : primaryActionCard(primaryAction)}
-      ${dashboardView.inInitialAssessment ? "" : reviewQueueSummary(dashboardView.reviewQueue, context)}
-      ${dashboardView.inInitialAssessment ? "" : evidenceProgressCard(dashboardView)}
-
-      <section class="dashboard-muted-grid">
-        ${dashboardView.hasWeeklyTargets
-          ? `
-            <section class="panel dashboard-compact-panel">
-              <p class="eyebrow">Weekly targets</p>
-              <h2>Weekly targets</h2>
-              ${targetChipGrid(dashboardView.weeklyTargets, "No weekly targets ready.")}
-            </section>
-          `
-          : inactiveDashboardSection({
-            title: "Weekly targets",
-            status: dashboardView.inInitialAssessment ? "Early signal preview" : "Not ready yet",
-            body: dashboardView.inInitialAssessment ? "Finish the initial assessment to unlock weekly targets." : "Unlocks after reviewed evidence is ready."
-          })}
-        ${dashboardView.hasConfirmedPatterns
-          ? `
-            <section class="panel dashboard-compact-panel">
-              <p class="eyebrow">Latest pattern</p>
-              <h2>Latest pattern</h2>
-              <section class="insight-grid">
-                ${dashboardView.patterns.length > 0
-                  ? dashboardView.patterns.slice(0, 1).map(insightCard).join("")
-                  : dashboardView.goalSignals.slice(0, 2).map(signalCard).join("")}
-              </section>
-            </section>
-          `
-          : inactiveDashboardSection({
-            title: "Latest pattern",
-            status: dashboardView.inInitialAssessment ? "Early signal preview" : "Under construction",
-            body: dashboardView.inInitialAssessment ? "Finish the initial assessment to confirm patterns." : "RiftSense needs reviewed games before it can identify patterns."
-          })}
-        <section class="panel dashboard-inactive-panel team-focus-panel">
-          <div class="panel-header">
-            <div>
-              <p class="eyebrow">Team focus</p>
-              <h2>${escapeHtml(teamFocus.title ?? "No team focus configured")}</h2>
-            </div>
-            <span class="button is-disabled" aria-disabled="true">Under construction</span>
-          </div>
-          ${statusBadge(teamStatus, dashboardView.hasActionableTeamFocus && dashboardView.hasReviewedGames ? "positive" : "unknown")}
-          <div class="team-focus-meta">
-            <p><strong>Current focus:</strong> ${escapeHtml(teamFocus.practiceTopic ?? teamFocus.title ?? "Not set")}</p>
-            <p><strong>Assignment:</strong> ${escapeHtml(teamFocus.assignment ?? "Not set")}</p>
-          </div>
+          </section>
+          ${dashboardView.inInitialAssessment ? initialAssessmentPanel(dashboardView, context) : primaryActionCard(primaryAction)}
+          ${dashboardView.inInitialAssessment ? "" : reviewQueueSummary(dashboardView.reviewQueue, context)}
+          ${riotEvidenceCard(riotEvidence, context)}
+          ${dashboardView.inInitialAssessment ? "" : evidenceProgressCard(dashboardView)}
         </section>
+        ${dashboardContextCards(dashboardView, teamFocus)}
       </section>
-
-      ${riotEvidenceCard(riotEvidence, context)}
 
       <section class="panel next-steps-panel">
         <div class="panel-header">

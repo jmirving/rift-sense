@@ -890,6 +890,9 @@ body.auth-page.nav-collapsed {
 
 .goal-dashboard-stack,
 .dashboard-two-column,
+.dashboard-home-layout,
+.dashboard-main-column,
+.dashboard-context-column,
 .active-goal-hero,
 .active-goal-copy,
 .active-goal-targets,
@@ -928,6 +931,16 @@ body.auth-page.nav-collapsed {
 .review-workspace-layout {
   grid-template-columns: minmax(0, 0.95fr) minmax(320px, 1.05fr);
   align-items: stretch;
+}
+
+.dashboard-home-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  align-items: start;
+}
+
+.dashboard-main-column,
+.dashboard-context-column {
+  align-content: start;
 }
 
 .goal-management-layout {
@@ -1066,6 +1079,15 @@ body.auth-page.nav-collapsed {
 
 .initial-assessment-panel .button {
   width: fit-content;
+}
+
+.recommended-review-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(8, 18, 31, 0.24);
 }
 
 .assessment-game-row {
@@ -1928,6 +1950,7 @@ body.nav-collapsed .session-panel {
   .review-workspace-layout,
   .review-moment-body,
   .dashboard-two-column,
+  .dashboard-home-layout,
   .dashboard-muted-grid,
   .active-goal-hero,
   .active-goal-footer,

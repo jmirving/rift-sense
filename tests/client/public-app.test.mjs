@@ -812,12 +812,11 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("5 games discovered");
-    expect(document.body.textContent).toContain("3 match summaries ready");
-    expect(document.body.textContent).toContain("2 evaluations ready");
-    expect(document.body.textContent).toContain("1 evaluation pending");
+    expect(document.body.textContent).toContain("2 evaluated games available");
+    expect(document.body.textContent).toContain("Sorted by recency.");
+    expect(document.body.textContent).toContain("Evaluations are being prepared.");
     expect(document.body.textContent).toContain("Review your latest game");
-    expect(document.body.textContent).toContain("Review latest game");
+    expect(document.body.textContent).toContain("Review this game");
     expect(document.body.textContent).toContain("Waiting for review");
     expect(document.body.textContent).toContain("Refresh recent games");
     expect(document.body.textContent).toContain("No reviewed games yet");
@@ -825,23 +824,27 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("0 games reviewed");
     expect(document.body.textContent).toContain("Weekly targets not ready yet");
     expect(document.body.textContent).toContain("Under construction");
-    expect(document.body.textContent).toContain("Waiting for reviewed evidence");
+    expect(document.body.textContent).toContain("Not connected to this assessment yet");
     expect(document.body.textContent).not.toContain("Insights will appear after you review games.");
     expect(document.body.textContent).not.toContain("Seeded from onboarding. Not updated from reviewed games yet.");
     expect(document.body.textContent).not.toContain("On track");
     expect(document.body.textContent).toContain("Active Goal");
     expect(document.body.textContent).toContain("Die Less");
-    expect(document.body.textContent).toContain("Jhin · Ranked Solo/Duo · Loss");
-    expect(document.body.textContent).toContain("5 review moments ready");
+    expect(document.body.textContent).toContain("Jhin · Loss");
+    expect(document.body.textContent).toContain("Ranked Solo/Duo · 8/5/6 KDA");
+    expect(document.body.textContent).toContain("5 review moments");
     expect(document.body.textContent).not.toContain("candidate");
     expect(document.body.textContent).not.toContain("raw signal counts");
     expect(document.body.textContent).not.toContain("08:14");
     expect(document.body.textContent).not.toContain("killed by LeBlanc, assisted by Briar");
-    expect(document.body.textContent).toContain("Summary ready");
-    expect(document.body.textContent).toContain("Review preparation: none");
+    expect(document.body.textContent).not.toContain("Summary ready");
+    expect(document.body.textContent).not.toContain("Review preparation:");
+    expect(document.body.textContent).not.toContain("High confidence");
+    expect(document.body.textContent).not.toContain("current");
     expect(document.body.textContent).not.toContain("SECRET_TIMELINE_EVENT");
     expect(document.body.textContent).not.toContain("SECRET_MATCH_JSON");
     expect(document.querySelector(".primary-action-panel a.button")?.getAttribute("href")).toBe("/review?matchId=NA1_1");
+    expect(document.querySelector(".game-evidence-actions .status-badge")?.getAttribute("title")).toBe("No review moments in this game have been triaged yet.");
     expect([...document.querySelectorAll('a[href="/review?matchId=NA1_1"]')].some((link) =>
       link.textContent.includes("Review")
     )).toBe(true);
@@ -1093,15 +1096,12 @@ describe("public app routes", () => {
     await renderApp(document.querySelector("#app"));
 
     expect(document.body.textContent).toContain("No review ready");
-    expect(document.body.textContent).toContain("1 match summary ready");
-    expect(document.body.textContent).toContain("0 evaluations ready");
-    expect(document.body.textContent).toContain("1 evaluation pending");
+    expect(document.body.textContent).toContain("Match summaries are ready. Evaluations are pending.");
+    expect(document.body.textContent).toContain("Evaluations are being prepared.");
     expect(document.body.textContent).toContain("Recent games are still being prepared.");
     expect(document.body.textContent).not.toContain("10 games ready");
     expect(document.body.textContent).not.toContain("Review this game");
-    expect([...document.querySelectorAll('a[href="/review?matchId=NA1_pending"]')].some((link) =>
-      link.textContent.includes("Open summary")
-    )).toBe(true);
+    expect(document.querySelector('a[href="/review?matchId=NA1_pending"]')).toBeNull();
 
     await flushAsyncWork();
 
@@ -1110,10 +1110,9 @@ describe("public app routes", () => {
       expect.objectContaining({ credentials: "same-origin" })
     );
     expect(homeRequests).toBe(2);
-    expect(document.body.textContent).toContain("1 evaluation ready");
-    expect(document.body.textContent).toContain("0 evaluations pending");
-    expect(document.body.textContent).toContain("Review latest game");
-    expect(document.body.textContent).toContain("3 review moments ready");
+    expect(document.body.textContent).toContain("1 evaluated game available");
+    expect(document.body.textContent).toContain("Review this game");
+    expect(document.body.textContent).toContain("3 review moments");
   });
 
   it("renders preparing game state instead of fabricated review metadata", async () => {
@@ -1174,18 +1173,18 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Jhin · Preparing");
-    expect(document.body.textContent).toContain("10 games discovered");
-    expect(document.body.textContent).toContain("0 match summaries ready");
-    expect(document.body.textContent).toContain("10 match summaries preparing");
+    expect(document.body.textContent).toContain("Jhin · Evaluation pending");
     expect(document.body.textContent).toContain("Match summaries are being prepared.");
+    expect(document.body.textContent).not.toContain("10 games discovered");
+    expect(document.body.textContent).not.toContain("0 match summaries ready");
+    expect(document.body.textContent).not.toContain("10 match summaries preparing");
     expect(document.body.textContent).not.toContain("Unknown queue");
     expect(document.body.textContent).not.toContain("Unknown result");
     expect(document.body.textContent).not.toContain("0/0/0");
     expect(document.body.textContent).not.toContain("10 games ready");
     expect(document.body.textContent).not.toContain("Review this game");
     expect(document.querySelector('a[href="/review?matchId=NA1_incomplete"]')).toBeNull();
-    expect(document.body.textContent).toContain("Preparing");
+    expect(document.body.textContent).toContain("Evaluation pending");
   });
 
   it("renders newly discovered recent games without changing the next review", async () => {
@@ -1294,8 +1293,8 @@ describe("public app routes", () => {
       link.textContent.includes("Review")
     )).toBe(true);
     expect(document.body.textContent).toContain("Recent Games");
-    expect(document.body.textContent).toContain("Kai'Sa · Preparing");
-    expect(document.body.textContent).toContain("Caitlyn · Ranked Solo/Duo · Loss");
+    expect(document.body.textContent).toContain("Kai'Sa · Evaluation pending");
+    expect(document.body.textContent).toContain("Caitlyn · Loss");
     expect(document.querySelector('a[href="/review?matchId=NA1_new_partial"]')).toBeNull();
   });
 
@@ -1363,25 +1362,43 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Initial assessment: 2/3 reviewed");
     expect(document.body.textContent).not.toContain("Needs attention");
     expect(document.body.textContent).toContain("Review one more game to finish the baseline.");
-    expect(document.querySelector('a[href="/review?matchId=NA1_next"]')?.textContent).toContain("Continue with Ashe win");
-    expect(document.body.textContent.indexOf("Initial assessment")).toBeLessThan(document.body.textContent.indexOf("Assessment games"));
+    expect(document.body.textContent).toContain("Recommended next review");
+    expect(document.body.textContent).toContain("Ashe · Win");
+    expect(document.body.textContent).toContain("Ranked Solo/Duo · 4/1/8 KDA · 1 review moment");
+    expect(document.body.textContent).toContain("Why this game: Next unreviewed assessment game.");
+    expect(document.body.textContent).not.toContain("highest-priority");
+    expect(document.querySelector('a[href="/review?matchId=NA1_next"]')?.textContent).toBe("Review this game");
+    expect(document.querySelector('a[href="#review-ready-games"]')?.textContent).toBe("Choose a different game");
     expect(document.body.textContent).not.toContain("Review queue");
+    const initialAssessmentPanel = document.querySelector(".initial-assessment-panel");
+    expect(initialAssessmentPanel?.textContent).not.toContain("Caitlyn · Loss");
+    expect(initialAssessmentPanel?.textContent).not.toContain("Jinx · Loss");
     expect(document.body.textContent).toContain("Caitlyn · Loss");
     expect(document.body.textContent).toContain("2/4/5");
-    expect(document.body.textContent).toContain("4/4 moments triaged");
+    expect(document.body.textContent).toContain("4 review moments");
     expect(document.body.textContent).toContain("Jinx · Loss");
-    expect(document.body.textContent).toContain("2/2 moments triaged");
+    expect(document.body.textContent).toContain("2 review moments");
     expect(document.body.textContent).toContain("Ashe · Win");
-    expect(document.body.textContent).toContain("0/1 moments triaged");
+    expect(document.body.textContent).toContain("1 review moment");
     expect(document.body.textContent).toContain("Triaged");
     expect(document.body.textContent).toContain("Needs manual review");
-    expect(document.body.textContent).toContain("Next");
+    expect(document.body.textContent).toContain("Next review");
+    expect([...document.querySelectorAll(".status-badge")].some((badge) =>
+      badge.getAttribute("title") === "Recommended next game to continue the initial assessment."
+    )).toBe(true);
     expect(document.body.textContent).toContain("Early signal preview");
+    expect(document.body.textContent).toContain("Early target preview");
+    expect(document.body.textContent).toContain("Based on 2 reviewed games. Final targets unlock after the initial assessment.");
+    expect(document.body.textContent).toContain("Not connected to this assessment yet");
+    expect(document.body.textContent).toContain("Personal initial assessment does not update this yet.");
     expect(document.body.textContent).not.toContain("0 known gank deaths");
     expect(document.body.textContent).not.toContain("Known threat is the main leak");
+    expect(document.body.textContent).not.toContain("Updated from reviewed evidence");
+    expect(document.querySelector(".dashboard-home-layout > .dashboard-main-column .riot-evidence-panel")).not.toBeNull();
+    expect(document.querySelector(".dashboard-home-layout > .dashboard-context-column .team-focus-panel")).not.toBeNull();
   });
 
-  it("renders failed recent-game preparation counts", async () => {
+  it("renders failed recent-game preparation as an actionable status", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
         return mockJsonResponse({
@@ -1432,9 +1449,11 @@ describe("public app routes", () => {
     await renderApp(document.querySelector("#app"));
 
     expect(document.body.textContent).toContain("Match preparation failed. Retry available.");
-    expect(document.body.textContent).toContain("1 game discovered");
-    expect(document.body.textContent).toContain("0 match summaries ready");
-    expect(document.body.textContent).toContain("1 preparation failed");
+    expect(document.body.textContent).toContain("Some evaluations failed.");
+    expect(document.body.textContent).not.toContain("1 game discovered");
+    expect(document.body.textContent).not.toContain("0 match summaries ready");
+    expect(document.body.textContent).not.toContain("1 preparation failed");
+    expect(document.body.textContent).not.toContain("Preparation details");
   });
 
   it("preserves matchId on demo Review links", async () => {
