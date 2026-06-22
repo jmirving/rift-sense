@@ -1,5 +1,8 @@
 # RiftSense Agent Instructions
 
+## Operation Rules
+Do not edit files when running from the main checkout. For any implementation task, use or request a dedicated worktree first. See @WORKTREE.md
+
 ## Response Efficiency
 
 - Be concise by default.
