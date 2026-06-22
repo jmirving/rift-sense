@@ -2460,6 +2460,66 @@ describe("public app routes", () => {
     expect(facts).not.toMatch(/review whether|could affect|unclear/i);
   });
 
+  it("renders structured objective timing once when legacy known data has alternate wording", () => {
+    const plan = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1, objective_window_candidate: 1 },
+      deathEvents: [{
+        deathIndex: 1,
+        timestampSeconds: 1200,
+        tags: ["objective_window_candidate"],
+        objectiveFacts: [{ name: "Dragon", source: "timeline_event", teamRelation: "enemy", secondsFromDeath: -19 }],
+        evidenceSections: {
+          knownFromData: [
+            "Enemy team took Dragon 19s before this death",
+            "Killed by Viego",
+            "Phase: Mid game"
+          ]
+        }
+      }]
+    });
+
+    const moment = plan.reviewMoments[0];
+    expect(moment.evidenceFacts).toContain("Enemy team took Dragon 19s before the death");
+    expect(moment.evidenceFacts).toContain("Killed by Viego");
+    expect(moment.evidenceFacts.join(" ")).not.toContain("before this death");
+    expect(textOccurrences(moment.evidenceFacts.join("\n"), "Enemy team took Dragon")).toBe(1);
+  });
+
+  it("keeps structured objective timing without legacy known data", () => {
+    const plan = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1, objective_window_candidate: 1 },
+      deathEvents: [{
+        deathIndex: 1,
+        timestampSeconds: 1200,
+        tags: ["objective_window_candidate"],
+        objectiveFacts: [{ name: "Dragon", source: "timeline_event", teamRelation: "enemy", secondsFromDeath: -19 }]
+      }]
+    });
+
+    expect(plan.reviewMoments[0].evidenceFacts).toContain("Enemy team took Dragon 19s before the death");
+  });
+
+  it("keeps legacy objective timing when structured facts are missing", () => {
+    const plan = buildMatchReviewPlan({
+      activeGoalName: "Die Less",
+      evaluationSummary: { deathCount: 1 },
+      deterministicTagCounts: { death_count: 1 },
+      deathEvents: [{
+        deathIndex: 1,
+        timestampSeconds: 1200,
+        evidenceSections: {
+          knownFromData: ["Enemy team took Dragon 19s before this death"]
+        }
+      }]
+    });
+
+    expect(plan.reviewMoments[0].evidenceFacts).toContain("Enemy team took Dragon 19s before this death");
+  });
+
   it("renders death cards without repeating chip context in facts or pattern choices", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {

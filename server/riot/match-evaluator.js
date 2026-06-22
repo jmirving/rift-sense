@@ -915,17 +915,6 @@ export function evaluateMatchFacts({
           fightOutcomeFact(localFightOutcomeContext),
           nearbyDeathWindowContext.totalDeaths > 0 ? `Nearby timeline: ${countNoun(nearbyDeathWindowContext.totalDeaths, "other death")} happened within 30s; not enough position data to confirm same fight.` : null,
           gamePhase === "lane_phase" ? "Phase: Lane phase" : `Phase: ${gamePhase === "mid_game" ? "Mid game" : "Late game"}`,
-          objectiveFacts.length > 0 ? objectiveFacts.map((fact) => {
-            const seconds = normalizeNumber(fact.secondsFromDeath) ?? 0;
-            const name = fact.name ?? "Objective";
-            if (fact.source === "timeline_event" && fact.teamRelation) {
-              const timing = seconds < 0 ? `${Math.abs(seconds)}s before this death` : seconds > 0 ? `${seconds}s after this death` : "at this death";
-              return `${fact.teamRelation === "enemy" ? "Enemy team" : "Allied team"} took ${name} ${timing}`;
-            }
-            if (seconds > 0) return `${name} spawned ${seconds}s after this death`;
-            if (seconds < 0) return `${name} spawned ${Math.abs(seconds)}s before this death`;
-            return `${name} timing was active at this death`;
-          }).join("; ") : null,
           campState.supported ? `${campState.campName} ${campState.secondsFromDeath > 0 ? `spawning in ${campState.secondsFromDeath}s` : campState.secondsFromDeath < 0 ? `spawned ${Math.abs(campState.secondsFromDeath)}s before this death` : "timing was active at this death"}` : null
         ].filter(Boolean),
         replayCanAnswer: [

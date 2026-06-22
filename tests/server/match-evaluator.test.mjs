@@ -507,6 +507,7 @@ it("keeps actual objective events as supported objective evidence", () => {
     source: "timeline_event",
     teamRelation: "enemy"
   });
+  expect(result.deathsJson[0].evidenceSections.knownFromData.join(" ")).not.toMatch(/took Dragon .*death/i);
 });
 
 it("does not treat Herald as available after despawn or Baron as available before 20:00", () => {

@@ -2595,6 +2595,27 @@ function objectiveEvidenceWithName(death) {
   };
 }
 
+function hasStructuredObjectiveFacts(death = {}) {
+  return Array.isArray(death?.objectiveFacts) && death.objectiveFacts.length > 0;
+}
+
+function isObjectiveTimingKnownFact(fact, death = {}) {
+  const normalized = normalizedDeathDisplayText(fact);
+  const objectiveNames = (death?.objectiveFacts ?? [])
+    .map((entry) => normalizedDeathDisplayText(entry?.name))
+    .filter(Boolean);
+  if (!objectiveNames.some((name) => normalized.includes(name))) return false;
+  return /\b(?:enemy team|allied team|team|enemy)\s+took\s+.+\s+(?:\d+s\s+)?(?:before|after|at)\s+(?:this|the)\s+death\b/.test(normalized) ||
+    /\b.+\s+spawned\s+(?:\d+s\s+)?(?:before|after)\s+(?:this|the)\s+death\b/.test(normalized) ||
+    /\b.+\s+timing was active at\s+(?:this|the)\s+death\b/.test(normalized);
+}
+
+function knownDataFactsForDeath(death = {}) {
+  const facts = death?.evidenceSections?.knownFromData ?? [];
+  if (!hasStructuredObjectiveFacts(death)) return facts;
+  return facts.filter((fact) => !isObjectiveTimingKnownFact(fact, death));
+}
+
 function shownLevelEvidence(death, { includeRaw = false } = {}) {
   const victimLevel = Number(death?.victimLevel ?? 0);
   const killerLevel = Number(death?.killerLevel ?? 0);
@@ -3072,7 +3093,7 @@ function reviewMomentEvidenceFacts(death, goalKind) {
     facts.push(`Nearby timeline: ${countNoun(Number(death.nearbyDeathWindowContext.totalDeaths), "other death")} happened within 30s; not enough position data to confirm same fight.`);
   }
 
-  return normalizeDeathFacts([...(death?.evidenceSections?.knownFromData ?? []), ...facts], death, fightShape)
+  return normalizeDeathFacts([...knownDataFactsForDeath(death), ...facts], death, fightShape)
     .slice(0, 8);
 }
 
@@ -3123,6 +3144,7 @@ function normalizedDeathDisplayText(text) {
 
 function deathDisplayFactKey(text, death = {}, fightShape = {}, locationLabel = "") {
   const normalized = normalizedDeathDisplayText(text)
+    .replace(/\bthis death\b/g, "the death")
     .replace(/^location:\s*/, "")
     .replace(/^outcome:\s*/, "");
   if (!normalized) return "";
@@ -3497,7 +3519,7 @@ function buildDeathDisplayContract({ death = {}, goalKind = "", context = {}, fi
       eligibleRoles: ["debug"]
     });
   }
-  for (const fact of death?.evidenceSections?.knownFromData ?? []) {
+  for (const fact of knownDataFactsForDeath(death)) {
     if (/^Outcome:\s*you died$/i.test(String(fact ?? "").trim())) continue;
     const key = deathDisplayConceptKey(fact, death, fightShape, locationZone.userRelativeZoneLabel);
     const debug = /not enough position data|review whether|replay|unclear|could .* affect|objective relevance|use this when|whether an objective|lane context:/i.test(fact);
