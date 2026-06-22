@@ -179,6 +179,7 @@ p {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
   min-height: 46px;
   padding: 0 14px;
   border-radius: 14px;
@@ -186,6 +187,13 @@ p {
   color: var(--muted);
   text-decoration: none;
   transition: 140ms ease;
+}
+
+.side-nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .side-nav-link:hover {
@@ -241,6 +249,7 @@ p {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: rgba(247, 242, 232, 0.66);
+  white-space: nowrap;
 }
 
 .side-nav-spacer {
@@ -1189,6 +1198,17 @@ body.auth-page.nav-collapsed {
   gap: 10px;
 }
 
+.review-ready-group {
+  display: grid;
+  gap: 10px;
+}
+
+.review-ready-group + .review-ready-group {
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
 .riot-readiness {
   display: flex;
   flex-wrap: wrap;
@@ -1223,7 +1243,7 @@ body.auth-page.nav-collapsed {
 
 .compact-row-value {
   color: var(--muted);
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .compact-row-main {

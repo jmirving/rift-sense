@@ -405,7 +405,7 @@ describe("public app routes", () => {
     expect(navText).toContain("Team Focus");
     expect(navText).toContain("Library");
     expect(navText).toContain("Training");
-    expect(navText).toContain("Under construction");
+    expect(navText).toContain("Soon");
     expect(navText).not.toContain("Goals");
     expect(navText).not.toContain("Onboarding");
     expect(document.querySelector('.side-nav-link[href="/"]')?.textContent).toContain("Dashboard");
@@ -425,7 +425,9 @@ describe("public app routes", () => {
       expect(item).toBeTruthy();
       expect(item.getAttribute("aria-disabled")).toBe("true");
       expect(item.getAttribute("href")).toBeNull();
-      expect(item.textContent).toContain("Under construction");
+      expect(item.textContent).toContain("Soon");
+      expect(item.getAttribute("title")).toBe("Under construction");
+      expect(item.querySelector(".side-nav-status")?.getAttribute("aria-label")).toBe("Under construction");
       const beforePath = window.location.pathname;
       item.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
       item.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
@@ -824,7 +826,7 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("0 games reviewed");
     expect(document.body.textContent).toContain("Weekly targets not ready yet");
     expect(document.body.textContent).toContain("Under construction");
-    expect(document.body.textContent).toContain("Not connected to this assessment yet");
+    expect(document.body.textContent).toContain("Not connected yet");
     expect(document.body.textContent).not.toContain("Insights will appear after you review games.");
     expect(document.body.textContent).not.toContain("Seeded from onboarding. Not updated from reviewed games yet.");
     expect(document.body.textContent).not.toContain("On track");
@@ -1313,6 +1315,7 @@ describe("public app routes", () => {
       if (url === "/api/home") {
         const candidateGames = [
           { matchId: "NA1_done", championName: "Caitlyn", result: "Loss", queueLabel: "Ranked Solo/Duo", kda: "2/4/5", evaluationStatus: "current", evaluationSummary: { deathCount: 4 }, triagedMomentCount: 4, totalReviewMomentCount: 4, reviewStatus: "triaged", lastReviewedAt: "2026-06-09T02:00:00.000Z" },
+          { matchId: "NA1_other_ready", championName: "Miss Fortune", result: "Loss", queueLabel: "Ranked Solo/Duo", kda: "2/8/6", evaluationStatus: "current", evaluationSummary: { deathCount: 8 }, totalReviewMomentCount: 8, reviewStatus: "not_started" },
           { matchId: "NA1_manual", championName: "Jinx", result: "Loss", queueLabel: "Ranked Solo/Duo", kda: "1/2/3", evaluationStatus: "current", evaluationSummary: { deathCount: 2 }, triagedMomentCount: 2, needsManualReviewCount: 1, totalReviewMomentCount: 2, reviewStatus: "needs_manual_review" },
           { matchId: "NA1_next", championName: "Ashe", result: "Win", queueLabel: "Ranked Solo/Duo", kda: "4/1/8", evaluationStatus: "current", evaluationSummary: { deathCount: 1 }, totalReviewMomentCount: 1, reviewStatus: "not_started" }
         ];
@@ -1365,7 +1368,8 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Recommended next review");
     expect(document.body.textContent).toContain("Ashe · Win");
     expect(document.body.textContent).toContain("Ranked Solo/Duo · 4/1/8 KDA · 1 review moment");
-    expect(document.body.textContent).toContain("Why this game: Next unreviewed assessment game.");
+    expect(document.body.textContent).toContain("Why this game: RiftSense selected this as the next assessment game.");
+    expect(document.body.textContent).not.toContain("Why this game: Next unreviewed assessment game.");
     expect(document.body.textContent).not.toContain("highest-priority");
     expect(document.querySelector('a[href="/review?matchId=NA1_next"]')?.textContent).toBe("Review this game");
     expect(document.querySelector('a[href="#review-ready-games"]')?.textContent).toBe("Choose a different game");
@@ -1376,6 +1380,8 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Caitlyn · Loss");
     expect(document.body.textContent).toContain("2/4/5");
     expect(document.body.textContent).toContain("4 review moments");
+    expect(document.body.textContent).toContain("Miss Fortune · Loss");
+    expect(document.body.textContent).toContain("8 review moments");
     expect(document.body.textContent).toContain("Jinx · Loss");
     expect(document.body.textContent).toContain("2 review moments");
     expect(document.body.textContent).toContain("Ashe · Win");
@@ -1383,19 +1389,97 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Triaged");
     expect(document.body.textContent).toContain("Needs manual review");
     expect(document.body.textContent).toContain("Next review");
+    expect(document.body.textContent).toContain("Recommended next");
+    expect(document.body.textContent).toContain("Other review-ready games");
+    expect(document.body.textContent).toContain("Already reviewed");
+    expect(document.body.textContent).toContain("Assessment recommendation appears first.");
+    expect(document.querySelector(".game-evidence-row")?.textContent).toContain("Ashe · Win");
     expect([...document.querySelectorAll(".status-badge")].some((badge) =>
       badge.getAttribute("title") === "Recommended next game to continue the initial assessment."
     )).toBe(true);
     expect(document.body.textContent).toContain("Early signal preview");
     expect(document.body.textContent).toContain("Early target preview");
-    expect(document.body.textContent).toContain("Based on 2 reviewed games. Final targets unlock after the initial assessment.");
-    expect(document.body.textContent).toContain("Not connected to this assessment yet");
-    expect(document.body.textContent).toContain("Personal initial assessment does not update this yet.");
+    expect(document.body.textContent).toContain("Targets pending baseline");
+    expect(document.body.textContent).toContain("Final weekly targets unlock after 3 assessment games.");
+    expect(document.body.textContent).toContain("Known-danger deaths");
+    expect(document.body.textContent).toContain("2v2 deaths");
+    expect(document.body.textContent).toContain("Bad pre-6 all-ins");
+    expect(document.body.textContent).toContain("Known-danger deaths showing up");
+    expect(document.body.textContent).toContain("Early reviewed moments are clustering around visible or inferable danger.");
+    expect(document.body.textContent).toContain("Based on 2 of 3 assessment games");
+    expect(document.body.textContent).toContain("Not connected yet");
+    expect(document.body.textContent).toContain("Personal initial assessment does not update this.");
     expect(document.body.textContent).not.toContain("0 known gank deaths");
+    expect(document.body.textContent).not.toContain("No data");
     expect(document.body.textContent).not.toContain("Known threat is the main leak");
+    expect(document.body.textContent).not.toContain("main leak");
     expect(document.body.textContent).not.toContain("Updated from reviewed evidence");
+    expect(document.body.textContent).not.toContain("Updated from team evidence");
+    expect(document.body.textContent).not.toContain("Team-focused review evidence is available");
     expect(document.querySelector(".dashboard-home-layout > .dashboard-main-column .riot-evidence-panel")).not.toBeNull();
     expect(document.querySelector(".dashboard-home-layout > .dashboard-context-column .team-focus-panel")).not.toBeNull();
+  });
+
+  it("explains an assessment recommendation selected by review moment count", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+      if (url === "/api/home") {
+        const candidateGames = [
+          { matchId: "NA1_cait", championName: "Caitlyn", result: "Loss", queueLabel: "Ranked Solo/Duo", kda: "2/8/4", evaluationStatus: "current", evaluationSummary: { deathCount: 8 }, totalReviewMomentCount: 8, reviewStatus: "not_started" },
+          { matchId: "NA1_mf", championName: "Miss Fortune", result: "Win", queueLabel: "Ranked Solo/Duo", kda: "8/10/7", evaluationStatus: "current", evaluationSummary: { deathCount: 10 }, totalReviewMomentCount: 10, reviewStatus: "not_started" }
+        ];
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Improve teamfight deaths",
+                role: "ADC",
+                evidenceSource: {},
+                riotEvidence: {
+                  status: "all_recent_games_ready",
+                  summaryReadyCount: 2,
+                  evaluationReadyCount: 2,
+                  recentGames: candidateGames,
+                  candidateGames,
+                  initialAssessment: {
+                    target: 3,
+                    completedMatchIds: [],
+                    completedCount: 0,
+                    nextMatchId: null,
+                    assessmentComplete: false,
+                    candidateGames
+                  }
+                }
+              },
+              todaysAction: {},
+              activeTeamFocus: {},
+              recentInsights: [],
+              suggestedNextSteps: []
+            }
+          }
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.body.textContent).toContain("Miss Fortune · Win");
+    expect(document.body.textContent).toContain("Why this game: Most review moments among your unreviewed assessment games.");
+    expect(document.querySelector(".game-evidence-row")?.textContent).toContain("Miss Fortune · Win");
+    expect(document.querySelector(".game-evidence-row")?.textContent).toContain("10 review moments");
   });
 
   it("renders failed recent-game preparation as an actionable status", async () => {

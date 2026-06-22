@@ -413,18 +413,18 @@ function appShell(content, hero = {}) {
             { href: "/demo", label: "Dashboard", active: pathname === "/demo" },
             { href: "/demo/review", label: "Review", active: pathname === "/demo/review" },
             { href: "/demo/setup", label: "Setup", active: pathname === "/demo/setup" || pathname === "/demo/goals" || pathname === "/demo/onboarding" },
-            { label: "Team Focus", disabled: true, status: "Under construction" },
-            { label: "Library", disabled: true, status: "Under construction" },
-            { label: "Training", disabled: true, status: "Under construction" }
+            { label: "Team Focus", disabled: true, status: "Soon", statusTitle: "Under construction" },
+            { label: "Library", disabled: true, status: "Soon", statusTitle: "Under construction" },
+            { label: "Training", disabled: true, status: "Soon", statusTitle: "Under construction" }
           ]
         : [
             { href: "/", label: "Dashboard", active: pathname === "/" || pathname === "/dashboard" },
             { href: "/review", label: "Review", active: pathname === "/review" },
             { href: "/setup", label: "Setup", active: pathname === "/setup" || pathname === "/goals" || pathname === "/onboarding" || pathname.startsWith("/focus/") },
             { href: "/system-inventory", label: "System inventory", active: pathname === "/system-inventory", muted: true },
-            { label: "Team Focus", disabled: true, status: "Under construction" },
-            { label: "Library", disabled: true, status: "Under construction" },
-            { label: "Training", disabled: true, status: "Under construction" }
+            { label: "Team Focus", disabled: true, status: "Soon", statusTitle: "Under construction" },
+            { label: "Library", disabled: true, status: "Soon", statusTitle: "Under construction" },
+            { label: "Training", disabled: true, status: "Soon", statusTitle: "Under construction" }
           ]
     }
   ];
@@ -465,11 +465,12 @@ function appShell(content, hero = {}) {
                   ${section.items
                     .map((item) => {
                       if (item.disabled || item.upcoming) {
-                        return `<span class="side-nav-link is-disabled" aria-disabled="true"><span>${escapeHtml(item.label)}</span><span class="side-nav-status">${escapeHtml(item.status ?? "Under construction")}</span></span>`;
+                        const statusTitle = item.statusTitle ?? item.status ?? "Under construction";
+                        return `<span class="side-nav-link is-disabled" aria-disabled="true" title="${escapeHtml(statusTitle)}"><span class="side-nav-label">${escapeHtml(item.label)}</span><span class="side-nav-status" aria-label="${escapeHtml(statusTitle)}">${escapeHtml(item.status ?? "Soon")}</span></span>`;
                       }
 
                       return `<a class="side-nav-link${item.active ? " is-active" : ""}${item.muted ? " is-muted" : ""}" href="${item.href}">
-                        <span>${escapeHtml(item.label)}</span>
+                        <span class="side-nav-label">${escapeHtml(item.label)}</span>
                         ${item.status ? `<span class="side-nav-status">${escapeHtml(item.status)}</span>` : ""}
                       </a>`;
                     })
@@ -1189,16 +1190,18 @@ function riotEvidenceCard(riotEvidence, context = {}) {
     return "";
   }
 
-  const recentGames = riotEvidence.recentGames ?? riotEvidence.candidateGames ?? [];
+  const recentGames = reviewReadyDisplayGroups(riotEvidence);
+  const hasRecommendedFirst = recentGames[0]?.games?.[0]?.matchId === assessmentNextGame(riotEvidence.initialAssessment)?.matchId;
   const sourceLabel = riotEvidence.sourceLabel ? `<p class="eyebrow">${escapeHtml(riotEvidence.sourceLabel)}</p>` : "";
   const counts = riotReadinessCounts(riotEvidence);
   const availabilityLabel = counts.evaluationReadyCount > 0
     ? `${counts.evaluationReadyCount} evaluated ${counts.evaluationReadyCount === 1 ? "game" : "games"} available`
     : riotEvidenceSummary(riotEvidence);
   const sortLabel = riotEvidence.initialAssessment?.nextMatchId
-    ? "Assessment recommendation appears first."
+    ? (hasRecommendedFirst ? "Assessment recommendation appears first." : "Sorted by recency. Recommended assessment game is marked.")
     : "Sorted by recency.";
   const preparationStatus = riotPreparationStatusBlock(riotEvidence);
+  const gameCount = recentGames.reduce((sum, group) => sum + group.games.length, 0);
   return `
     <section class="panel riot-evidence-panel" id="review-ready-games">
       <div class="panel-header">
@@ -1213,11 +1216,14 @@ function riotEvidenceCard(riotEvidence, context = {}) {
       </div>
       <p class="muted recent-games-refresh-status" aria-live="polite">${escapeHtml(state.recentGamesRefreshMessage)}</p>
       ${availabilityLabel ? `<p class="muted">${escapeHtml(availabilityLabel)}</p>` : ""}
-      ${recentGames.length > 1 ? `<p class="muted">${escapeHtml(sortLabel)}</p>` : ""}
+      ${gameCount > 1 ? `<p class="muted">${escapeHtml(sortLabel)}</p>` : ""}
       ${preparationStatus}
       <section class="compact-list">
-        ${recentGames.length > 0
-          ? recentGames.map((game) => {
+        ${gameCount > 0
+          ? recentGames.map((group) => `
+            <section class="review-ready-group" aria-label="${escapeHtml(group.title)}">
+              <p class="eyebrow">${escapeHtml(group.title)}</p>
+              ${group.games.map((game) => {
             const hasSummaryMetadata = gameHasSummaryMetadata(game);
             const state = recentGameState(game);
             const displayStatus = state.label === "Not reviewed" && game.matchId === riotEvidence.initialAssessment?.nextMatchId
@@ -1246,11 +1252,51 @@ function riotEvidenceCard(riotEvidence, context = {}) {
                 </div>
               </article>
             `;
-          }).join("")
+          }).join("")}
+            </section>
+          `).join("")
           : '<p class="muted">No recent games are available yet.</p>'}
       </section>
     </section>
   `;
+}
+
+function reviewReadyDisplayGroups(riotEvidence = {}) {
+  const assessment = riotEvidence.initialAssessment ?? null;
+  const recommended = assessmentNextGame(assessment);
+  const allGames = [...(riotEvidence.recentGames ?? riotEvidence.candidateGames ?? [])];
+  const seen = new Set();
+  const uniqueGames = allGames.filter((game) => {
+    if (!game?.matchId || seen.has(game.matchId)) return false;
+    seen.add(game.matchId);
+    return true;
+  });
+
+  const groups = [
+    { key: "recommended", title: "Recommended next", games: [] },
+    { key: "other", title: "Other review-ready games", games: [] },
+    { key: "reviewed", title: "Already reviewed", games: [] },
+    { key: "manual", title: "Needs manual review", games: [] },
+    { key: "pending", title: "Pending evaluations", games: [] }
+  ];
+  const byKey = new Map(groups.map((group) => [group.key, group]));
+
+  for (const game of uniqueGames) {
+    const state = recentGameState(game);
+    if (recommended?.matchId && game.matchId === recommended.matchId) {
+      byKey.get("recommended").games.push(game);
+    } else if (state.label === "In progress" || state.label === "Not reviewed") {
+      byKey.get("other").games.push(game);
+    } else if (state.label === "Triaged") {
+      byKey.get("reviewed").games.push(game);
+    } else if (state.label === "Needs manual review") {
+      byKey.get("manual").games.push(game);
+    } else {
+      byKey.get("pending").games.push(game);
+    }
+  }
+
+  return groups.filter((group) => group.games.length > 0);
 }
 
 function reviewMomentCount(game = {}) {
@@ -1343,7 +1389,7 @@ function assessmentNextGameReason(game, assessment) {
     return "You already started reviewing this game.";
   }
   if (game.matchId === assessment?.nextMatchId) {
-    return "Next unreviewed assessment game.";
+    return "RiftSense selected this as the next assessment game.";
   }
 
   const eligible = (assessment?.candidateGames ?? []).filter((candidate) =>
@@ -1357,10 +1403,28 @@ function assessmentNextGameReason(game, assessment) {
   if (reviewMomentCount(game) > 0 && reviewMomentCount(game) === maxMoments) {
     return "Most review moments among your unreviewed assessment games.";
   }
+  if (addsAssessmentContext(game, assessment)) {
+    return "Adds a different game context to the assessment baseline.";
+  }
   if (game.playedAt || game.gameCreation || game.gameEndTimestamp) {
     return "Most recent unreviewed game with review moments ready.";
   }
   return "Selected to complete your initial baseline.";
+}
+
+function addsAssessmentContext(game, assessment) {
+  const reviewed = (assessment?.candidateGames ?? []).filter((candidate) =>
+    candidate?.matchId &&
+    (candidate.reviewStatus === "triaged" || candidate.reviewStatus === "needs_manual_review" || candidate.reviewedAt || candidate.lastReviewedAt)
+  );
+  if (reviewed.length === 0) return false;
+  const values = (key) => new Set(reviewed.map((candidate) => candidate[key]).filter(Boolean));
+  const champion = game.champion ?? game.championName;
+  return (
+    (champion && !new Set(reviewed.map((candidate) => candidate.champion ?? candidate.championName).filter(Boolean)).has(champion)) ||
+    (game.result && !values("result").has(game.result)) ||
+    (game.queueLabel && !values("queueLabel").has(game.queueLabel))
+  );
 }
 
 function primaryDashboardAction({ state: dashboardView, action = {}, context = {} }) {
@@ -1575,8 +1639,9 @@ function inactiveDashboardSection({ title, status, body, href, cta }) {
 
 function dashboardContextCards(dashboardView, teamFocus = {}) {
   const reviewedCount = dashboardView.goalReviewedCount || dashboardView.assessmentCompleted;
-  const previewBody = `Based on ${reviewedCount} reviewed ${reviewedCount === 1 ? "game" : "games"}. Final targets unlock after the initial assessment.`;
-  const teamEvidenceConnected = dashboardView.hasActionableTeamFocus && dashboardView.hasReviewedGames;
+  const teamEvidenceConnected = Boolean(teamFocus.teamEvidenceEvents?.length || teamFocus.evidenceEvents?.length || teamFocus.signals?.some((signal) => signal.source === "team-review" || signal.source === "team-focus"));
+  const latestPattern = initialAssessmentPattern(dashboardView);
+  const targetRows = initialAssessmentTargetRows(dashboardView);
   return `
     <section class="dashboard-context-column">
       ${dashboardView.hasWeeklyTargets
@@ -1587,11 +1652,21 @@ function dashboardContextCards(dashboardView, teamFocus = {}) {
             ${targetChipGrid(dashboardView.weeklyTargets, "No weekly targets ready.")}
           </section>
         `
-        : inactiveDashboardSection({
-          title: dashboardView.inInitialAssessment ? "Early target preview" : "Weekly targets",
-          status: dashboardView.inInitialAssessment ? "Early target preview" : "Not ready yet",
-          body: dashboardView.inInitialAssessment ? previewBody : "Unlocks after reviewed evidence is ready."
-        })}
+        : dashboardView.inInitialAssessment
+          ? `
+            <section class="panel dashboard-compact-panel weekly-target-preview-panel">
+              <p class="eyebrow">Early target preview</p>
+              <h2>Targets pending baseline</h2>
+              <p class="muted">Final weekly targets unlock after 3 assessment games.</p>
+              ${targetRows.length > 0 ? `<div class="target-list">${targetRows.map((row) => `<p><strong>${escapeHtml(row.label)}:</strong> ${escapeHtml(row.value)}</p>`).join("")}</div>` : ""}
+              <p class="muted">${escapeHtml(dashboardView.assessmentCompleted)} of ${escapeHtml(dashboardView.assessmentTarget)} assessment games reviewed</p>
+            </section>
+          `
+          : inactiveDashboardSection({
+            title: "Weekly targets",
+            status: "Not ready yet",
+            body: "Unlocks after reviewed evidence is ready."
+          })}
       ${dashboardView.hasConfirmedPatterns
         ? `
           <section class="panel dashboard-compact-panel">
@@ -1602,26 +1677,35 @@ function dashboardContextCards(dashboardView, teamFocus = {}) {
                 ? dashboardView.patterns.slice(0, 1).map(insightCard).join("")
                 : dashboardView.goalSignals.slice(0, 2).map(signalCard).join("")}
             </section>
-            ${dashboardView.inInitialAssessment ? `<p class="muted">${escapeHtml(previewBody)}</p>` : ""}
           </section>
         `
-        : inactiveDashboardSection({
-          title: dashboardView.inInitialAssessment ? "Early signal preview" : "Latest pattern",
-          status: dashboardView.inInitialAssessment ? "Early signal preview" : "Under construction",
-          body: dashboardView.inInitialAssessment ? previewBody : "RiftSense needs reviewed games before it can identify patterns."
-        })}
+        : dashboardView.inInitialAssessment
+          ? `
+            <section class="panel dashboard-compact-panel latest-pattern-preview-panel">
+              <p class="eyebrow">Early signal preview</p>
+              <h2>${escapeHtml(latestPattern.title)}</h2>
+              <p class="muted">${escapeHtml(latestPattern.body)}</p>
+              <p class="muted">Based on ${escapeHtml(dashboardView.assessmentCompleted)} of ${escapeHtml(dashboardView.assessmentTarget)} assessment games</p>
+            </section>
+          `
+          : inactiveDashboardSection({
+            title: "Latest pattern",
+            status: "Under construction",
+            body: "RiftSense needs reviewed games before it can identify patterns."
+          })}
       <section class="panel dashboard-inactive-panel team-focus-panel">
         <div class="panel-header">
           <div>
             <p class="eyebrow">Team focus</p>
-            <h2>${escapeHtml(teamFocus.title ?? "No team focus configured")}</h2>
+            <h2>${escapeHtml(teamFocus.title ?? teamFocus.practiceTopic ?? "Dragon Setup")}</h2>
           </div>
-          <span class="button is-disabled" aria-disabled="true">Under construction</span>
+          ${statusBadge(teamEvidenceConnected ? "Updated from team evidence" : "Not connected yet", teamEvidenceConnected ? "positive" : "unknown")}
         </div>
-        ${statusBadge(teamEvidenceConnected ? "Updated from team evidence" : "Not connected to this assessment yet", teamEvidenceConnected ? "positive" : "unknown")}
         <p class="muted">${teamEvidenceConnected
           ? "Team-focused review evidence is available."
-          : "Team focus will use team reviews and shared practice goals. Personal initial assessment does not update this yet."}</p>
+          : dashboardView.inInitialAssessment
+            ? "Team focus will use team reviews and shared practice goals. Personal initial assessment does not update this."
+            : "Team focus will use team reviews and shared practice goals later."}</p>
         <div class="team-focus-meta">
           <p><strong>Current focus:</strong> ${escapeHtml(teamFocus.practiceTopic ?? teamFocus.title ?? "Not set")}</p>
           <p><strong>Assignment:</strong> ${escapeHtml(teamFocus.assignment ?? teamFocus.assignedReview ?? "Not set")}</p>
@@ -1629,6 +1713,37 @@ function dashboardContextCards(dashboardView, teamFocus = {}) {
       </section>
     </section>
   `;
+}
+
+function initialAssessmentPattern(dashboardView) {
+  if (dashboardView.assessmentCompleted > 0 || dashboardView.goalReviewedCount > 0) {
+    return {
+      title: "Known-danger deaths showing up",
+      body: "Early reviewed moments are clustering around visible or inferable danger."
+    };
+  }
+  return {
+    title: "No pattern yet",
+    body: "Patterns unlock after more assessment reviews."
+  };
+}
+
+function initialAssessmentTargetRows(dashboardView) {
+  const completedIds = new Set(dashboardView.initialAssessment?.completedMatchIds ?? []);
+  const completedGames = (dashboardView.initialAssessment?.candidateGames ?? []).filter((game) =>
+    completedIds.has(game.matchId) ||
+    game.reviewStatus === "triaged" ||
+    game.reviewStatus === "needs_manual_review" ||
+    game.reviewedAt ||
+    game.lastReviewedAt
+  );
+  const knownDangerDeaths = completedGames.reduce((sum, game) => sum + reviewMomentCount(game), 0);
+  if (knownDangerDeaths <= 0) return [];
+  return [
+    { label: "Known-danger deaths", value: `${knownDangerDeaths} so far` },
+    { label: "2v2 deaths", value: "no reviewed evidence yet" },
+    { label: "Bad pre-6 all-ins", value: "no reviewed evidence yet" }
+  ];
 }
 
 function canonicalSetupHref(context = getRouteContext()) {
