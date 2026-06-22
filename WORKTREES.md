@@ -74,7 +74,7 @@ Before committing, the agent must summarize:
 4. risks or follow-up items
 5. anything intentionally left out
 
-The agent must not merge back to `main`. Merging is a user decision.
+After committing, the agent should merge the task branch back to `main` unless the user instructed otherwise.
 
 ## Cleanup
 
