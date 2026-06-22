@@ -1404,8 +1404,9 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Targets pending baseline");
     expect(document.body.textContent).toContain("Final weekly targets unlock after 3 assessment games.");
     expect(document.body.textContent).toContain("Known-danger deaths");
-    expect(document.body.textContent).toContain("2v2 deaths");
-    expect(document.body.textContent).toContain("Bad pre-6 all-ins");
+    expect(document.body.textContent).not.toContain("2v2 deaths");
+    expect(document.body.textContent).not.toContain("Bad pre-6 all-ins");
+    expect(document.body.textContent).not.toContain("no reviewed evidence yet");
     expect(document.body.textContent).toContain("Known-danger deaths showing up");
     expect(document.body.textContent).toContain("Early reviewed moments are clustering around visible or inferable danger.");
     expect(document.body.textContent).toContain("Based on 2 of 3 assessment games");
@@ -1420,6 +1421,125 @@ describe("public app routes", () => {
     expect(document.body.textContent).not.toContain("Team-focused review evidence is available");
     expect(document.querySelector(".dashboard-home-layout > .dashboard-main-column .riot-evidence-panel")).not.toBeNull();
     expect(document.querySelector(".dashboard-home-layout > .dashboard-context-column .team-focus-panel")).not.toBeNull();
+  });
+
+  it("builds early target preview rows from reviewed evidence instead of unsupported target templates", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({
+          authEnabled: true,
+          authenticated: true,
+          user: { id: "usr_1" },
+          accountUrl: "",
+          portalBaseUrl: "",
+          manualTokenEntryAvailable: false
+        });
+      }
+      if (url === "/api/home") {
+        const candidateGames = [
+          {
+            matchId: "NA1_done_2v2",
+            championName: "Caitlyn",
+            result: "Loss",
+            queueLabel: "Ranked Solo/Duo",
+            kda: "2/4/5",
+            evaluationStatus: "current",
+            evaluationSummary: { deathCount: 4 },
+            topDeterministicSignals: [
+              { tag: "death_count", count: 4 },
+              { tag: "bot_lane_2v2_death", count: 2 },
+              { tag: "level_up_all_in_candidate", count: 1 }
+            ],
+            evaluationDeaths: [
+              { deathIndex: 1, tags: ["bot_lane_2v2_death"] },
+              { deathIndex: 2, laneDeathContext: "lane_2v2_death" },
+              { deathIndex: 3, tags: ["level_up_all_in_candidate"] },
+              { deathIndex: 4, tags: ["multi_enemy_collapse_candidate"] }
+            ],
+            triagedMomentCount: 4,
+            totalReviewMomentCount: 4,
+            reviewStatus: "triaged",
+            lastReviewedAt: "2026-06-09T02:00:00.000Z"
+          },
+          {
+            matchId: "NA1_done_shape",
+            championName: "Jinx",
+            result: "Loss",
+            queueLabel: "Ranked Solo/Duo",
+            kda: "1/1/3",
+            evaluationStatus: "current",
+            evaluationSummary: { deathCount: 1 },
+            evaluationDeaths: [{
+              deathIndex: 1,
+              fightShape: { enemyCount: 2, alliedCount: 2, notation: "2v2" }
+            }],
+            triagedMomentCount: 1,
+            totalReviewMomentCount: 1,
+            reviewStatus: "needs_manual_review"
+          },
+          {
+            matchId: "NA1_next",
+            championName: "Ashe",
+            result: "Win",
+            queueLabel: "Ranked Solo/Duo",
+            kda: "4/1/8",
+            evaluationStatus: "current",
+            evaluationSummary: { deathCount: 1 },
+            totalReviewMomentCount: 1,
+            reviewStatus: "not_started"
+          }
+        ];
+        return mockJsonResponse({
+          home: {
+            user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "ADC" } },
+            goalDashboard: {
+              activePersonalGoal: {
+                title: "Improve teamfight deaths",
+                role: "ADC",
+                evidenceSource: {},
+                weeklyTargets: [
+                  { label: "0 known gank deaths", signalId: "signal-known-danger-death", targetValue: 0 },
+                  { label: "0 2v2 deaths", signalId: "signal-bad-2v2-death", targetValue: 0 },
+                  { label: "0 bad pre-6 all-ins", signalId: "signal-bad-pre6-allin", targetValue: 0 }
+                ],
+                riotEvidence: {
+                  status: "all_recent_games_ready",
+                  recentGames: candidateGames,
+                  candidateGames,
+                  initialAssessment: {
+                    target: 3,
+                    completedMatchIds: ["NA1_done_2v2", "NA1_done_shape"],
+                    completedCount: 2,
+                    nextMatchId: "NA1_next",
+                    assessmentComplete: false,
+                    candidateGames
+                  }
+                }
+              },
+              todaysAction: {},
+              activeTeamFocus: {},
+              recentInsights: [],
+              suggestedNextSteps: []
+            }
+          }
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/");
+
+    await renderApp(document.querySelector("#app"));
+
+    const preview = document.querySelector(".weekly-target-preview-panel");
+    expect(preview?.textContent).toContain("Known-danger deaths: 5 so far");
+    expect(preview?.textContent).toContain("2v2 deaths: 3 so far");
+    expect(preview?.textContent).not.toContain("2v2 deaths: no reviewed evidence yet");
+    expect(preview?.textContent).not.toContain("Bad pre-6 all-ins");
+    expect(preview?.textContent).not.toContain("no reviewed evidence yet");
+    expect(preview?.textContent).not.toContain("known gank deaths");
+    expect(preview?.querySelectorAll(".target-list p")).toHaveLength(2);
+    expect(preview?.querySelectorAll(".target-list p").length).toBeLessThanOrEqual(3);
   });
 
   it("explains an assessment recommendation selected by review moment count", async () => {

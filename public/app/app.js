@@ -1778,6 +1778,95 @@ function initialAssessmentPattern(dashboardView) {
   };
 }
 
+const EARLY_TARGET_2V2_TAGS = new Set([
+  "signal-bad-2v2-death",
+  "bot_lane_2v2_death",
+  "lane_2v2_death"
+]);
+
+const EARLY_TARGET_PRE6_ALL_IN_TAGS = new Set([
+  "signal-bad-pre6-allin",
+  "bad_pre6_allin",
+  "bad_pre_6_allin",
+  "bad_pre6_all_in",
+  "bad_pre_6_all_in"
+]);
+
+function deterministicSignalEntriesForGame(game = {}) {
+  const sources = [];
+  const entriesFor = (sourceEntries) => {
+    const entries = [];
+    const appendEntry = (entry) => {
+      if (!entry || typeof entry !== "object") return;
+      const tag = entry.tag ?? entry.signalId ?? entry.id;
+      const count = Number(entry.count ?? entry.value ?? entry.currentValue);
+      if (tag && Number.isFinite(count)) {
+        entries.push({ tag, count: Math.max(0, count) });
+      }
+    };
+    (Array.isArray(sourceEntries) ? sourceEntries : []).forEach(appendEntry);
+    return entries;
+  };
+  const entriesForObject = (sourceObject) => {
+    const entries = [];
+    Object.entries(sourceObject ?? {}).forEach(([tag, count]) => {
+      const numericCount = Number(count);
+      if (Number.isFinite(numericCount)) {
+        entries.push({ tag, count: Math.max(0, numericCount) });
+      }
+    });
+    return entries;
+  };
+
+  sources.push(entriesFor(game.topDeterministicSignals));
+  sources.push(entriesFor(game.evaluationSummary?.topTags));
+  sources.push(entriesFor((Array.isArray(game.evaluationSummary?.reviewSignals) ? game.evaluationSummary.reviewSignals : [])
+    .filter((signal) => signal && typeof signal === "object")));
+  sources.push(entriesForObject(game.deterministicTagCounts ?? game.evaluationSummary?.deterministicTagCounts));
+
+  return sources.filter((entries) => entries.length > 0);
+}
+
+function deterministicSignalCount(game, tags) {
+  return deterministicSignalEntriesForGame(game).reduce((maxCount, entries) => {
+    const sourceCount = entries.reduce((sum, entry) =>
+      tags.has(entry.tag) ? sum + entry.count : sum, 0);
+    return Math.max(maxCount, sourceCount);
+  }, 0);
+}
+
+function gameDeathEvents(game = {}) {
+  if (Array.isArray(game.evaluationDeaths)) return game.evaluationDeaths;
+  if (Array.isArray(game.deathEvents)) return game.deathEvents;
+  return [];
+}
+
+function deathHasTag(death = {}, tags) {
+  const deathTags = new Set([
+    ...(Array.isArray(death.tags) ? death.tags : []),
+    death.signalId,
+    death.laneDeathContext,
+    death.fightShape?.id,
+    death.fightShape?.bucket
+  ].filter(Boolean));
+  return [...deathTags].some((tag) => tags.has(tag));
+}
+
+function deathHas2v2Evidence(death = {}) {
+  if (deathHasTag(death, EARLY_TARGET_2V2_TAGS)) return true;
+  const notation = String(death.fightShape?.notation ?? "").toLowerCase();
+  if (notation === "2v2") return true;
+  const enemyCount = Number(death.fightShape?.enemyCount ?? death.fightShape?.enemy);
+  const alliedCount = Number(death.fightShape?.alliedCount ?? death.fightShape?.allyCount ?? death.fightShape?.allies);
+  return enemyCount === 2 && alliedCount === 2;
+}
+
+function evidenceCountForGame(game, tags, deathPredicate = (death) => deathHasTag(death, tags)) {
+  const deterministicCount = deterministicSignalCount(game, tags);
+  const deathCount = gameDeathEvents(game).filter(deathPredicate).length;
+  return Math.max(deterministicCount, deathCount);
+}
+
 function initialAssessmentTargetRows(dashboardView) {
   const completedIds = new Set(dashboardView.initialAssessment?.completedMatchIds ?? []);
   const completedGames = (dashboardView.initialAssessment?.candidateGames ?? []).filter((game) =>
@@ -1788,12 +1877,20 @@ function initialAssessmentTargetRows(dashboardView) {
     game.lastReviewedAt
   );
   const knownDangerDeaths = completedGames.reduce((sum, game) => sum + reviewMomentCount(game), 0);
-  if (knownDangerDeaths <= 0) return [];
+  const twoVTwoDeaths = completedGames.reduce((sum, game) =>
+    sum + evidenceCountForGame(game, EARLY_TARGET_2V2_TAGS, deathHas2v2Evidence), 0);
+  const badPre6AllIns = completedGames.reduce((sum, game) =>
+    sum + evidenceCountForGame(game, EARLY_TARGET_PRE6_ALL_IN_TAGS), 0);
+
   return [
-    { label: "Known-danger deaths", value: `${knownDangerDeaths} so far` },
-    { label: "2v2 deaths", value: "no reviewed evidence yet" },
-    { label: "Bad pre-6 all-ins", value: "no reviewed evidence yet" }
-  ];
+    knownDangerDeaths > 0 ? { label: "Known-danger deaths", value: `${knownDangerDeaths} so far`, count: knownDangerDeaths } : null,
+    twoVTwoDeaths > 0 ? { label: "2v2 deaths", value: `${twoVTwoDeaths} so far`, count: twoVTwoDeaths } : null,
+    badPre6AllIns > 0 ? { label: "Bad pre-6 all-ins", value: `${badPre6AllIns} so far`, count: badPre6AllIns } : null
+  ]
+    .filter(Boolean)
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 3)
+    .map(({ label, value }) => ({ label, value }));
 }
 
 function canonicalSetupHref(context = getRouteContext()) {
