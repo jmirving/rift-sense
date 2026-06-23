@@ -7,6 +7,7 @@ import { createContentItemsRouter } from "./routes/content-items.js";
 import { createAuthRouter } from "./routes/auth.js";
 import { createDemoRouter } from "./routes/demo.js";
 import { createHomeRouter } from "./routes/home.js";
+import { createGoalPlanRouter } from "./routes/goal-plan.js";
 import { createMatchEvaluationsRouter } from "./routes/match-evaluations.js";
 import { createOnboardingRouter } from "./routes/onboarding.js";
 import { createSessionRouter } from "./routes/session.js";
@@ -132,6 +133,17 @@ export function createApp({
         requireAuth
       },
       goalTypesRepository,
+      userHomesRepository
+    })
+  );
+
+  app.use(
+    "/api/goal-plan",
+    createGoalPlanRouter({
+      config: {
+        ...config,
+        requireAuth
+      },
       userHomesRepository
     })
   );

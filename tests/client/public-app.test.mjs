@@ -28,9 +28,10 @@ function setupOptionsFixture() {
   return {
     templates: {
       goalTemplates: [{
-        id: "goal-reach-emerald",
-        title: "Reach Emerald",
+        id: "goal-template-rank-climb",
+        title: "Reach target rank",
         description: "Climb with consistency.",
+        configurableFields: ["startRank", "startDivision", "startLp", "targetRank", "targetDivision", "targetLp"],
         defaultFocusPath: ["die-less"]
       }],
       focusTemplates: [{
@@ -42,8 +43,14 @@ function setupOptionsFixture() {
         suggestedTargets: [{ id: "target-preventable-deaths", metricId: "preventable-deaths", operator: "<=", value: 2, window: "week", label: "Review solo deaths" }],
         defaultActionIds: ["review-deaths"]
       }],
-      signalTemplates: [{ id: "solo-death", label: "Solo deaths", polarity: "negative", description: "Deaths without reliable cover." }],
-      metricTemplates: [{ id: "preventable-deaths", label: "Preventable deaths", signalIds: ["solo-death"], aggregation: "count", defaultWindow: "week" }],
+      signalTemplates: [
+        { id: "solo-death", label: "Solo deaths", polarity: "negative", description: "Deaths without reliable cover." },
+        { id: "clean-disengage", label: "Clean disengage", polarity: "positive", description: "Backed away correctly." }
+      ],
+      metricTemplates: [
+        { id: "preventable-deaths", label: "Preventable deaths", signalIds: ["solo-death"], aggregation: "count", defaultWindow: "week" },
+        { id: "clean-disengages", label: "Clean disengages", signalIds: ["clean-disengage"], aggregation: "count", defaultWindow: "week" }
+      ],
       targetTemplates: [{ id: "target-preventable-deaths", metricId: "preventable-deaths", operator: "<=", value: 2, window: "week" }],
       actionTemplates: [{ id: "review-deaths", title: "Review deaths", linkedFocusTemplateIds: ["die-less"] }],
       teamFocusTemplates: [{
@@ -414,7 +421,7 @@ describe("public app routes", () => {
     const navText = document.querySelector("#nav-drawer")?.textContent ?? "";
     expect(navText).toContain("Dashboard");
     expect(navText).toContain("Review");
-    expect(navText).toContain("Focus Plan");
+    expect(navText).toContain("Goal Plan");
     expect(navText).toContain("Team Focus");
     expect(navText).toContain("Library");
     expect(navText).toContain("Training");
@@ -423,11 +430,11 @@ describe("public app routes", () => {
     expect(navText).not.toContain("Onboarding");
     expect(document.querySelector('.side-nav-link[href="/"]')?.textContent).toContain("Dashboard");
     expect(document.querySelector('.side-nav-link[href="/review"]')?.textContent).toContain("Review");
-    expect(document.querySelector('.side-nav-link[href="/focus-plan"]')?.textContent).toContain("Focus Plan");
+    expect(document.querySelector('.side-nav-link[href="/focus-plan"]')?.textContent).toContain("Goal Plan");
     expect(document.querySelectorAll('.side-nav-link[href="/goals"], .side-nav-link[href="/onboarding"]')).toHaveLength(0);
     expect(document.querySelectorAll('.side-nav-link[href="/team"], .side-nav-link[href="/team-focus"], .side-nav-link[href="/library"], .side-nav-link[href="/training"]')).toHaveLength(0);
-    expect(document.querySelector('.panel-slim a[href="/focus-plan"]')?.textContent).toBe("Open Focus Plan");
-    expect([...document.querySelectorAll('a[href="/focus-plan"]')].some((link) => link.textContent.includes("Edit Focus Plan") || link.textContent.includes("Open Focus Plan"))).toBe(true);
+    expect(document.querySelector('.panel-slim a[href="/focus-plan"]')?.textContent).toBe("Open Goal Plan");
+    expect([...document.querySelectorAll('a[href="/focus-plan"]')].some((link) => link.textContent.includes("Edit Goal Plan") || link.textContent.includes("Open Goal Plan"))).toBe(true);
     expect(document.querySelectorAll('a[href="/goals"], a[href="/onboarding"], a[href="/team"], a[href="/team-focus"], a[href="/library"], a[href="/training"]')).toHaveLength(0);
     expect(document.body.textContent).not.toContain("View Goals");
     expect(document.body.textContent).not.toContain("Start onboarding");
@@ -456,7 +463,7 @@ describe("public app routes", () => {
     expect(document.querySelector('.session-footer-link[href="/account"]')?.textContent).toBe("Open Nexus");
   });
 
-  it("renders Focus Plan as the canonical configuration page", async () => {
+  it("renders Goal Plan as the canonical configuration page", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
         return mockJsonResponse({
@@ -491,11 +498,35 @@ describe("public app routes", () => {
                 title: "Die Less",
                 role: "Bot",
                 scope: "personal",
+                selectedSignalIds: ["clean-disengage"],
+                selectedMetricIds: ["clean-disengages"],
+                rawTargets: [{ id: "custom-target", metricId: "preventable-deaths", operator: ">=", value: 4, window: "next_3_games", label: "Custom target" }],
                 riotEvidence: {
                   discoveredCount: 3,
                   evaluationReadyCount: 2,
                   candidateGames: [{ matchId: "NA1_ready" }]
                 }
+              },
+              focusPlan: {
+                goal: {
+                  title: "Reach Emerald IV",
+                  activeSince: "2026-06-20",
+                  original: { rank: "Gold", division: "II", lp: 34 },
+                  target: { rank: "Emerald", division: "IV", lp: 0 },
+                  current: { rank: "Gold", division: "I", lp: 12 },
+                  progress: { label: "178 LP gained toward 300 LP target" }
+                },
+                primaryFocus: {
+                  id: "focus-1",
+                  title: "Die Less",
+                  role: "Bot",
+                  focusTemplateId: "die-less",
+                  selectedSignalIds: ["clean-disengage"],
+                  selectedMetricIds: ["clean-disengages"],
+                  rawTargets: [{ id: "custom-target", metricId: "preventable-deaths", operator: ">=", value: 4, window: "next_3_games", label: "Custom target" }],
+                  selectedActionIds: ["review-deaths"]
+                },
+                allFocuses: [{ id: "focus-1", title: "Die Less", priority: "primary", status: "active" }]
               },
               activeTeamFocus: {
                 title: "Dragon setup",
@@ -513,9 +544,16 @@ describe("public app routes", () => {
     window.history.pushState({}, "", "/setup");
     await renderApp(document.querySelector("#app"));
     expect(window.location.pathname).toBe("/setup");
-    expect(document.body.textContent).toContain("Focus Plan");
-    expect(document.body.textContent).toContain("Current Focus details");
+    expect(document.body.textContent).toContain("Goal Plan");
+    expect(document.body.textContent).toContain("Reach Emerald IV");
+    expect(document.body.textContent).toContain("Current Focus");
     expect(document.body.textContent).toContain("Die Less");
+    expect(document.body.textContent).toContain("What RiftSense counts");
+    expect(document.querySelector('input[name="selectedSignalIds"][value="clean-disengage"]')?.checked).toBe(true);
+    expect(document.querySelector('input[name="selectedMetricIds"][value="clean-disengages"]')?.checked).toBe(true);
+    expect(document.querySelector('[name="targetOperator"]')?.value).toBe(">=");
+    expect(document.querySelector('[name="targetValue"]')?.value).toBe("4");
+    expect(document.querySelector('[name="targetWindow"]')?.value).toBe("next_3_games");
     expect(document.body.textContent).toContain("Review Data");
     expect(document.body.textContent).toContain("Nexus/Riot identity: 3nderWiggin#NA1");
     expect(document.body.textContent).toContain("Recent games discovered: 3 available");
@@ -524,8 +562,9 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Team Focus");
     expect(document.body.textContent).toContain("Dragon setup");
     expect(document.body.textContent).toContain("Should bot wave be dropped before dragon?");
-    expect(document.body.textContent).toContain("Saved team focus will be used when team workflows are ready.");
-    expect(document.body.textContent).toContain("Save Focus Plan");
+    expect(document.body.textContent).toContain("Team workflows are under construction. Saved team focus will be used later.");
+    expect(document.body.textContent).toContain("Save Goal Plan");
+    expect(document.body.textContent).not.toContain("Focus Plan");
     expect(document.body.textContent).not.toContain("Team focus seed");
     expect(document.body.textContent).not.toContain("Save setup");
     expect(document.body.textContent).not.toContain("Goal Settings");
@@ -533,7 +572,7 @@ describe("public app routes", () => {
     expect(document.body.textContent).not.toContain("Choose team focus");
   });
 
-  it("keeps old Goals and Onboarding URLs as Focus Plan compatibility only", async () => {
+  it("keeps old Goals and Onboarding URLs as Goal Plan compatibility only", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
         return mockJsonResponse({
@@ -565,13 +604,13 @@ describe("public app routes", () => {
 
     window.history.pushState({}, "", "/goals");
     await renderApp(document.querySelector("#app"));
-    expect(document.body.textContent).toContain("Focus Plan");
+    expect(document.body.textContent).toContain("Goal Plan");
     expect(document.querySelectorAll('a[href="/goals"], a[href="/onboarding"]')).toHaveLength(0);
 
     document.body.innerHTML = '<div id="app"></div>';
     window.history.pushState({}, "", "/onboarding");
     await renderApp(document.querySelector("#app"));
-    expect(document.body.textContent).toContain("Focus Plan");
+    expect(document.body.textContent).toContain("Goal Plan");
     expect(document.querySelectorAll('a[href="/goals"], a[href="/onboarding"]')).toHaveLength(0);
   });
 
@@ -667,8 +706,8 @@ describe("public app routes", () => {
     window.history.pushState({}, "", "/team");
     await renderApp(document.querySelector("#app"));
     expect(document.body.textContent).toContain("Team Focus");
-    expect(document.body.textContent).toContain("Team Focus is saved from Focus Plan until reviewed game evidence updates it.");
-    expect(document.querySelector('.team-focus-panel a[href="/focus-plan"]')?.textContent).toContain("Edit Focus Plan");
+    expect(document.body.textContent).toContain("Team Focus is saved from Goal Plan until reviewed game evidence updates it.");
+    expect(document.querySelector('.team-focus-panel a[href="/focus-plan"]')?.textContent).toContain("Edit Goal Plan");
 
     document.body.innerHTML = '<div id="app"></div>';
     window.history.pushState({}, "", "/library");
@@ -1943,7 +1982,7 @@ describe("public app routes", () => {
 
     expect(document.body.textContent).toContain("Review queue");
     expect(document.body.textContent).toContain("No review-ready games yet");
-    expect(document.querySelector('.button[href="/focus-plan"]')?.textContent).toContain("Edit Focus Plan");
+    expect(document.querySelector('.button[href="/focus-plan"]')?.textContent).toContain("Edit Goal Plan");
   });
 
   it("renders a review priority and death facts for a multi-death evaluated match", async () => {
@@ -3495,9 +3534,9 @@ describe("public app routes", () => {
       if (url === "/api/system-inventory") {
         return mockJsonResponse({
           taxonomy: {
-            goals: [{ id: "goal-reach-emerald", title: "Reach Emerald", defaultFocusPath: ["focus-die-less"], description: "Climb." }],
-            focuses: [{ id: "focus-die-less", title: "Die Less", category: "survivability", role: "ADC", defaultSignalIds: ["signal-known-danger-death"], defaultMetricIds: ["metric-known-danger-deaths-week"], suggestedTargets: [{ metricId: "metric-known-danger-deaths-week", operator: "<=", value: 0, window: "week" }], defaultActionIds: ["action-death-review-v1"] }],
-            signals: [{ id: "signal-known-danger-death", label: "Known-danger death", polarity: "negative", categories: ["survivability"], usedByFocusIds: ["focus-die-less"] }],
+            goals: [{ id: "goal-template-rank-climb", title: "Reach target rank", category: "ranked-climb", defaultFocusPath: ["focus-die-less"], description: "Climb." }],
+            focuses: [{ id: "focus-die-less", title: "Die Less", category: "survivability", role: "Bot", supportedGoalIds: ["goal-template-rank-climb"], defaultSignalIds: ["signal-known-danger-death"], defaultMetricIds: ["metric-known-danger-deaths-week"], suggestedTargets: [{ metricId: "metric-known-danger-deaths-week", operator: "<=", value: 0, window: "week" }], defaultActionIds: ["action-death-review-v1"] }],
+            signals: [{ id: "signal-known-danger-death", label: "Known-danger death", roles: ["Bot"], polarity: "negative", categories: ["survivability"], usedByFocusIds: ["focus-die-less"] }],
             metrics: [{ id: "metric-known-danger-deaths-week", label: "Known-danger deaths this week", signalIds: ["signal-known-danger-death"], aggregation: "count", defaultWindow: "week" }],
             targets: [{ metricId: "metric-known-danger-deaths-week", operator: "<=", value: 0, window: "week" }],
             actions: [{ id: "action-death-review-v1", title: "Review deaths", type: "review", linkedFocusTemplateIds: ["focus-die-less"] }]
@@ -3527,13 +3566,21 @@ describe("public app routes", () => {
     await renderApp(document.querySelector("#app"));
 
     expect(document.body.textContent).toContain("Training Taxonomy");
-    expect(document.body.textContent).toContain("Reach Emerald");
+    expect(document.body.textContent).toContain("Goal templates");
+    expect(document.body.textContent).toContain("Focus Library");
+    expect(document.body.textContent).toContain("Signal library");
+    expect(document.body.textContent).toContain("Metric library");
+    expect(document.body.textContent).toContain("Target templates");
+    expect(document.body.textContent).toContain("Action library");
+    expect(document.body.textContent).toContain("Reach target rank");
     expect(document.body.textContent).toContain("Die Less");
+    expect(document.body.textContent).toContain("Role compatibility");
     expect(document.body.textContent).toContain("Known-danger deaths this week");
     expect(document.body.textContent).toContain("Bot lane 2v1 punish");
     expect(document.body.textContent).toContain("deterministic match evaluation");
     expect(document.body.textContent).toContain("Dragon first spawn: 300s");
     expect(document.body.textContent).toContain("Scuttle first spawn: 175s");
+    expect(document.body.textContent).not.toContain("ADC Signals");
   });
 
   it("preserves a non-default selected pattern when marking reviewed or needs review", async () => {

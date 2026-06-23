@@ -403,7 +403,7 @@ describe("match evaluations API", () => {
 
     expect(response.status).toBe(200);
     expect(response.body.taxonomy.goals[0]).toMatchObject({
-      id: "goal-reach-emerald",
+      id: "goal-template-rank-climb",
       defaultFocusPath: expect.any(Array)
     });
     expect(response.body.taxonomy.focuses[0]).toMatchObject({

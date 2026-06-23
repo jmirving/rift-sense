@@ -1,22 +1,26 @@
 import "./model-docs.js";
+import { roleLabel } from "./roles.js";
 
 const goalTemplates = [
   {
-    id: "goal-reach-emerald",
-    title: "Reach Emerald",
+    id: "goal-template-rank-climb",
+    legacyIds: ["goal-reach-emerald"],
+    title: "Reach target rank",
     scope: "personal",
     category: "ranked-climb",
     description:
-      "Build the consistency, review habits, and game fundamentals needed to climb toward Emerald.",
+      "Climb from a starting rank to a chosen target rank.",
+    configurableFields: ["startRank", "startDivision", "startLp", "targetRank", "targetDivision", "targetLp"],
     defaultFocusPath: ["focus-die-less", "focus-farm-better", "focus-lane-better"]
   },
   {
-    id: "goal-reliable-adc",
-    title: "Become a reliable ADC",
+    id: "goal-role-reliability",
+    title: "Improve role reliability",
     scope: "personal",
     category: "role-mastery",
     description:
-      "Become a dependable bot-lane carry through safer deaths, stronger lane reads, and cleaner fights.",
+      "Improve role habits through measurable focus targets.",
+    configurableFields: ["role", "metricId", "operator", "value", "window"],
     defaultFocusPath: ["focus-die-less", "focus-lane-better", "focus-teamfight-better"]
   },
   {
@@ -35,7 +39,7 @@ const focusTemplates = [
     id: "focus-die-less",
     legacyGoalTemplateIds: ["goal-template-adc-die-less"],
     title: "Die Less",
-    role: "ADC",
+    role: "Bot",
     scope: "personal",
     category: "survivability",
     description:
@@ -110,7 +114,7 @@ const focusTemplates = [
     legacyGoalTemplateIds: ["goal-template-adc-trading"],
     title: "Lane Better",
     alternateTitles: ["Trade Better"],
-    role: "ADC",
+    role: "Bot",
     scope: "personal",
     category: "lane-phase",
     description:
@@ -144,7 +148,7 @@ const focusTemplates = [
   {
     id: "focus-farm-better",
     title: "Farm Better",
-    role: "ADC",
+    role: "Bot",
     scope: "personal",
     category: "farm",
     description: "Improve last-hitting and wave discipline without trading away health or tempo.",
@@ -571,6 +575,10 @@ const targetTemplates = focusTemplates.flatMap((template) =>
   }))
 );
 
+function normalizeRoleList(roles = []) {
+  return roles.map(roleLabel);
+}
+
 function focusIdsUsingSignal(signalId) {
   return focusTemplates
     .filter((template) => template.defaultSignalIds?.includes(signalId))
@@ -604,12 +612,28 @@ export const templateLibrary = {
 export function getTemplateLibrary() {
   return {
     goalTemplates: goalTemplates.map((template) => ({ ...template })),
-    focusTemplates: focusTemplates.map((template) => ({ ...template })),
-    signalTemplates: signalTemplates.map(enrichSignalTemplate),
+    focusTemplates: focusTemplates.map((template) => ({ ...template, role: roleLabel(template.role) })),
+    signalTemplates: signalTemplates.map((template) => {
+      const enriched = enrichSignalTemplate(template);
+      return {
+        ...enriched,
+        roles: normalizeRoleList(enriched.roles)
+      };
+    }),
     metricTemplates: metricTemplates.map((template) => ({ ...template })),
     targetTemplates: targetTemplates.map((template) => ({ ...template })),
-    actionTemplates: actionTemplates.map((template) => ({ ...template })),
-    contentTemplates: contentTemplates.map((template) => ({ ...template })),
+    actionTemplates: actionTemplates.map((template) => ({
+      ...template,
+      title: String(template.title ?? "").replace(/\bADC\b/g, "Bot"),
+      description: String(template.description ?? "").replace(/\bADC\b/g, "Bot")
+    })),
+    contentTemplates: contentTemplates.map((template) => ({
+      ...template,
+      title: String(template.title ?? "").replace(/\bADC\b/g, "Bot"),
+      roles: normalizeRoleList(template.roles ?? []),
+      body: String(template.body ?? "").replace(/\bADC\b/g, "Bot"),
+      summary: String(template.summary ?? "").replace(/\bADC\b/g, "Bot")
+    })),
     teamFocusTemplates: teamFocusTemplates.map((template) => ({ ...template }))
   };
 }

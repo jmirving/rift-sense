@@ -6,21 +6,21 @@ import { createTimingContext } from "../observability/timing.js";
 import { buildHomePayload } from "./home-response.js";
 
 function buildAuthenticatedEmptyHome(userId, identity) {
-  // TODO: Replace this minimal first-run state with a dedicated guided Focus Plan page.
+  // TODO: Replace this minimal first-run state with a dedicated guided Goal Plan page.
   return {
     id: userId,
     profile: {
       displayName: identity?.displayName ?? "RiftSense Player",
       teamName: null,
       primaryRole: null,
-      focusArea: "Focus Plan needed"
+      focusArea: "Goal Plan needed"
     },
     setupGuide: {
       status: "setup-needed",
-      title: "Focus Plan needed",
-      summary: "RiftSense does not have a goal or focus plan for this account yet.",
+      title: "Goal Plan needed",
+      summary: "RiftSense does not have a goal plan for this account yet.",
       href: "/focus-plan",
-      label: "Open Focus Plan"
+      label: "Open Goal Plan"
     },
     goalDashboard: {
       activePersonalGoal: {
@@ -28,17 +28,17 @@ function buildAuthenticatedEmptyHome(userId, identity) {
         scope: "Personal",
         role: null,
         status: "pending",
-        goalStatus: "Focus Plan needed",
+        goalStatus: "Goal Plan needed",
         goalStatusTrend: "unknown",
         trend: "Unknown",
         trendKey: "unknown",
-        confidence: "No Focus Plan yet",
-        progressSummary: "Create an initial Focus Plan to start collecting review evidence.",
+        confidence: "No Goal Plan yet",
+        progressSummary: "Create an initial Goal Plan to start collecting review evidence.",
         weeklyTargets: [],
         monthlyTargets: [],
         signals: [],
         evidenceSource: {
-          summary: "No Focus Plan yet.",
+          summary: "No Goal Plan yet.",
           confidence: "No reviewed games yet",
           confidenceTrend: "unknown",
           totalEvents: 0,
@@ -46,21 +46,21 @@ function buildAuthenticatedEmptyHome(userId, identity) {
         }
       },
       todaysAction: {
-        title: "Complete Focus Plan",
+        title: "Complete Goal Plan",
         estimatedMinutes: 10,
         href: "/focus-plan",
-        ctaLabel: "Open Focus Plan",
+        ctaLabel: "Open Goal Plan",
         steps: [
           "Choose a primary role.",
           "Select one goal.",
-          "Save the first active Focus Plan."
+          "Save the first active Goal Plan."
         ]
       },
       activeTeamFocus: {
         title: "No team focus configured",
         practiceTopic: "",
         assignedReview: "",
-        assignment: "Choose Focus Plan to add a team focus.",
+        assignment: "Choose Goal Plan to add a team focus.",
         signals: [],
         checklist: [],
         nextTeamAction: null,
@@ -77,12 +77,12 @@ function buildAuthenticatedEmptyHome(userId, identity) {
       suggestedNextSteps: [
         {
           id: "setup-riftsense-home",
-          title: "Save Focus Plan",
+          title: "Save Goal Plan",
           type: "focus-plan",
           estimatedMinutes: 10,
           summary: "Create your first goal, focus path, and team focus.",
-          reason: "RiftSense needs an initial Focus Plan before it can score games against your goals.",
-          label: "Focus Plan",
+          reason: "RiftSense needs an initial Goal Plan before it can score games against your goals.",
+          label: "Goal Plan",
           href: "/focus-plan",
           source: "focus-plan",
           priority: "high"

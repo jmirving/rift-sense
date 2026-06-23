@@ -1,6 +1,7 @@
 import { trendBySignalId, findById, indexById } from "./shared.js";
 import { templateLibrary } from "./templates.js";
 import { buildGoalProgress } from "./progress.js";
+import { roleLabel } from "./roles.js";
 
 function sumEvidenceBySignal(evidenceEvents = []) {
   const totals = new Map();
@@ -164,6 +165,55 @@ function resolveFocusTemplate(templateId) {
     null;
 }
 
+function resolveGoalTemplate(templateId) {
+  return findById(templateLibrary.goalTemplates, templateId) ??
+    templateLibrary.goalTemplates.find((template) => template.legacyIds?.includes(templateId)) ??
+    null;
+}
+
+function activeFocusInstance(instance) {
+  return instance && !["paused", "detached", "archived", "completed"].includes(instance.status);
+}
+
+function formatRankPoint(point) {
+  if (!point?.rank) {
+    return null;
+  }
+  return [point.rank, point.division, Number.isFinite(Number(point.lp)) ? `${Number(point.lp)} LP` : ""].filter(Boolean).join(" ");
+}
+
+function rankStepValue(point) {
+  const rankOrder = ["Iron", "Bronze", "Silver", "Gold", "Platinum", "Emerald", "Diamond", "Master", "Grandmaster", "Challenger"];
+  const divisionOrder = { IV: 0, III: 1, II: 2, I: 3 };
+  if (!point?.rank) {
+    return null;
+  }
+  const rankIndex = rankOrder.findIndex((rank) => rank.toLowerCase() === String(point.rank).toLowerCase());
+  if (rankIndex < 0) {
+    return null;
+  }
+  const divisionValue = divisionOrder[point.division] ?? 0;
+  return rankIndex * 400 + divisionValue * 100 + (Number(point.lp) || 0);
+}
+
+function buildRankProgress(goalInstance) {
+  const originalValue = rankStepValue(goalInstance?.original);
+  const currentValue = rankStepValue(goalInstance?.current);
+  const targetValue = rankStepValue(goalInstance?.target);
+  if (currentValue === null || targetValue === null || originalValue === null) {
+    return {
+      label: "Current rank not synced yet",
+      currentKnown: false
+    };
+  }
+  return {
+    label: `${Math.max(0, currentValue - originalValue)} LP gained toward ${Math.max(1, targetValue - originalValue)} LP target`,
+    currentKnown: true,
+    gainedLp: currentValue - originalValue,
+    requiredLp: targetValue - originalValue
+  };
+}
+
 function deriveFocusStage({ instance, evidenceEvents = [], reviewReadiness = {} }) {
   if (!instance) {
     return null;
@@ -307,14 +357,14 @@ export function resolveGoalDashboardState(state = {}, options = {}) {
     ? state.focusPlan.focusInstances
     : [];
   const primaryFocusInstance =
-    focusInstancesFromPlan.find((instance) => instance.priority === "primary" && instance.status !== "completed") ??
-    focusInstancesFromPlan.find((instance) => instance.status === "active") ??
+    focusInstancesFromPlan.find((instance) => instance.priority === "primary" && activeFocusInstance(instance)) ??
+    focusInstancesFromPlan.find((instance) => instance.status === "active" && activeFocusInstance(instance)) ??
     null;
   const goalInstance = primaryFocusInstance ?? state.activeGoalInstances?.[0] ?? null;
   const broadGoalInstance = state.focusPlan?.goalInstance ?? null;
   const teamFocusInstance = state.activeTeamFocusInstances?.[0] ?? null;
   const goalTemplate = broadGoalInstance
-    ? findById(templateLibrary.goalTemplates, broadGoalInstance.goalTemplateId)
+    ? resolveGoalTemplate(broadGoalInstance.goalTemplateId)
     : null;
   const focusTemplate = goalInstance
     ? resolveFocusTemplate(goalInstance.focusTemplateId ?? goalInstance.templateId)
@@ -416,40 +466,61 @@ export function resolveGoalDashboardState(state = {}, options = {}) {
       focusTemplateId: template.id,
       title: template.title,
       scope: template.scope,
-      role: template.role,
+      role: roleLabel(template.role),
       category: template.category,
       status: instance.status,
       priority: instance.priority ?? "primary",
       stage,
       stageLabel: stageLabel(stage),
       activeSince: instance.activeSince,
+      selectedAt: instance.selectedAt,
       summary: template.description,
       selectedMetricIds: instance.selectedMetricIds ?? template.defaultMetricIds ?? [],
+      selectedSignalIds: instance.selectedSignalIds ?? template.defaultSignalIds ?? [],
       targets: resolveMetricTargets(instance.targets ?? template.suggestedTargets ?? [], metricIndex, evidenceTotals),
+      rawTargets: instance.targets ?? template.suggestedTargets ?? [],
       weeklyTargets: resolveTargets(instance.weeklyTargets ?? template.suggestedWeeklyTargets ?? [], signalIndex, evidenceTotals),
       signals: resolveSignals(instance.selectedSignalIds ?? template.defaultSignalIds ?? [], signalIndex, evidenceTotals),
-      selectedActionIds: instance.selectedActionIds ?? template.defaultActionIds ?? []
+      selectedActionIds: instance.selectedActionIds ?? template.defaultActionIds ?? [],
+      originalSelectedMetricIds: instance.originalSelectedMetricIds ?? [],
+      originalTargets: instance.originalTargets ?? [],
+      originalSelectedSignalIds: instance.originalSelectedSignalIds ?? []
     };
   }).filter(Boolean);
+  const broadGoalProgress = buildRankProgress(broadGoalInstance);
   const focusPlan = {
     goal: goalTemplate
       ? {
           id: broadGoalInstance?.id ?? goalTemplate.id,
           templateId: goalTemplate.id,
-          title: goalTemplate.title,
+          title: broadGoalInstance?.target?.rank
+            ? `Reach ${[broadGoalInstance.target.rank, broadGoalInstance.target.division].filter(Boolean).join(" ")}`
+            : goalTemplate.title,
           status: broadGoalInstance?.status ?? "active",
           activeSince: broadGoalInstance?.activeSince,
           summary: goalTemplate.description,
-          defaultFocusPath: goalTemplate.defaultFocusPath ?? []
+          defaultFocusPath: goalTemplate.defaultFocusPath ?? [],
+          original: broadGoalInstance?.original ?? null,
+          target: broadGoalInstance?.target ?? null,
+          current: broadGoalInstance?.current ?? null,
+          originalRole: roleLabel(broadGoalInstance?.originalRole),
+          originalPrimaryFocusTemplateId: broadGoalInstance?.originalPrimaryFocusTemplateId,
+          originalSelectedMetricIds: broadGoalInstance?.originalSelectedMetricIds ?? [],
+          originalTargets: broadGoalInstance?.originalTargets ?? [],
+          originalSelectedDate: broadGoalInstance?.originalSelectedDate,
+          targetLabel: formatRankPoint(broadGoalInstance?.target) ? `Reach ${formatRankPoint(broadGoalInstance?.target).replace(/\s0 LP$/, "")}` : null,
+          originalLabel: formatRankPoint(broadGoalInstance?.original),
+          currentLabel: formatRankPoint(broadGoalInstance?.current),
+          progress: broadGoalProgress
         }
       : null,
-    primaryFocus: resolvedFocusInstances.find((focus) => focus.priority === "primary") ??
-      resolvedFocusInstances.find((focus) => focus.status === "active") ??
+    primaryFocus: resolvedFocusInstances.find((focus) => focus.priority === "primary" && activeFocusInstance(focus)) ??
+      resolvedFocusInstances.find((focus) => focus.status === "active" && activeFocusInstance(focus)) ??
       null,
-    supportingFocuses: resolvedFocusInstances.filter((focus) => focus.priority === "supporting"),
-    laterFocuses: resolvedFocusInstances.filter((focus) => focus.priority === "later" || focus.status === "later"),
-    pausedFocuses: resolvedFocusInstances.filter((focus) => focus.priority === "paused" || focus.status === "paused"),
-    allFocuses: resolvedFocusInstances,
+    supportingFocuses: resolvedFocusInstances.filter((focus) => focus.priority === "supporting" && activeFocusInstance(focus)),
+    laterFocuses: resolvedFocusInstances.filter((focus) => (focus.priority === "later" || focus.status === "later") && activeFocusInstance(focus)),
+    pausedFocuses: resolvedFocusInstances.filter((focus) => focus.priority === "paused" || focus.status === "paused" || focus.status === "detached"),
+    allFocuses: resolvedFocusInstances.filter((focus) => focus.status !== "archived" && focus.status !== "detached"),
     stage: primaryStage,
     nextAction: todaysAction,
     reviewReadiness
@@ -461,10 +532,10 @@ export function resolveGoalDashboardState(state = {}, options = {}) {
         templateId: focusTemplate?.id ?? legacyGoalTemplate.id,
         focusTemplateId: focusTemplate?.id ?? legacyGoalTemplate.id,
         goalTemplateId: goalTemplate?.id ?? goalInstance.goalTemplateId,
-        broadGoalTitle: goalTemplate?.title ?? null,
+        broadGoalTitle: focusPlan.goal?.targetLabel ?? goalTemplate?.title ?? null,
         title: focusTemplate?.title ?? legacyGoalTemplate.title,
         scope: focusTemplate?.scope ?? legacyGoalTemplate.scope,
-        role: focusTemplate?.role ?? legacyGoalTemplate.role,
+        role: roleLabel(focusTemplate?.role ?? legacyGoalTemplate.role),
         category: focusTemplate?.category ?? legacyGoalTemplate.category,
         status: goalInstance.status,
         priority: goalInstance.priority ?? "primary",
@@ -539,7 +610,7 @@ export function resolveGoalDashboardState(state = {}, options = {}) {
         estimatedMinutes: action.estimatedMinutes,
         summary: action.description,
         reason: recommendation.reason,
-        label: recommendation.linkedTeamFocusInstanceId ? "Team focus" : "Personal goal",
+        label: recommendation.linkedTeamFocusInstanceId ? "Team focus" : "Current focus",
         href: action.href,
         source: recommendation.linkedTeamFocusInstanceId ? "team-focus" : "personal-goal",
         priority: recommendation.priority

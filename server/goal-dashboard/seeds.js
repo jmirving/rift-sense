@@ -1,10 +1,26 @@
 import { templateLibrary } from "./templates.js";
 import { findById, normalizeStringArray, slug, todayIsoDate } from "./shared.js";
+import { normalizeRoleForStorage } from "./roles.js";
+
+function findGoalTemplate(id) {
+  return findById(templateLibrary.goalTemplates, id) ??
+    templateLibrary.goalTemplates.find((template) => template.legacyIds?.includes(id)) ??
+    null;
+}
+
+function rankSnapshot({ rank, division, lp, capturedAt }) {
+  return {
+    rank: rank || null,
+    division: division || null,
+    lp: Number.isFinite(Number(lp)) ? Number(lp) : null,
+    capturedAt
+  };
+}
 
 export function buildDefaultGoalDashboardState(now = new Date()) {
   const activeSince = todayIsoDate(now);
   const focusTemplate = findById(templateLibrary.focusTemplates, "focus-die-less");
-  const goalTemplate = findById(templateLibrary.goalTemplates, "goal-reach-emerald");
+  const goalTemplate = findGoalTemplate("goal-template-rank-climb");
 
   return {
     version: 2,
@@ -14,7 +30,15 @@ export function buildDefaultGoalDashboardState(now = new Date()) {
         goalTemplateId: goalTemplate.id,
         ownerId: "player-3nderwiggin",
         status: "active",
-        activeSince
+        activeSince,
+        original: rankSnapshot({ rank: "Gold", division: "II", lp: 34, capturedAt: activeSince }),
+        target: rankSnapshot({ rank: "Emerald", division: "IV", lp: 0, capturedAt: activeSince }),
+        current: rankSnapshot({ rank: "Gold", division: "I", lp: 12, capturedAt: activeSince }),
+        originalRole: "Bot",
+        originalPrimaryFocusTemplateId: focusTemplate.id,
+        originalSelectedMetricIds: focusTemplate.defaultMetricIds,
+        originalTargets: focusTemplate.suggestedTargets,
+        originalSelectedDate: activeSince
       },
       focusInstances: [
         {
@@ -29,7 +53,11 @@ export function buildDefaultGoalDashboardState(now = new Date()) {
           selectedMetricIds: focusTemplate.defaultMetricIds,
           targets: focusTemplate.suggestedTargets.map((target) => ({ ...target, selectedAt: activeSince })),
           selectedActionIds: ["action-death-review-v1"],
-          activeSince
+          activeSince,
+          selectedAt: activeSince,
+          originalSelectedMetricIds: focusTemplate.defaultMetricIds,
+          originalTargets: focusTemplate.suggestedTargets,
+          originalSelectedSignalIds: focusTemplate.defaultSignalIds
         },
         {
           id: "focus-instance-3nder-farm-better",
@@ -43,7 +71,11 @@ export function buildDefaultGoalDashboardState(now = new Date()) {
           selectedMetricIds: ["metric-cs-missed-while-present"],
           targets: [],
           selectedActionIds: ["action-death-review-v1"],
-          activeSince
+          activeSince,
+          selectedAt: activeSince,
+          originalSelectedMetricIds: ["metric-cs-missed-while-present"],
+          originalTargets: [],
+          originalSelectedSignalIds: ["signal-cs-missed-while-present"]
         }
       ]
     },
@@ -52,7 +84,7 @@ export function buildDefaultGoalDashboardState(now = new Date()) {
         id: "active-goal-3nder-adc-die-less",
         templateId: "focus-die-less",
         focusTemplateId: "focus-die-less",
-        goalTemplateId: "goal-reach-emerald",
+        goalTemplateId: "goal-template-rank-climb",
         ownerType: "player",
         ownerId: "player-3nderwiggin",
         status: "active",
@@ -170,7 +202,7 @@ export function buildDefaultGoalDashboardState(now = new Date()) {
         id: "recommendation-review-deaths",
         actionTemplateId: "action-death-review-v1",
         reason:
-          "Your active goal is Die Less, and recent evidence includes preventable death patterns.",
+          "Your current focus is Die Less, and recent evidence includes preventable death patterns.",
         linkedGoalInstanceId: "active-goal-3nder-adc-die-less",
         priority: "high"
       },
@@ -209,17 +241,21 @@ export function buildOnboardingGoalDashboardState({
   weeklyTargets,
   selectedActionTemplateId,
   selectedTeamFocusTemplateId,
+  goalTarget,
+  goalOriginal,
+  goalCurrent,
   now = new Date()
 }) {
   const activeSince = todayIsoDate(now);
+  const storedRole = normalizeRoleForStorage(role);
   const setupContext = ["personal", "team", "both"].includes(context) ? context : "personal";
   const shouldCreatePersonal = setupContext === "personal" || setupContext === "both";
   const shouldCreateTeam = setupContext === "team" || setupContext === "both";
-  const selectedBroadGoal = findById(templateLibrary.goalTemplates, selectedGoalTemplateId);
+  const selectedBroadGoal = findGoalTemplate(selectedGoalTemplateId);
   const legacyFocusFromGoalId = findById(templateLibrary.focusTemplates, selectedGoalTemplateId) ??
     templateLibrary.focusTemplates.find((template) => template.legacyGoalTemplateIds?.includes(selectedGoalTemplateId));
   const goalTemplate = shouldCreatePersonal
-    ? selectedBroadGoal ?? findById(templateLibrary.goalTemplates, "goal-reach-emerald") ?? templateLibrary.goalTemplates[0]
+    ? selectedBroadGoal ?? findGoalTemplate("goal-template-rank-climb") ?? templateLibrary.goalTemplates[0]
     : null;
   const primaryFocusTemplate = shouldCreatePersonal
     ? findById(templateLibrary.focusTemplates, primaryFocusTemplateId) ??
@@ -241,6 +277,21 @@ export function buildOnboardingGoalDashboardState({
     : null;
   const selectedGoalSignals = normalizeStringArray(selectedSignalIds);
   const selectedGoalMetrics = normalizeStringArray(selectedMetricIds);
+  const originalRank = rankSnapshot({
+    rank: goalOriginal?.rank ?? goalTarget?.startRank ?? "Gold",
+    division: goalOriginal?.division ?? goalTarget?.startDivision ?? "II",
+    lp: goalOriginal?.lp ?? goalTarget?.startLp ?? 34,
+    capturedAt: goalOriginal?.capturedAt ?? activeSince
+  });
+  const targetRank = rankSnapshot({
+    rank: goalTarget?.rank ?? goalTarget?.targetRank ?? "Emerald",
+    division: goalTarget?.division ?? goalTarget?.targetDivision ?? "IV",
+    lp: goalTarget?.lp ?? goalTarget?.targetLp ?? 0,
+    capturedAt: goalTarget?.capturedAt ?? activeSince
+  });
+  const currentRank = goalCurrent
+    ? rankSnapshot({ ...goalCurrent, capturedAt: goalCurrent.capturedAt ?? activeSince })
+    : rankSnapshot({ rank: null, division: null, lp: null, capturedAt: null });
   const actionTemplateId =
     selectedActionTemplateId ??
     primaryFocusTemplate?.defaultActionIds?.[0] ??
@@ -274,7 +325,19 @@ export function buildOnboardingGoalDashboardState({
       ? normalizedTargets
       : template.suggestedTargets?.map((target) => ({ ...target, selectedAt: activeSince })) ?? [],
     selectedActionIds: priority === "primary" ? [actionTemplateId] : template.defaultActionIds ?? [],
-    activeSince
+    activeSince,
+    selectedAt: activeSince,
+    originalSelectedMetricIds:
+      priority === "primary" && selectedGoalMetrics.length > 0
+        ? selectedGoalMetrics
+        : template.defaultMetricIds ?? [],
+    originalTargets: priority === "primary"
+      ? normalizedTargets
+      : template.suggestedTargets?.map((target) => ({ ...target, selectedAt: activeSince })) ?? [],
+    originalSelectedSignalIds:
+      priority === "primary" && selectedGoalSignals.length > 0
+        ? selectedGoalSignals
+        : template.defaultSignalIds
   });
   const focusInstances = shouldCreatePersonal && primaryFocusTemplate
     ? [
@@ -297,7 +360,7 @@ export function buildOnboardingGoalDashboardState({
   return {
     version: 2,
     onboardingContext: setupContext,
-    role,
+    role: storedRole,
     focusPlan:
       shouldCreatePersonal && goalTemplate
         ? {
@@ -306,7 +369,17 @@ export function buildOnboardingGoalDashboardState({
               goalTemplateId: goalTemplate.id,
               ownerId,
               status: "active",
-              activeSince
+              activeSince,
+              original: originalRank,
+              target: targetRank,
+              current: currentRank,
+              originalRole: storedRole,
+              originalPrimaryFocusTemplateId: primaryFocusTemplate?.id,
+              originalSelectedMetricIds: selectedGoalMetrics.length > 0
+                ? selectedGoalMetrics
+                : primaryFocusTemplate?.defaultMetricIds ?? [],
+              originalTargets: normalizedTargets,
+              originalSelectedDate: activeSince
             },
             focusInstances
           }

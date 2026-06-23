@@ -264,7 +264,7 @@ describe("home API", () => {
       status: "setup-needed",
       href: "/focus-plan"
     });
-    expect(response.body.home.goalDashboard.activePersonalGoal.goalStatus).toBe("Focus Plan needed");
+    expect(response.body.home.goalDashboard.activePersonalGoal.goalStatus).toBe("Goal Plan needed");
     expect(response.body.home.goalDashboard.todaysAction.href).toBe("/focus-plan");
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("riot_account_not_linked");
   });
@@ -1091,7 +1091,7 @@ describe("home API", () => {
     const response = await request(app).get("/api/onboarding/options");
 
     expect(response.status).toBe(200);
-    expect(response.body.templates.goalTemplates[0].id).toBe("goal-reach-emerald");
+    expect(response.body.templates.goalTemplates[0].id).toBe("goal-template-rank-climb");
     expect(response.body.templates.focusTemplates[0].id).toBe("focus-die-less");
     expect(response.body.templates.signalTemplates[0].id).toBe("signal-known-danger-death");
     expect(response.body.templates.metricTemplates[0].id).toBe("metric-known-danger-deaths-week");
@@ -1135,14 +1135,85 @@ describe("home API", () => {
       });
 
     expect(saveResponse.status).toBe(201);
-    expect(saveResponse.body.goalDashboard.focusPlan.goal.templateId).toBe("goal-reach-emerald");
+    expect(saveResponse.body.goalDashboard.focusPlan.goal.templateId).toBe("goal-template-rank-climb");
     expect(saveResponse.body.goalDashboard.focusPlan.primaryFocus.templateId).toBe("focus-die-less");
     expect(saveResponse.body.goalDashboard.activePersonalGoal.templateId).toBe("focus-die-less");
 
     const savedHome = await app.locals.testRepositories.userHomesRepository.getUserHome("usr_demo_home");
-    expect(savedHome.goalDashboard.focusPlan.goalInstance.goalTemplateId).toBe("goal-reach-emerald");
+    expect(savedHome.goalDashboard.focusPlan.goalInstance.goalTemplateId).toBe("goal-template-rank-climb");
+    expect(savedHome.profile.primaryRole).toBe("Bot");
     expect(savedHome.goalDashboard.focusPlan.focusInstances[0].focusTemplateId).toBe("focus-die-less");
     expect(savedHome.goalDashboard.activeGoalInstances[0].templateId).toBe("focus-die-less");
+  });
+
+  it("stores configurable ranked goal baseline and editable metric targets", async () => {
+    const app = await createTestApp();
+
+    const saveResponse = await request(app)
+      .post("/api/onboarding")
+      .send({
+        context: "personal",
+        role: "Bot",
+        selectedGoalTemplateId: "goal-template-rank-climb",
+        primaryFocusTemplateId: "focus-die-less",
+        selectedSignalIds: ["signal-known-danger-death", "signal-clean-disengage"],
+        selectedMetricIds: ["metric-known-danger-deaths-week"],
+        goalOriginal: { rank: "Gold", division: "II", lp: 34 },
+        goalTarget: { rank: "Diamond", division: "IV", lp: 22 },
+        targets: [
+          {
+            id: "custom-known-danger",
+            metricId: "metric-known-danger-deaths-week",
+            operator: ">=",
+            value: 4,
+            window: "next_3_games"
+          }
+        ],
+        selectedActionTemplateId: "action-death-review-v1"
+      });
+
+    expect(saveResponse.status).toBe(201);
+
+    const savedHome = await app.locals.testRepositories.userHomesRepository.getUserHome("usr_demo_home");
+    expect(savedHome.profile.primaryRole).toBe("Bot");
+    expect(savedHome.goalDashboard.focusPlan.goalInstance).toMatchObject({
+      goalTemplateId: "goal-template-rank-climb",
+      original: { rank: "Gold", division: "II", lp: 34 },
+      target: { rank: "Diamond", division: "IV", lp: 22 },
+      originalRole: "Bot",
+      originalPrimaryFocusTemplateId: "focus-die-less",
+      originalSelectedMetricIds: ["metric-known-danger-deaths-week"]
+    });
+    expect(savedHome.goalDashboard.focusPlan.focusInstances[0]).toMatchObject({
+      originalSelectedSignalIds: ["signal-known-danger-death", "signal-clean-disengage"],
+      originalSelectedMetricIds: ["metric-known-danger-deaths-week"],
+      targets: [
+        expect.objectContaining({
+          id: "custom-known-danger",
+          operator: ">=",
+          value: 4,
+          window: "next_3_games"
+        })
+      ]
+    });
+  });
+
+  it("normalizes legacy ADC role to Bot on onboarding save", async () => {
+    const app = await createTestApp();
+
+    const response = await request(app)
+      .post("/api/onboarding")
+      .send({
+        context: "personal",
+        role: "ADC",
+        selectedGoalTemplateId: "goal-template-rank-climb",
+        primaryFocusTemplateId: "focus-die-less"
+      });
+
+    expect(response.status).toBe(201);
+    const savedHome = await app.locals.testRepositories.userHomesRepository.getUserHome("usr_demo_home");
+    expect(savedHome.profile.primaryRole).toBe("Bot");
+    expect(savedHome.goalDashboard.role).toBe("Bot");
   });
 
   it("saves onboarding to the authenticated user when auth is enabled", async () => {
@@ -1159,7 +1230,7 @@ describe("home API", () => {
       .send({
         context: "personal",
         role: "Support",
-        selectedGoalTemplateId: "goal-reliable-adc",
+        selectedGoalTemplateId: "goal-template-rank-climb",
         primaryFocusTemplateId: "focus-die-less",
         supportingFocusTemplateIds: ["focus-lane-better"],
         laterFocusTemplateIds: ["focus-teamfight-better"],
@@ -1187,7 +1258,7 @@ describe("home API", () => {
     });
     expect(savedHome.profile.teamName).not.toBe("Local Demo Squad");
     expect(savedHome.profile.focusArea).not.toBe("Template-backed onboarding");
-    expect(savedHome.goalDashboard.focusPlan.goalInstance.goalTemplateId).toBe("goal-reliable-adc");
+    expect(savedHome.goalDashboard.focusPlan.goalInstance.goalTemplateId).toBe("goal-template-rank-climb");
     expect(savedHome.goalDashboard.focusPlan.focusInstances.map((focus) => focus.focusTemplateId)).toEqual([
       "focus-die-less",
       "focus-lane-better",
@@ -1253,7 +1324,7 @@ describe("home API", () => {
       focusPlan: {
         goalInstance: {
           id: "goal-instance-test",
-          goalTemplateId: "goal-reach-emerald",
+          goalTemplateId: "goal-template-rank-climb",
           ownerId: "usr_test",
           status: "active",
           activeSince: "2026-06-23"
@@ -1293,12 +1364,67 @@ describe("home API", () => {
       recommendations: []
     });
 
-    expect(resolved.focusPlan.goal.title).toBe("Reach Emerald");
+    expect(resolved.focusPlan.goal.title).toBe("Reach target rank");
     expect(resolved.focusPlan.primaryFocus.id).toBe("focus-primary");
     expect(resolved.focusPlan.supportingFocuses[0].id).toBe("focus-supporting");
     expect(resolved.activePersonalGoal.id).toBe("focus-primary");
     expect(resolved.activePersonalGoal.title).toBe("Die Less");
     expect(resolved.activePersonalGoal.stage).toBe("initial_assessment");
+  });
+
+  it("does not promote paused or detached focuses to primary", () => {
+    const resolved = resolveGoalDashboardState({
+      version: 2,
+      focusPlan: {
+        goalInstance: {
+          id: "goal-instance-test",
+          goalTemplateId: "goal-template-rank-climb",
+          ownerId: "usr_test",
+          status: "active",
+          activeSince: "2026-06-23"
+        },
+        focusInstances: [
+          {
+            id: "focus-paused-primary",
+            focusTemplateId: "focus-die-less",
+            ownerType: "player",
+            ownerId: "usr_test",
+            status: "paused",
+            priority: "primary",
+            selectedSignalIds: ["signal-known-danger-death"],
+            selectedMetricIds: ["metric-known-danger-deaths-week"],
+            targets: []
+          },
+          {
+            id: "focus-active-supporting",
+            focusTemplateId: "focus-farm-better",
+            ownerType: "player",
+            ownerId: "usr_test",
+            status: "active",
+            priority: "supporting",
+            selectedSignalIds: ["signal-cs-missed-while-present"],
+            selectedMetricIds: ["metric-cs-missed-while-present"],
+            targets: []
+          },
+          {
+            id: "focus-detached",
+            focusTemplateId: "focus-lane-better",
+            ownerType: "player",
+            ownerId: "usr_test",
+            status: "detached",
+            priority: "detached",
+            selectedSignalIds: ["signal-bad-trade-read"],
+            selectedMetricIds: [],
+            targets: []
+          }
+        ]
+      },
+      evidenceEvents: [],
+      recommendations: []
+    });
+
+    expect(resolved.focusPlan.primaryFocus.id).toBe("focus-active-supporting");
+    expect(resolved.focusPlan.allFocuses.map((focus) => focus.id)).not.toContain("focus-detached");
   });
 
   it("does not mutate authenticated user homes from demo routes", async () => {

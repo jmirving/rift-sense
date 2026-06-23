@@ -7,9 +7,12 @@ import {
 } from "../goal-dashboard.js";
 import { getSystemGoalTypes } from "../goal-types/system-goal-types.js";
 import { badRequest } from "../errors.js";
+import { normalizeRoleForStorage } from "../goal-dashboard/roles.js";
 
 const VALID_CONTEXTS = new Set(["personal", "team", "both"]);
-const VALID_ROLES = new Set(["Top", "Jungle", "Mid", "ADC", "Support", "Multiple"]);
+const VALID_ROLES = new Set(["Top", "Jungle", "Mid", "ADC", "BOTTOM", "Bot", "Support", "Multiple"]);
+const VALID_TARGET_OPERATORS = new Set(["<=", ">=", "<", ">", "="]);
+const VALID_TARGET_WINDOWS = new Set(["today", "week", "next_3_games", "focus_lifetime", "game"]);
 
 function normalizeNonEmptyString(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -46,11 +49,11 @@ function resolveSelectedFocusArea({ context, library, selectedGoalTemplateId, pr
 
 function validateTemplateIds(body, library) {
   const context = VALID_CONTEXTS.has(body.context) ? body.context : "personal";
-  const role = VALID_ROLES.has(body.role) ? body.role : "ADC";
+  const role = VALID_ROLES.has(body.role) ? normalizeRoleForStorage(body.role) : "Bot";
   const shouldCreatePersonal = context === "personal" || context === "both";
   const shouldCreateTeam = context === "team" || context === "both";
   const goalTemplate = library.goalTemplates.find(
-    (template) => template.id === body.selectedGoalTemplateId
+    (template) => template.id === body.selectedGoalTemplateId || template.legacyIds?.includes(body.selectedGoalTemplateId)
   );
   const legacyFocusTemplate = library.focusTemplates.find(
     (template) => template.id === body.selectedGoalTemplateId || template.legacyGoalTemplateIds?.includes(body.selectedGoalTemplateId)
@@ -143,16 +146,31 @@ function validateTemplateIds(body, library) {
     targets: targets.map((target) => ({
       id: target.id,
       metricId: target.metricId,
-      operator: target.operator ?? "<=",
+      operator: VALID_TARGET_OPERATORS.has(target.operator) ? target.operator : "<=",
       value: Number(target.value ?? target.targetValue),
-      window: target.window ?? "week",
-      label: target.label
+      window: VALID_TARGET_WINDOWS.has(target.window) ? target.window : "week",
+      label: target.label,
+      enabled: target.enabled !== false
     })),
     weeklyTargets: weeklyTargets.map((target) => ({
       signalId: target.signalId,
       targetValue: Number(target.targetValue),
       label: target.label
-    }))
+    })),
+    goalTarget: {
+      rank: normalizeNonEmptyString(body.goalTarget?.rank ?? body.goalTarget?.targetRank),
+      division: normalizeNonEmptyString(body.goalTarget?.division ?? body.goalTarget?.targetDivision),
+      lp: Number.isFinite(Number(body.goalTarget?.lp ?? body.goalTarget?.targetLp))
+        ? Number(body.goalTarget?.lp ?? body.goalTarget?.targetLp)
+        : null
+    },
+    goalOriginal: {
+      rank: normalizeNonEmptyString(body.goalOriginal?.rank ?? body.goalOriginal?.startRank),
+      division: normalizeNonEmptyString(body.goalOriginal?.division ?? body.goalOriginal?.startDivision),
+      lp: Number.isFinite(Number(body.goalOriginal?.lp ?? body.goalOriginal?.startLp))
+        ? Number(body.goalOriginal?.lp ?? body.goalOriginal?.startLp)
+        : null
+    }
   };
 }
 
