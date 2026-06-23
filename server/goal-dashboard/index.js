@@ -2,6 +2,7 @@ export { getTemplateLibrary } from "./templates.js";
 export { buildDefaultGoalDashboardState, buildOnboardingGoalDashboardState } from "./seeds.js";
 export { resolveGoalDashboardState } from "./resolve.js";
 export { normalizeGoalDashboard } from "./normalize.js";
+export { buildGoalProgress } from "./progress.js";
 export {
   evaluateEvidenceGoalMatch,
   linkParsedEvidenceToGoals,

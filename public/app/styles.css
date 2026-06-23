@@ -916,6 +916,9 @@ body.auth-page.nav-collapsed {
 .target-chip,
 .team-focus-meta,
 .target-list,
+.progress-panel,
+.progress-age-grid,
+.progress-window,
 .action-step-list,
 .team-checklist,
 .onboarding-flow,
@@ -930,6 +933,45 @@ body.auth-page.nav-collapsed {
 .review-tag-grid {
   display: grid;
   gap: 16px;
+}
+
+.active-goal-age {
+  margin: 0;
+  color: var(--muted);
+}
+
+.progress-age-grid {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.progress-age-grid > div,
+.progress-window {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.progress-age-grid p,
+.progress-window p {
+  margin: 0;
+}
+
+.progress-window-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.progress-window h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.progress-window-value {
+  font-weight: 700;
 }
 
 .goal-dashboard-stack {

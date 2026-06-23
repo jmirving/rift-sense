@@ -14,10 +14,11 @@ export function buildDefaultGoalDashboardState(now = new Date()) {
         ownerId: "player-3nderwiggin",
         status: "active",
         activeSince,
+        activeGoalStartedAt: activeSince,
         weeklyTargets: [
-          { signalId: "signal-bad-2v2-death", targetValue: 0, currentValue: 0 },
-          { signalId: "signal-known-danger-death", targetValue: 0 },
-          { signalId: "signal-bad-pre6-allin", targetValue: 0 }
+          { signalId: "signal-bad-2v2-death", targetValue: 0, currentValue: 0, selectedAt: activeSince },
+          { signalId: "signal-known-danger-death", targetValue: 0, selectedAt: activeSince },
+          { signalId: "signal-bad-pre6-allin", targetValue: 0, selectedAt: activeSince }
         ],
         selectedSignalIds: [
           "signal-known-danger-death",
@@ -198,9 +199,10 @@ export function buildOnboardingGoalDashboardState({
               ownerId,
               status: "active",
               activeSince,
+              activeGoalStartedAt: activeSince,
               weeklyTargets: Array.isArray(weeklyTargets) && weeklyTargets.length > 0
-                ? weeklyTargets
-                : goalTemplate.suggestedWeeklyTargets ?? [],
+                ? weeklyTargets.map((target) => ({ ...target, selectedAt: target.selectedAt ?? activeSince }))
+                : (goalTemplate.suggestedWeeklyTargets ?? []).map((target) => ({ ...target, selectedAt: activeSince })),
               selectedSignalIds:
                 selectedGoalSignals.length > 0
                   ? selectedGoalSignals

@@ -1,5 +1,6 @@
 import { trendBySignalId, findById, indexById } from "./shared.js";
 import { templateLibrary } from "./templates.js";
+import { buildGoalProgress } from "./progress.js";
 
 function sumEvidenceBySignal(evidenceEvents = []) {
   const totals = new Map();
@@ -215,7 +216,7 @@ function buildInsights({ goal, evidenceTotals }) {
   return insights.slice(0, 2);
 }
 
-export function resolveGoalDashboardState(state = {}) {
+export function resolveGoalDashboardState(state = {}, options = {}) {
   const signalIndex = indexById(templateLibrary.signalTemplates);
   const actionIndex = indexById(templateLibrary.actionTemplates);
   const goalInstance = state.activeGoalInstances?.[0] ?? null;
@@ -290,6 +291,7 @@ export function resolveGoalDashboardState(state = {}) {
         role: goalTemplate.role,
         status: goalInstance.status,
         activeSince: goalInstance.activeSince,
+        activeGoalStartedAt: goalInstance.activeGoalStartedAt ?? goalInstance.goalStartedAt ?? goalInstance.activeSince,
         goalStatus: missedTargets > 0 ? "Needs attention" : "On track",
         goalStatusTrend: missedTargets > 0 ? "needs-attention" : "positive",
         trend: "Unknown",
@@ -365,6 +367,7 @@ export function resolveGoalDashboardState(state = {}) {
 
   return {
     activePersonalGoal,
+    goalProgress: buildGoalProgress(state, options),
     todaysAction,
     activeTeamFocus,
     recentInsights: buildInsights({ goal: activePersonalGoal, evidenceTotals }),

@@ -118,6 +118,7 @@ export function normalizeGoalDashboard(goalDashboard) {
             basedOn: Array.isArray(insight.basedOn) ? insight.basedOn : []
           }))
         : fallback.recentInsights,
+    goalProgress: resolved.goalProgress ?? fallback.goalProgress ?? null,
     suggestedNextSteps:
       Array.isArray(resolved.suggestedNextSteps) && resolved.suggestedNextSteps.length > 0
         ? resolved.suggestedNextSteps

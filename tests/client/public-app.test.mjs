@@ -828,7 +828,7 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("No reviewed games yet");
     expect(document.body.textContent).toContain("Evidence progress");
     expect(document.body.textContent).toContain("0 games reviewed");
-    expect(document.body.textContent).toContain("Weekly targets not ready yet");
+    expect(document.body.textContent).toContain("Progress not ready yet");
     expect(document.body.textContent).toContain("Under construction");
     expect(document.body.textContent).toContain("Not connected yet");
     expect(document.body.textContent).not.toContain("Insights will appear after you review games.");
@@ -858,7 +858,7 @@ describe("public app routes", () => {
     expect(document.querySelector("#nav-drawer")).not.toBeNull();
   });
 
-  it("activates evidence progress and weekly targets only when reviewed evidence exists", async () => {
+  it("renders time-aware progress when reviewed evidence exists", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
         return mockJsonResponse({
@@ -877,6 +877,47 @@ describe("public app routes", () => {
             user: { id: "usr_1", source: "authenticated", profile: { primaryRole: "Bot" } },
             goalDashboard: {
               reviewedGameCount: 2,
+              goalProgress: {
+                metricLabel: "Known-danger death",
+                goalAge: {
+                  startedAt: "2026-06-19T00:00:00.000Z",
+                  daysActive: 4,
+                  label: "Active for 4 days",
+                  startedLabel: "Started Jun 19"
+                },
+                focusAge: {
+                  selectedAt: "2026-06-22T00:00:00.000Z",
+                  daysActive: 1,
+                  label: "Selected for 1 day",
+                  selectedLabel: "selected Jun 22"
+                },
+                windows: {
+                  today: {
+                    label: "Today",
+                    gamesReviewed: 1,
+                    matchingMoments: 1,
+                    valueLabel: "1 known-danger death",
+                    status: "off-track-early"
+                  },
+                  weekToDate: {
+                    label: "This week",
+                    gamesReviewed: 2,
+                    matchingMoments: 2,
+                    target: 0,
+                    daysElapsed: 2,
+                    daysRemaining: 5,
+                    valueLabel: "2 known-danger deaths",
+                    status: "off-track-early"
+                  },
+                  sinceFocusStarted: {
+                    label: "Since focus started",
+                    gamesReviewed: 2,
+                    matchingMoments: 2,
+                    valueLabel: "2 known-danger deaths",
+                    status: "tracking"
+                  }
+                }
+              },
               activePersonalGoal: {
                 title: "Die Less",
                 scope: "personal",
@@ -907,12 +948,22 @@ describe("public app routes", () => {
     await renderApp(document.querySelector("#app"));
 
     expect(document.body.textContent).toContain("Coaching next step");
-    expect(document.body.textContent).toContain("Practice: Review lane deaths");
-    expect(document.body.textContent).toContain("The initial assessment is complete and reviewed evidence has produced a weekly target.");
-    expect(document.querySelector('a[href="#weekly-targets"]')?.textContent).toBe("View target");
+    expect(document.body.textContent).toContain("Practice: Known-danger death");
+    expect(document.body.textContent).toContain("The initial assessment is complete and reviewed evidence has produced a progress target.");
+    expect(document.querySelector('a[href="#focus-progress"]')?.textContent).toBe("View progress");
     expect(document.body.textContent).toContain("2 games reviewed");
-    expect(document.body.textContent).toContain("Weekly targets ready");
-    expect(document.body.textContent).toContain("Review lane deaths");
+    expect(document.body.textContent).toContain("Progress ready");
+    expect(document.body.textContent).toContain("Focus progress");
+    expect(document.body.textContent).toContain("Active for 4 days · Started Jun 19");
+    expect(document.body.textContent).toContain("selected Jun 22");
+    expect(document.body.textContent).toContain("Today");
+    expect(document.body.textContent).toContain("This week");
+    expect(document.body.textContent).toContain("Since focus started");
+    expect(document.body.textContent).toContain("Target: 0 max");
+    expect(document.body.textContent).toContain("5 days left");
+    expect(document.body.textContent).toContain("Off track early");
+    expect(document.body.textContent).not.toContain("Weekly targets");
+    expect(document.body.textContent).not.toContain("2/0");
     expect(document.body.textContent).toContain("Lane deaths before recall");
     expect(document.body.textContent).not.toContain("Weekly targets unlock after your first reviewed game.");
     expect(document.body.textContent).not.toContain("reviewed_moment_events");

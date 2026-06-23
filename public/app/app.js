@@ -764,6 +764,90 @@ function targetChipGrid(items, emptyText) {
   `;
 }
 
+function progressStatusLabel(status) {
+  return {
+    "on-track": "On track",
+    "off-track": "Off track",
+    "off-track-early": "Off track early",
+    tracking: "Tracking",
+    "no-data": "No data yet"
+  }[status] ?? "Tracking";
+}
+
+function progressStatusTrend(status) {
+  return {
+    "on-track": "positive",
+    "off-track": "needs-attention",
+    "off-track-early": "needs-attention",
+    tracking: "watch",
+    "no-data": "unknown"
+  }[status] ?? "unknown";
+}
+
+function progressWindowBlock(window = {}, { showTarget = false, showGames = false } = {}) {
+  const status = progressStatusLabel(window.status);
+  const lines = [];
+  if (window.status === "no-data") {
+    lines.push(window.label === "Since focus started"
+      ? "Tracking starts after your next reviewed game."
+      : "No games reviewed yet");
+  } else {
+    lines.push(window.valueLabel ?? `${window.matchingMoments ?? 0} matching moments`);
+  }
+  if (showTarget && window.target !== null && window.target !== undefined) {
+    lines.push(`Target: ${window.target} max`);
+  }
+  if (showTarget && Number.isFinite(Number(window.daysRemaining)) && window.status !== "no-data") {
+    lines.push(`${window.daysRemaining} ${Number(window.daysRemaining) === 1 ? "day" : "days"} left`);
+  }
+  if (showGames && window.status !== "no-data") {
+    const gamesReviewed = Number(window.gamesReviewed ?? 0);
+    lines.push(`across ${gamesReviewed} reviewed ${gamesReviewed === 1 ? "game" : "games"}`);
+  }
+
+  return `
+    <section class="progress-window">
+      <div class="progress-window-head">
+        <h3>${escapeHtml(window.label ?? "Progress")}</h3>
+        ${statusBadge(status, progressStatusTrend(window.status))}
+      </div>
+      ${lines.map((line, index) =>
+        `<p class="${index === 0 ? "progress-window-value" : "muted"}">${escapeHtml(line)}</p>`
+      ).join("")}
+    </section>
+  `;
+}
+
+function focusProgressCard(progress = {}) {
+  const windows = progress.windows ?? {};
+  const goalAge = progress.goalAge;
+  const focusAge = progress.focusAge;
+
+  return `
+    <section class="panel dashboard-compact-panel progress-panel" id="focus-progress">
+      <p class="eyebrow">Progress</p>
+      <h2>Focus progress</h2>
+      <div class="progress-age-grid">
+        ${goalAge ? `
+          <div>
+            <p class="muted">Goal active</p>
+            <strong>${escapeHtml(goalAge.label ?? goalAge.startedLabel ?? "")}</strong>
+          </div>
+        ` : ""}
+        ${focusAge ? `
+          <div>
+            <p class="muted">Current focus</p>
+            <strong>${escapeHtml(focusAge.selectedLabel ?? focusAge.label ?? "")}</strong>
+          </div>
+        ` : ""}
+      </div>
+      ${progressWindowBlock(windows.today)}
+      ${progressWindowBlock(windows.weekToDate, { showTarget: true })}
+      ${progressWindowBlock(windows.sinceFocusStarted, { showGames: true })}
+    </section>
+  `;
+}
+
 function hasReviewedEvidence(goal = {}, dashboard = {}) {
   const reviewedCount = Number(goal.reviewedGameCount ?? goal.reviewedGamesCount ?? dashboard.reviewedGameCount ?? 0);
   const assessmentCount = Number(goal.riotEvidence?.initialAssessment?.completedCount ?? 0);
@@ -1345,6 +1429,7 @@ function dashboardState({ dashboard = {}, goal = {}, riotEvidence = {} }) {
   const inInitialAssessment = Boolean(initialAssessment && !assessmentComplete);
   const hasReviewedGames = hasReviewedEvidence(goal, dashboard);
   const weeklyTargets = hasReviewedGames && !inInitialAssessment ? (goal.weeklyTargets ?? []) : [];
+  const goalProgress = !inInitialAssessment ? (dashboard.goalProgress ?? goal.goalProgress ?? null) : null;
   const patterns = hasReviewedGames && !inInitialAssessment ? (dashboard.recentInsights ?? []) : [];
   const goalSignals = hasReviewedGames && !inInitialAssessment ? (goal.signals ?? []) : [];
   const inProgressReview = dashboard.inProgressReview ?? dashboard.currentReview ?? null;
@@ -1359,11 +1444,13 @@ function dashboardState({ dashboard = {}, goal = {}, riotEvidence = {} }) {
     hasInProgressReview: Boolean(inProgressReview?.matchId || inProgressReview?.href),
     hasConfirmedPatterns: patterns.length > 0 || goalSignals.length > 0,
     hasWeeklyTargets: weeklyTargets.length > 0,
+    hasProgress: Boolean(goalProgress),
     hasActionableTeamFocus: Boolean(dashboard.activeTeamFocus?.headlineSignal || dashboard.activeTeamFocus?.nextTeamAction?.title),
     inProgressReview,
     reviewQueue,
     initialAssessment,
     weeklyTargets,
+    goalProgress,
     patterns,
     goalSignals,
     goalReviewedCount: Number.isFinite(reviewedCount) ? reviewedCount : 0
@@ -1440,16 +1527,16 @@ function resolveCoachingNextStep({ state: dashboardView, action = {}, context = 
     };
   }
 
-  if (dashboardView.hasWeeklyTargets) {
-    const target = dashboardView.weeklyTargets[0];
+  if (dashboardView.hasProgress || dashboardView.hasWeeklyTargets) {
+    const target = dashboardView.goalProgress?.windows?.weekToDate ?? dashboardView.weeklyTargets[0];
     return {
       type: "practice_focus",
-      title: target?.label ? `Practice: ${target.label}` : "Practice current focus",
-      description: target?.statusLabel ? `Current status: ${target.statusLabel}.` : "Use the current weekly target as your next focus.",
-      reason: "The initial assessment is complete and reviewed evidence has produced a weekly target.",
+      title: dashboardView.goalProgress?.metricLabel ? `Practice: ${dashboardView.goalProgress.metricLabel}` : target?.label ? `Practice: ${target.label}` : "Practice current focus",
+      description: target?.status ? `Current status: ${progressStatusLabel(target.status)}.` : target?.statusLabel ? `Current status: ${target.statusLabel}.` : "Use the current focus as your next target.",
+      reason: "The initial assessment is complete and reviewed evidence has produced a progress target.",
       primaryCta: {
-        label: "View target",
-        href: "#weekly-targets"
+        label: "View progress",
+        href: "#focus-progress"
       },
       focusKey: target?.signalId ?? target?.key ?? target?.label
     };
@@ -1804,7 +1891,7 @@ function evidenceProgressCard(dashboardView) {
         <div class="progress-checklist">
           <span>${escapeHtml(reviewedCount)} ${reviewedCount === 1 ? "game" : "games"} reviewed</span>
           <span>${escapeHtml(dashboardView.goalSignals.length || dashboardView.patterns.length)} ${(dashboardView.goalSignals.length || dashboardView.patterns.length) === 1 ? "pattern" : "patterns"} found</span>
-          <span>${dashboardView.hasWeeklyTargets ? "Weekly targets ready" : "Weekly targets not ready yet"}</span>
+          <span>${dashboardView.hasProgress ? "Progress ready" : "Progress not ready yet"}</span>
         </div>
         ${latestPattern ? `<p class="muted">Latest pattern: ${escapeHtml(latestPattern.title ?? latestPattern.label ?? "Pattern found")}</p>` : ""}
         <span class="button is-disabled" aria-disabled="true">Under construction</span>
@@ -1820,7 +1907,7 @@ function evidenceProgressCard(dashboardView) {
       <div class="progress-checklist">
         <span>0 games reviewed</span>
         <span>0 patterns found</span>
-        <span>Weekly targets not ready yet</span>
+        <span>Progress not ready yet</span>
       </div>
     </section>
   `;
@@ -1847,14 +1934,8 @@ function dashboardContextCards(dashboardView, teamFocus = {}) {
   const targetRows = initialAssessmentTargetRows(dashboardView);
   return `
     <section class="dashboard-context-column">
-      ${dashboardView.hasWeeklyTargets
-        ? `
-          <section class="panel dashboard-compact-panel" id="weekly-targets">
-            <p class="eyebrow">Weekly targets</p>
-            <h2>Weekly targets</h2>
-            ${targetChipGrid(dashboardView.weeklyTargets, "No weekly targets ready.")}
-          </section>
-        `
+      ${dashboardView.hasProgress
+        ? focusProgressCard(dashboardView.goalProgress)
         : dashboardView.inInitialAssessment
           ? `
             <section class="panel dashboard-compact-panel weekly-target-preview-panel">
@@ -1866,7 +1947,7 @@ function dashboardContextCards(dashboardView, teamFocus = {}) {
             </section>
           `
           : inactiveDashboardSection({
-            title: "Weekly targets",
+            title: "Progress",
             status: "Not ready yet",
             body: "Unlocks after reviewed evidence is ready."
           })}
@@ -1916,6 +1997,14 @@ function dashboardContextCards(dashboardView, teamFocus = {}) {
       </section>
     </section>
   `;
+}
+
+function activeGoalAgeLine(progress = {}) {
+  const goalAge = progress?.goalAge;
+  if (!goalAge) {
+    return "";
+  }
+  return `<p class="active-goal-age">${escapeHtml([goalAge.label, goalAge.startedLabel].filter(Boolean).join(" · "))}</p>`;
 }
 
 function initialAssessmentPattern(dashboardView) {
@@ -2204,11 +2293,19 @@ function readStoredMainReviewFocus(matchId) {
 }
 
 function writeStoredMainReviewFocus(matchId, focus) {
-  if (!matchId || !focus) return;
-  window.localStorage.setItem(mainReviewStorageKey(matchId), JSON.stringify({
+  if (!matchId || !focus) return null;
+  const existing = readStoredMainReviewFocus(matchId);
+  const sameFocus = existing?.mainReviewType === focus.mainReviewType &&
+    String(existing?.mainReviewDeathIndex ?? "") === String(focus.mainReviewDeathIndex ?? "") &&
+    String(existing?.mainReviewPatternId ?? "") === String(focus.mainReviewPatternId ?? "") &&
+    String(existing?.mainReviewLabel ?? "") === String(focus.mainReviewLabel ?? "");
+  const storedFocus = {
     ...focus,
+    selectedAt: sameFocus && existing?.selectedAt ? existing.selectedAt : new Date().toISOString(),
     selectedByUser: true
-  }));
+  };
+  window.localStorage.setItem(mainReviewStorageKey(matchId), JSON.stringify(storedFocus));
+  return storedFocus;
 }
 
 function reviewedMomentIndex(reviewedMoments = []) {
@@ -4891,8 +4988,7 @@ function bindReviewMomentControls(root, review) {
         mainReviewLabel: selectedInput?.closest("label")?.textContent?.trim() || focusDeathButton.dataset.focusLabel || "Manual review focus",
         selectedByUser: true
       };
-      review.selectedMainReviewFocus = focus;
-      writeStoredMainReviewFocus(review.matchId, focus);
+      review.selectedMainReviewFocus = writeStoredMainReviewFocus(review.matchId, focus) ?? focus;
       renderMatchReview(root, review, getRouteContext());
       bindReviewMomentControls(root, review);
       return;
@@ -4906,8 +5002,7 @@ function bindReviewMomentControls(root, review) {
         mainReviewLabel: focusPatternButton.dataset.focusLabel,
         selectedByUser: true
       };
-      review.selectedMainReviewFocus = focus;
-      writeStoredMainReviewFocus(review.matchId, focus);
+      review.selectedMainReviewFocus = writeStoredMainReviewFocus(review.matchId, focus) ?? focus;
       renderMatchReview(root, review, getRouteContext());
       bindReviewMomentControls(root, review);
       return;
@@ -5350,6 +5445,7 @@ async function renderHome(root, context = getRouteContext()) {
               <div class="active-goal-copy">
                 <p class="eyebrow">Active Goal</p>
                 <h2>${escapeHtml(goal.title ?? "No active goal yet")}</h2>
+                ${activeGoalAgeLine(dashboardView.goalProgress)}
                 <div class="badge-row">
                   <span class="context-badge">${escapeHtml(focusTagline)}</span>
                   ${statusBadge(activeReviewStatus, activeReviewTrend)}
