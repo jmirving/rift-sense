@@ -3,13 +3,56 @@ import { findById, normalizeStringArray, slug, todayIsoDate } from "./shared.js"
 
 export function buildDefaultGoalDashboardState(now = new Date()) {
   const activeSince = todayIsoDate(now);
+  const focusTemplate = findById(templateLibrary.focusTemplates, "focus-die-less");
+  const goalTemplate = findById(templateLibrary.goalTemplates, "goal-reach-emerald");
 
   return {
-    version: 1,
+    version: 2,
+    focusPlan: {
+      goalInstance: {
+        id: "goal-instance-3nder-reach-emerald",
+        goalTemplateId: goalTemplate.id,
+        ownerId: "player-3nderwiggin",
+        status: "active",
+        activeSince
+      },
+      focusInstances: [
+        {
+          id: "active-goal-3nder-adc-die-less",
+          focusTemplateId: focusTemplate.id,
+          ownerType: "player",
+          ownerId: "player-3nderwiggin",
+          status: "active",
+          priority: "primary",
+          stage: "active_tracking",
+          selectedSignalIds: focusTemplate.defaultSignalIds,
+          selectedMetricIds: focusTemplate.defaultMetricIds,
+          targets: focusTemplate.suggestedTargets.map((target) => ({ ...target, selectedAt: activeSince })),
+          selectedActionIds: ["action-death-review-v1"],
+          activeSince
+        },
+        {
+          id: "focus-instance-3nder-farm-better",
+          focusTemplateId: "focus-farm-better",
+          ownerType: "player",
+          ownerId: "player-3nderwiggin",
+          status: "later",
+          priority: "later",
+          stage: "later",
+          selectedSignalIds: ["signal-cs-missed-while-present"],
+          selectedMetricIds: ["metric-cs-missed-while-present"],
+          targets: [],
+          selectedActionIds: ["action-death-review-v1"],
+          activeSince
+        }
+      ]
+    },
     activeGoalInstances: [
       {
         id: "active-goal-3nder-adc-die-less",
-        templateId: "goal-template-adc-die-less",
+        templateId: "focus-die-less",
+        focusTemplateId: "focus-die-less",
+        goalTemplateId: "goal-reach-emerald",
         ownerType: "player",
         ownerId: "player-3nderwiggin",
         status: "active",
@@ -157,7 +200,12 @@ export function buildOnboardingGoalDashboardState({
   ownerId,
   teamId,
   selectedGoalTemplateId,
+  primaryFocusTemplateId,
+  supportingFocusTemplateIds,
+  laterFocusTemplateIds,
   selectedSignalIds,
+  selectedMetricIds,
+  targets,
   weeklyTargets,
   selectedActionTemplateId,
   selectedTeamFocusTemplateId,
@@ -167,34 +215,110 @@ export function buildOnboardingGoalDashboardState({
   const setupContext = ["personal", "team", "both"].includes(context) ? context : "personal";
   const shouldCreatePersonal = setupContext === "personal" || setupContext === "both";
   const shouldCreateTeam = setupContext === "team" || setupContext === "both";
+  const selectedBroadGoal = findById(templateLibrary.goalTemplates, selectedGoalTemplateId);
+  const legacyFocusFromGoalId = findById(templateLibrary.focusTemplates, selectedGoalTemplateId) ??
+    templateLibrary.focusTemplates.find((template) => template.legacyGoalTemplateIds?.includes(selectedGoalTemplateId));
   const goalTemplate = shouldCreatePersonal
-    ? findById(templateLibrary.goalTemplates, selectedGoalTemplateId)
+    ? selectedBroadGoal ?? findById(templateLibrary.goalTemplates, "goal-reach-emerald") ?? templateLibrary.goalTemplates[0]
+    : null;
+  const primaryFocusTemplate = shouldCreatePersonal
+    ? findById(templateLibrary.focusTemplates, primaryFocusTemplateId) ??
+      legacyFocusFromGoalId ??
+      findById(templateLibrary.focusTemplates, goalTemplate?.defaultFocusPath?.[0]) ??
+      templateLibrary.focusTemplates[0]
     : null;
   const teamFocusTemplate = shouldCreateTeam
     ? findById(templateLibrary.teamFocusTemplates, selectedTeamFocusTemplateId)
     : null;
-  const activeGoalId = shouldCreatePersonal
-    ? `active-goal-${slug(ownerId)}-${slug(goalTemplate?.title ?? "goal")}`
+  const goalInstanceId = shouldCreatePersonal
+    ? `goal-instance-${slug(ownerId)}-${slug(goalTemplate?.title ?? "goal")}`
+    : null;
+  const primaryFocusInstanceId = shouldCreatePersonal
+    ? `focus-instance-${slug(ownerId)}-${slug(primaryFocusTemplate?.title ?? "focus")}`
     : null;
   const activeTeamFocusId = shouldCreateTeam
     ? `active-team-focus-${slug(teamId ?? ownerId)}-${slug(teamFocusTemplate?.title ?? "focus")}`
     : null;
   const selectedGoalSignals = normalizeStringArray(selectedSignalIds);
+  const selectedGoalMetrics = normalizeStringArray(selectedMetricIds);
   const actionTemplateId =
     selectedActionTemplateId ??
-    goalTemplate?.defaultActionIds?.[0] ??
+    primaryFocusTemplate?.defaultActionIds?.[0] ??
     templateLibrary.actionTemplates[0].id;
+  const normalizedTargets = Array.isArray(targets) && targets.length > 0
+    ? targets.map((target) => ({ ...target, selectedAt: target.selectedAt ?? activeSince }))
+    : primaryFocusTemplate?.suggestedTargets?.map((target) => ({ ...target, selectedAt: activeSince })) ?? [];
+  const supportingIds = normalizeStringArray(supportingFocusTemplateIds)
+    .filter((id) => id !== primaryFocusTemplate?.id);
+  const laterIds = normalizeStringArray(laterFocusTemplateIds)
+    .filter((id) => id !== primaryFocusTemplate?.id && !supportingIds.includes(id));
+  const buildFocusInstance = (template, priority, index = 0) => ({
+    id: priority === "primary"
+      ? primaryFocusInstanceId
+      : `focus-instance-${slug(ownerId)}-${slug(template.title)}-${priority}-${index}`,
+    focusTemplateId: template.id,
+    ownerType: "player",
+    ownerId,
+    status: priority === "later" ? "later" : "active",
+    priority,
+    stage: priority === "later" ? "later" : "initial_assessment",
+    selectedSignalIds:
+      priority === "primary" && selectedGoalSignals.length > 0
+        ? selectedGoalSignals
+        : template.defaultSignalIds,
+    selectedMetricIds:
+      priority === "primary" && selectedGoalMetrics.length > 0
+        ? selectedGoalMetrics
+        : template.defaultMetricIds ?? [],
+    targets: priority === "primary"
+      ? normalizedTargets
+      : template.suggestedTargets?.map((target) => ({ ...target, selectedAt: activeSince })) ?? [],
+    selectedActionIds: priority === "primary" ? [actionTemplateId] : template.defaultActionIds ?? [],
+    activeSince
+  });
+  const focusInstances = shouldCreatePersonal && primaryFocusTemplate
+    ? [
+        buildFocusInstance(primaryFocusTemplate, "primary"),
+        ...supportingIds
+          .map((id, index) => {
+            const template = findById(templateLibrary.focusTemplates, id);
+            return template ? buildFocusInstance(template, "supporting", index) : null;
+          })
+          .filter(Boolean),
+        ...laterIds
+          .map((id, index) => {
+            const template = findById(templateLibrary.focusTemplates, id);
+            return template ? buildFocusInstance(template, "later", index) : null;
+          })
+          .filter(Boolean)
+      ]
+    : [];
 
   return {
-    version: 1,
+    version: 2,
     onboardingContext: setupContext,
     role,
-    activeGoalInstances:
+    focusPlan:
       shouldCreatePersonal && goalTemplate
+        ? {
+            goalInstance: {
+              id: goalInstanceId,
+              goalTemplateId: goalTemplate.id,
+              ownerId,
+              status: "active",
+              activeSince
+            },
+            focusInstances
+          }
+        : null,
+    activeGoalInstances:
+      shouldCreatePersonal && primaryFocusTemplate
         ? [
             {
-              id: activeGoalId,
-              templateId: goalTemplate.id,
+              id: primaryFocusInstanceId,
+              templateId: primaryFocusTemplate.id,
+              focusTemplateId: primaryFocusTemplate.id,
+              goalTemplateId: goalTemplate?.id,
               ownerType: "player",
               ownerId,
               status: "active",
@@ -202,11 +326,16 @@ export function buildOnboardingGoalDashboardState({
               activeGoalStartedAt: activeSince,
               weeklyTargets: Array.isArray(weeklyTargets) && weeklyTargets.length > 0
                 ? weeklyTargets.map((target) => ({ ...target, selectedAt: target.selectedAt ?? activeSince }))
-                : (goalTemplate.suggestedWeeklyTargets ?? []).map((target) => ({ ...target, selectedAt: activeSince })),
+                : (primaryFocusTemplate.suggestedWeeklyTargets ?? []).map((target) => ({ ...target, selectedAt: activeSince })),
               selectedSignalIds:
                 selectedGoalSignals.length > 0
                   ? selectedGoalSignals
-                  : goalTemplate.defaultSignalIds,
+                  : primaryFocusTemplate.defaultSignalIds,
+              selectedMetricIds:
+                selectedGoalMetrics.length > 0
+                  ? selectedGoalMetrics
+                  : primaryFocusTemplate.defaultMetricIds ?? [],
+              targets: normalizedTargets,
               selectedActionIds: [actionTemplateId]
             }
           ]
@@ -233,8 +362,9 @@ export function buildOnboardingGoalDashboardState({
             id: `recommendation-${slug(ownerId)}-${slug(actionTemplateId)}`,
             actionTemplateId,
             reason:
-              "Death review is the fastest way to create evidence for the selected improvement goal.",
-            linkedGoalInstanceId: activeGoalId,
+              "Review the selected focus to create evidence for the current plan.",
+            linkedGoalInstanceId: primaryFocusInstanceId,
+            linkedFocusInstanceId: primaryFocusInstanceId,
             priority: "high"
           }
         : null,

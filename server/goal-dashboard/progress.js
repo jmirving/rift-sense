@@ -105,13 +105,19 @@ function windowSummary({ label, events, signalLabel, target = null, daysElapsed 
 }
 
 export function buildGoalProgress(state = {}, { now = new Date() } = {}) {
-  const goalInstance = state.activeGoalInstances?.[0] ?? null;
+  const goalInstance =
+    state.focusPlan?.focusInstances?.find((instance) => instance.priority === "primary") ??
+    state.activeGoalInstances?.[0] ??
+    null;
   if (!goalInstance) {
     return null;
   }
 
   const signalIndex = indexById(templateLibrary.signalTemplates);
-  const goalTemplate = findById(templateLibrary.goalTemplates, goalInstance.templateId);
+  const goalTemplate =
+    findById(templateLibrary.focusTemplates ?? [], goalInstance.focusTemplateId ?? goalInstance.templateId) ??
+    (templateLibrary.focusTemplates ?? []).find((template) => template.legacyGoalTemplateIds?.includes(goalInstance.templateId)) ??
+    findById(templateLibrary.goalTemplates, goalInstance.templateId);
   const target = goalInstance.weeklyTargets?.[0] ?? goalTemplate?.suggestedWeeklyTargets?.[0] ?? null;
   const focusSignalId = target?.signalId ?? goalInstance.selectedSignalIds?.[0] ?? goalTemplate?.defaultSignalIds?.[0] ?? null;
   const focusSignal = signalIndex.get(focusSignalId);

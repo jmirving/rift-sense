@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../../server/app.js";
 import { loadConfig } from "../../server/config.js";
-import { buildDefaultGoalDashboardState } from "../../server/goal-dashboard.js";
+import { buildDefaultGoalDashboardState, resolveGoalDashboardState } from "../../server/goal-dashboard.js";
 import { seedSystemGoalTypes } from "../../server/goal-types/system-goal-types.js";
 import {
   createInMemoryAssetStore,
@@ -262,10 +262,10 @@ describe("home API", () => {
     expect(response.body.home.user.profile.primaryRole).toBeNull();
     expect(response.body.home.setupGuide).toMatchObject({
       status: "setup-needed",
-      href: "/onboarding"
+      href: "/focus-plan"
     });
-    expect(response.body.home.goalDashboard.activePersonalGoal.goalStatus).toBe("Setup needed");
-    expect(response.body.home.goalDashboard.todaysAction.href).toBe("/onboarding");
+    expect(response.body.home.goalDashboard.activePersonalGoal.goalStatus).toBe("Focus Plan needed");
+    expect(response.body.home.goalDashboard.todaysAction.href).toBe("/focus-plan");
     expect(response.body.home.goalDashboard.activePersonalGoal.riotEvidence.status).toBe("riot_account_not_linked");
   });
 
@@ -1091,7 +1091,11 @@ describe("home API", () => {
     const response = await request(app).get("/api/onboarding/options");
 
     expect(response.status).toBe(200);
-    expect(response.body.templates.goalTemplates[0].id).toBe("goal-template-adc-die-less");
+    expect(response.body.templates.goalTemplates[0].id).toBe("goal-reach-emerald");
+    expect(response.body.templates.focusTemplates[0].id).toBe("focus-die-less");
+    expect(response.body.templates.signalTemplates[0].id).toBe("signal-known-danger-death");
+    expect(response.body.templates.metricTemplates[0].id).toBe("metric-known-danger-deaths-week");
+    expect(response.body.templates.actionTemplates[0].id).toBe("action-death-review-v1");
     expect(response.body.templates.teamFocusTemplates[0].id).toBe("team-focus-template-dragon-setup");
     expect(response.body.systemGoalTypes.map((goalType) => goalType.id)).toEqual([
       "death_review",
@@ -1131,10 +1135,14 @@ describe("home API", () => {
       });
 
     expect(saveResponse.status).toBe(201);
-    expect(saveResponse.body.goalDashboard.activePersonalGoal.templateId).toBe("goal-template-adc-die-less");
+    expect(saveResponse.body.goalDashboard.focusPlan.goal.templateId).toBe("goal-reach-emerald");
+    expect(saveResponse.body.goalDashboard.focusPlan.primaryFocus.templateId).toBe("focus-die-less");
+    expect(saveResponse.body.goalDashboard.activePersonalGoal.templateId).toBe("focus-die-less");
 
     const savedHome = await app.locals.testRepositories.userHomesRepository.getUserHome("usr_demo_home");
-    expect(savedHome.goalDashboard.activeGoalInstances[0].templateId).toBe("goal-template-adc-die-less");
+    expect(savedHome.goalDashboard.focusPlan.goalInstance.goalTemplateId).toBe("goal-reach-emerald");
+    expect(savedHome.goalDashboard.focusPlan.focusInstances[0].focusTemplateId).toBe("focus-die-less");
+    expect(savedHome.goalDashboard.activeGoalInstances[0].templateId).toBe("focus-die-less");
   });
 
   it("saves onboarding to the authenticated user when auth is enabled", async () => {
@@ -1151,12 +1159,18 @@ describe("home API", () => {
       .send({
         context: "personal",
         role: "Support",
-        selectedGoalTemplateId: "goal-template-adc-die-less",
+        selectedGoalTemplateId: "goal-reliable-adc",
+        primaryFocusTemplateId: "focus-die-less",
+        supportingFocusTemplateIds: ["focus-lane-better"],
+        laterFocusTemplateIds: ["focus-teamfight-better"],
         selectedSignalIds: ["signal-known-danger-death"],
-        weeklyTargets: [
+        selectedMetricIds: ["metric-known-danger-deaths-week"],
+        targets: [
           {
-            signalId: "signal-known-danger-death",
-            targetValue: 0
+            metricId: "metric-known-danger-deaths-week",
+            operator: "<=",
+            value: 0,
+            window: "week"
           }
         ],
         selectedActionTemplateId: "action-death-review-v1"
@@ -1173,6 +1187,12 @@ describe("home API", () => {
     });
     expect(savedHome.profile.teamName).not.toBe("Local Demo Squad");
     expect(savedHome.profile.focusArea).not.toBe("Template-backed onboarding");
+    expect(savedHome.goalDashboard.focusPlan.goalInstance.goalTemplateId).toBe("goal-reliable-adc");
+    expect(savedHome.goalDashboard.focusPlan.focusInstances.map((focus) => focus.focusTemplateId)).toEqual([
+      "focus-die-less",
+      "focus-lane-better",
+      "focus-teamfight-better"
+    ]);
 
     const homeResponse = await request(app)
       .get("/api/home")
@@ -1181,7 +1201,7 @@ describe("home API", () => {
     expect(homeResponse.status).toBe(200);
     expect(homeResponse.body.home.user.id).toBe("usr_local_dev");
     expect(homeResponse.body.home.user.source).toBe("authenticated");
-    expect(homeResponse.body.home.goalDashboard.activePersonalGoal.id).toBe("active-goal-usr-local-dev-die-less");
+    expect(homeResponse.body.home.goalDashboard.activePersonalGoal.id).toBe("focus-instance-usr-local-dev-die-less");
     expect(homeResponse.body.home.goalDashboard.activeTeamFocus).toBeNull();
   });
 
@@ -1218,13 +1238,67 @@ describe("home API", () => {
       displayName: "Nexus Player",
       teamName: null,
       primaryRole: "Jungle",
-      focusArea: "Trade Better"
+      focusArea: "Lane Better"
     });
     expect(savedHome.profile.teamName).not.toBe("Local Demo Squad");
     expect(savedHome.profile.displayName).not.toBe("RiftSense Player");
     expect(savedHome.profile.focusArea).not.toBe("Template-backed onboarding");
-    expect(savedHome.goalDashboard.activeGoalInstances[0].templateId).toBe("goal-template-adc-trading");
+    expect(savedHome.goalDashboard.activeGoalInstances[0].templateId).toBe("focus-lane-better");
     expect(savedHome.goalDashboard.activeTeamFocusInstances[0].templateId).toBe("team-focus-template-dragon-setup");
+  });
+
+  it("resolves multiple focus instances and picks the primary focus", () => {
+    const resolved = resolveGoalDashboardState({
+      version: 2,
+      focusPlan: {
+        goalInstance: {
+          id: "goal-instance-test",
+          goalTemplateId: "goal-reach-emerald",
+          ownerId: "usr_test",
+          status: "active",
+          activeSince: "2026-06-23"
+        },
+        focusInstances: [
+          {
+            id: "focus-supporting",
+            focusTemplateId: "focus-farm-better",
+            ownerType: "player",
+            ownerId: "usr_test",
+            status: "active",
+            priority: "supporting",
+            stage: "initial_assessment",
+            selectedSignalIds: ["signal-cs-missed-while-present"],
+            selectedMetricIds: ["metric-cs-missed-while-present"],
+            targets: [],
+            selectedActionIds: ["action-death-review-v1"],
+            activeSince: "2026-06-23"
+          },
+          {
+            id: "focus-primary",
+            focusTemplateId: "focus-die-less",
+            ownerType: "player",
+            ownerId: "usr_test",
+            status: "active",
+            priority: "primary",
+            stage: "initial_assessment",
+            selectedSignalIds: ["signal-known-danger-death"],
+            selectedMetricIds: ["metric-known-danger-deaths-week"],
+            targets: [],
+            selectedActionIds: ["action-death-review-v1"],
+            activeSince: "2026-06-23"
+          }
+        ]
+      },
+      evidenceEvents: [],
+      recommendations: []
+    });
+
+    expect(resolved.focusPlan.goal.title).toBe("Reach Emerald");
+    expect(resolved.focusPlan.primaryFocus.id).toBe("focus-primary");
+    expect(resolved.focusPlan.supportingFocuses[0].id).toBe("focus-supporting");
+    expect(resolved.activePersonalGoal.id).toBe("focus-primary");
+    expect(resolved.activePersonalGoal.title).toBe("Die Less");
+    expect(resolved.activePersonalGoal.stage).toBe("initial_assessment");
   });
 
   it("does not mutate authenticated user homes from demo routes", async () => {

@@ -402,10 +402,25 @@ describe("match evaluations API", () => {
       .set("Authorization", `Bearer ${token({ riot: { puuid: "puuid_owner" } })}`);
 
     expect(response.status).toBe(200);
+    expect(response.body.taxonomy.goals[0]).toMatchObject({
+      id: "goal-reach-emerald",
+      defaultFocusPath: expect.any(Array)
+    });
+    expect(response.body.taxonomy.focuses[0]).toMatchObject({
+      id: "focus-die-less",
+      defaultSignalIds: expect.any(Array),
+      defaultMetricIds: expect.any(Array)
+    });
+    expect(response.body.taxonomy.metrics[0]).toMatchObject({
+      id: "metric-known-danger-deaths-week",
+      signalIds: expect.any(Array)
+    });
+    expect(response.body.relationships.goalsToFocuses.length).toBeGreaterThan(0);
     expect(response.body.goalTypes[0]).toMatchObject({
       evidenceCategories: expect.any(Array),
       subscribedPatterns: expect.any(Array)
     });
+    expect(response.body.deterministicSources.activeParsers).toContain("deterministic match evaluation");
     expect(response.body.deterministicEvidenceParsers).toContain("deterministic match evaluation");
     expect(response.body.systemEvidencePatterns).toContain("bot_lane_2v1_punish");
     expect(response.body.gamePhase.note).toContain("before 14:00");

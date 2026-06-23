@@ -28,15 +28,24 @@ function setupOptionsFixture() {
   return {
     templates: {
       goalTemplates: [{
+        id: "goal-reach-emerald",
+        title: "Reach Emerald",
+        description: "Climb with consistency.",
+        defaultFocusPath: ["die-less"]
+      }],
+      focusTemplates: [{
         id: "die-less",
         title: "Die Less",
         description: "Reduce avoidable deaths.",
         defaultSignalIds: ["solo-death"],
-        suggestedWeeklyTargets: [{ signalId: "solo-death", targetValue: 2, label: "Review solo deaths" }],
+        defaultMetricIds: ["preventable-deaths"],
+        suggestedTargets: [{ id: "target-preventable-deaths", metricId: "preventable-deaths", operator: "<=", value: 2, window: "week", label: "Review solo deaths" }],
         defaultActionIds: ["review-deaths"]
       }],
-      signalTemplates: [{ id: "solo-death", title: "Solo deaths", description: "Deaths without reliable cover." }],
-      actionTemplates: [{ id: "review-deaths", title: "Review deaths", linkedGoalTemplateIds: ["die-less"] }],
+      signalTemplates: [{ id: "solo-death", label: "Solo deaths", polarity: "negative", description: "Deaths without reliable cover." }],
+      metricTemplates: [{ id: "preventable-deaths", label: "Preventable deaths", signalIds: ["solo-death"], aggregation: "count", defaultWindow: "week" }],
+      targetTemplates: [{ id: "target-preventable-deaths", metricId: "preventable-deaths", operator: "<=", value: 2, window: "week" }],
+      actionTemplates: [{ id: "review-deaths", title: "Review deaths", linkedFocusTemplateIds: ["die-less"] }],
       teamFocusTemplates: [{
         id: "dragon-setup",
         title: "Dragon setup",
@@ -405,7 +414,7 @@ describe("public app routes", () => {
     const navText = document.querySelector("#nav-drawer")?.textContent ?? "";
     expect(navText).toContain("Dashboard");
     expect(navText).toContain("Review");
-    expect(navText).toContain("Setup");
+    expect(navText).toContain("Focus Plan");
     expect(navText).toContain("Team Focus");
     expect(navText).toContain("Library");
     expect(navText).toContain("Training");
@@ -414,11 +423,11 @@ describe("public app routes", () => {
     expect(navText).not.toContain("Onboarding");
     expect(document.querySelector('.side-nav-link[href="/"]')?.textContent).toContain("Dashboard");
     expect(document.querySelector('.side-nav-link[href="/review"]')?.textContent).toContain("Review");
-    expect(document.querySelector('.side-nav-link[href="/setup"]')?.textContent).toContain("Setup");
+    expect(document.querySelector('.side-nav-link[href="/focus-plan"]')?.textContent).toContain("Focus Plan");
     expect(document.querySelectorAll('.side-nav-link[href="/goals"], .side-nav-link[href="/onboarding"]')).toHaveLength(0);
     expect(document.querySelectorAll('.side-nav-link[href="/team"], .side-nav-link[href="/team-focus"], .side-nav-link[href="/library"], .side-nav-link[href="/training"]')).toHaveLength(0);
-    expect(document.querySelector('.panel-slim a[href="/setup"]')?.textContent).toBe("Open setup");
-    expect([...document.querySelectorAll('a[href="/setup"]')].some((link) => link.textContent.includes("Edit setup") || link.textContent.includes("Open setup"))).toBe(true);
+    expect(document.querySelector('.panel-slim a[href="/focus-plan"]')?.textContent).toBe("Open Focus Plan");
+    expect([...document.querySelectorAll('a[href="/focus-plan"]')].some((link) => link.textContent.includes("Edit Focus Plan") || link.textContent.includes("Open Focus Plan"))).toBe(true);
     expect(document.querySelectorAll('a[href="/goals"], a[href="/onboarding"], a[href="/team"], a[href="/team-focus"], a[href="/library"], a[href="/training"]')).toHaveLength(0);
     expect(document.body.textContent).not.toContain("View Goals");
     expect(document.body.textContent).not.toContain("Start onboarding");
@@ -447,7 +456,7 @@ describe("public app routes", () => {
     expect(document.querySelector('.session-footer-link[href="/account"]')?.textContent).toBe("Open Nexus");
   });
 
-  it("renders Setup as the canonical configuration page", async () => {
+  it("renders Focus Plan as the canonical configuration page", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
         return mockJsonResponse({
@@ -504,26 +513,27 @@ describe("public app routes", () => {
     window.history.pushState({}, "", "/setup");
     await renderApp(document.querySelector("#app"));
     expect(window.location.pathname).toBe("/setup");
-    expect(document.body.textContent).toContain("Setup");
-    expect(document.body.textContent).toContain("Personal focus");
+    expect(document.body.textContent).toContain("Focus Plan");
+    expect(document.body.textContent).toContain("Current Focus details");
     expect(document.body.textContent).toContain("Die Less");
-    expect(document.body.textContent).toContain("Bot · personal");
-    expect(document.body.textContent).toContain("Review setup");
+    expect(document.body.textContent).toContain("Review Data");
     expect(document.body.textContent).toContain("Nexus/Riot identity: 3nderWiggin#NA1");
-    expect(document.body.textContent).toContain("Recent games: 3 available");
-    expect(document.body.textContent).toContain("Review-ready games: 2 available");
-    expect(document.querySelector('.action-row a[href="/review"]')?.textContent).toContain("Go to Review");
-    expect(document.body.textContent).toContain("Team focus seed");
+    expect(document.body.textContent).toContain("Recent games discovered: 3 available");
+    expect(document.body.textContent).toContain("Evaluations ready: 2 available");
+    expect(document.querySelector('.action-row a[href="/review"]')?.textContent).toContain("Review ready games");
+    expect(document.body.textContent).toContain("Team Focus");
     expect(document.body.textContent).toContain("Dragon setup");
     expect(document.body.textContent).toContain("Should bot wave be dropped before dragon?");
-    expect(document.body.textContent).toContain("Team Focus is under construction; this setup value is saved as a seed for later team workflows.");
-    expect(document.body.textContent).toContain("Save setup");
+    expect(document.body.textContent).toContain("Saved team focus will be used when team workflows are ready.");
+    expect(document.body.textContent).toContain("Save Focus Plan");
+    expect(document.body.textContent).not.toContain("Team focus seed");
+    expect(document.body.textContent).not.toContain("Save setup");
     expect(document.body.textContent).not.toContain("Goal Settings");
     expect(document.body.textContent).not.toContain("Dashboard Preview");
     expect(document.body.textContent).not.toContain("Choose team focus");
   });
 
-  it("keeps old Goals and Onboarding URLs as Setup compatibility only", async () => {
+  it("keeps old Goals and Onboarding URLs as Focus Plan compatibility only", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
         return mockJsonResponse({
@@ -555,13 +565,13 @@ describe("public app routes", () => {
 
     window.history.pushState({}, "", "/goals");
     await renderApp(document.querySelector("#app"));
-    expect(document.body.textContent).toContain("Personal focus");
+    expect(document.body.textContent).toContain("Focus Plan");
     expect(document.querySelectorAll('a[href="/goals"], a[href="/onboarding"]')).toHaveLength(0);
 
     document.body.innerHTML = '<div id="app"></div>';
     window.history.pushState({}, "", "/onboarding");
     await renderApp(document.querySelector("#app"));
-    expect(document.body.textContent).toContain("Personal focus");
+    expect(document.body.textContent).toContain("Focus Plan");
     expect(document.querySelectorAll('a[href="/goals"], a[href="/onboarding"]')).toHaveLength(0);
   });
 
@@ -657,8 +667,8 @@ describe("public app routes", () => {
     window.history.pushState({}, "", "/team");
     await renderApp(document.querySelector("#app"));
     expect(document.body.textContent).toContain("Team Focus");
-    expect(document.body.textContent).toContain("Team Focus is seeded from setup until reviewed game evidence updates it.");
-    expect(document.querySelector('.team-focus-panel a[href="/setup"]')?.textContent).toContain("Edit setup");
+    expect(document.body.textContent).toContain("Team Focus is saved from Focus Plan until reviewed game evidence updates it.");
+    expect(document.querySelector('.team-focus-panel a[href="/focus-plan"]')?.textContent).toContain("Edit Focus Plan");
 
     document.body.innerHTML = '<div id="app"></div>';
     window.history.pushState({}, "", "/library");
@@ -834,7 +844,7 @@ describe("public app routes", () => {
     expect(document.body.textContent).not.toContain("Insights will appear after you review games.");
     expect(document.body.textContent).not.toContain("Seeded from onboarding. Not updated from reviewed games yet.");
     expect(document.body.textContent).not.toContain("On track");
-    expect(document.body.textContent).toContain("Active Goal");
+    expect(document.body.textContent).toContain("Current Focus");
     expect(document.body.textContent).toContain("Die Less");
     expect(document.body.textContent).toContain("Jhin · Loss");
     expect(document.body.textContent).toContain("Ranked Solo/Duo · 8/5/6 KDA");
@@ -1933,7 +1943,7 @@ describe("public app routes", () => {
 
     expect(document.body.textContent).toContain("Review queue");
     expect(document.body.textContent).toContain("No review-ready games yet");
-    expect(document.querySelector('.button[href="/setup"]')?.textContent).toContain("Edit setup");
+    expect(document.querySelector('.button[href="/focus-plan"]')?.textContent).toContain("Edit Focus Plan");
   });
 
   it("renders a review priority and death facts for a multi-death evaluated match", async () => {
@@ -3470,7 +3480,7 @@ describe("public app routes", () => {
     expect(document.querySelector('input[value="manual_other_pattern"]')?.checked).toBe(true);
   });
 
-  it("renders the read-only system inventory page", async () => {
+  it("renders the read-only Training Taxonomy page", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
         return mockJsonResponse({
@@ -3484,16 +3494,19 @@ describe("public app routes", () => {
       }
       if (url === "/api/system-inventory") {
         return mockJsonResponse({
-          goalTypes: [{
-            id: "death_review",
-            title: "Death Review",
-            evidenceCategories: ["death_review"],
-            subscribedPatterns: ["bot_lane_2v1_punish"]
-          }],
-          deterministicEvidenceParsers: ["deterministic match evaluation"],
-          systemEvidencePatterns: ["bot_lane_2v1_punish", "objective_window_candidate"],
-          gamePhase: { note: "before 14:00 is lane phase" },
-          mapTimers: {
+          taxonomy: {
+            goals: [{ id: "goal-reach-emerald", title: "Reach Emerald", defaultFocusPath: ["focus-die-less"], description: "Climb." }],
+            focuses: [{ id: "focus-die-less", title: "Die Less", category: "survivability", role: "ADC", defaultSignalIds: ["signal-known-danger-death"], defaultMetricIds: ["metric-known-danger-deaths-week"], suggestedTargets: [{ metricId: "metric-known-danger-deaths-week", operator: "<=", value: 0, window: "week" }], defaultActionIds: ["action-death-review-v1"] }],
+            signals: [{ id: "signal-known-danger-death", label: "Known-danger death", polarity: "negative", categories: ["survivability"], usedByFocusIds: ["focus-die-less"] }],
+            metrics: [{ id: "metric-known-danger-deaths-week", label: "Known-danger deaths this week", signalIds: ["signal-known-danger-death"], aggregation: "count", defaultWindow: "week" }],
+            targets: [{ metricId: "metric-known-danger-deaths-week", operator: "<=", value: 0, window: "week" }],
+            actions: [{ id: "action-death-review-v1", title: "Review deaths", type: "review", linkedFocusTemplateIds: ["focus-die-less"] }]
+          },
+          deterministicSources: {
+            activeParsers: ["deterministic match evaluation"],
+            emittedTags: ["bot_lane_2v1_punish", "objective_window_candidate"],
+            gamePhase: { note: "before 14:00 is lane phase" },
+            mapTimers: {
             rules: {
               dragon: { firstSpawnSeconds: 300 },
               voidgrubs: { firstSpawnSeconds: 480 },
@@ -3501,6 +3514,7 @@ describe("public app routes", () => {
               baron: { firstSpawnSeconds: 1200 },
               scuttle: { firstSpawnSeconds: 175 },
               jungleCamps: { minorCampRespawnSeconds: 135, buffRespawnSeconds: 300 }
+            }
             }
           }
         });
@@ -3512,8 +3526,10 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Known evidence patterns");
-    expect(document.body.textContent).toContain("Death Review");
+    expect(document.body.textContent).toContain("Training Taxonomy");
+    expect(document.body.textContent).toContain("Reach Emerald");
+    expect(document.body.textContent).toContain("Die Less");
+    expect(document.body.textContent).toContain("Known-danger deaths this week");
     expect(document.body.textContent).toContain("Bot lane 2v1 punish");
     expect(document.body.textContent).toContain("deterministic match evaluation");
     expect(document.body.textContent).toContain("Dragon first spawn: 300s");

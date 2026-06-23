@@ -94,7 +94,7 @@ function normalizeTeamFocus(teamFocus, fallback) {
 }
 
 export function normalizeGoalDashboard(goalDashboard) {
-  if (goalDashboard?.activeGoalInstances || goalDashboard?.activeTeamFocusInstances) {
+  if (goalDashboard?.focusPlan?.focusInstances || goalDashboard?.activeGoalInstances || goalDashboard?.activeTeamFocusInstances) {
     return resolveGoalDashboardState(goalDashboard);
   }
 
@@ -119,6 +119,7 @@ export function normalizeGoalDashboard(goalDashboard) {
           }))
         : fallback.recentInsights,
     goalProgress: resolved.goalProgress ?? fallback.goalProgress ?? null,
+    focusPlan: resolved.focusPlan ?? fallback.focusPlan ?? null,
     suggestedNextSteps:
       Array.isArray(resolved.suggestedNextSteps) && resolved.suggestedNextSteps.length > 0
         ? resolved.suggestedNextSteps

@@ -108,6 +108,9 @@ function toAppHref(href, context = getRouteContext()) {
   if (pathname === "/setup") {
     return `/demo/setup${suffix}`;
   }
+  if (pathname === "/focus-plan") {
+    return `/demo/setup${suffix}`;
+  }
   if (pathname === "/review") {
     return `/demo/review${suffix}`;
   }
@@ -394,7 +397,7 @@ function appShell(content, hero = {}) {
   const heroHidden = hero.hidden === true;
   const heroTitle = hero.title ?? "RiftSense";
   const heroEyebrow = hero.eyebrow ?? "Dashboard";
-  const heroText = hero.text ?? "Open dashboard, review, or setup.";
+  const heroText = hero.text ?? "Open dashboard, review, or Focus Plan.";
   const heroPills = Array.isArray(hero.pills) ? hero.pills : [];
   const heroCompact = hero.compact !== false;
 
@@ -412,7 +415,7 @@ function appShell(content, hero = {}) {
         ? [
             { href: "/demo", label: "Dashboard", active: pathname === "/demo" },
             { href: "/demo/review", label: "Review", active: pathname === "/demo/review" },
-            { href: "/demo/setup", label: "Setup", active: pathname === "/demo/setup" || pathname === "/demo/goals" || pathname === "/demo/onboarding" },
+            { href: "/demo/setup", label: "Focus Plan", active: pathname === "/demo/setup" || pathname === "/demo/goals" || pathname === "/demo/onboarding" || pathname === "/demo/focus-plan" },
             { label: "Team Focus", disabled: true, status: "Soon", statusTitle: "Under construction" },
             { label: "Library", disabled: true, status: "Soon", statusTitle: "Under construction" },
             { label: "Training", disabled: true, status: "Soon", statusTitle: "Under construction" }
@@ -420,8 +423,8 @@ function appShell(content, hero = {}) {
         : [
             { href: "/", label: "Dashboard", active: pathname === "/" || pathname === "/dashboard" },
             { href: "/review", label: "Review", active: pathname === "/review" },
-            { href: "/setup", label: "Setup", active: pathname === "/setup" || pathname === "/goals" || pathname === "/onboarding" || pathname.startsWith("/focus/") },
-            { href: "/system-inventory", label: "System inventory", active: pathname === "/system-inventory", muted: true },
+            { href: "/focus-plan", label: "Focus Plan", active: pathname === "/setup" || pathname === "/focus-plan" || pathname === "/goals" || pathname === "/onboarding" || pathname.startsWith("/focus/") },
+            { href: "/training-taxonomy", label: "Training Taxonomy", active: pathname === "/system-inventory" || pathname === "/training-taxonomy", muted: true },
             { label: "Team Focus", disabled: true, status: "Soon", statusTitle: "Under construction" },
             { label: "Library", disabled: true, status: "Soon", statusTitle: "Under construction" },
             { label: "Training", disabled: true, status: "Soon", statusTitle: "Under construction" }
@@ -452,7 +455,7 @@ function appShell(content, hero = {}) {
               title="${navCollapsed ? "Expand sidebar" : "Collapse sidebar"}"
             >${navCollapsed ? "▶" : "◀"}</button>
           </div>
-          <p class="nav-meta">${escapeHtml(publicMode ? "Open the public home, About page, or demo." : "Open dashboard, review, or setup.")}</p>
+          <p class="nav-meta">${escapeHtml(publicMode ? "Open the public home, About page, or demo." : "Open dashboard, review, or Focus Plan.")}</p>
           <div class="side-nav-sections">
             ${navSections.map((section) => `
               <details
@@ -1465,11 +1468,11 @@ function resolveCoachingNextStep({ state: dashboardView, action = {}, context = 
   if (!goal?.title || action.status === "setup-needed") {
     return {
       type: "finish_setup",
-      title: action.title ?? "Finish setup",
-      description: action.summary ?? "Choose an active goal and role before review work starts.",
+      title: action.title ?? "Finish Focus Plan",
+      description: action.summary ?? "Choose a goal, current focus, and role before review work starts.",
       reason: "RiftSense needs a goal before it can rank games or targets.",
       primaryCta: {
-        label: action.label ?? "Open setup",
+        label: action.label ?? "Open Focus Plan",
         href: canonicalActionHref ?? setupActionHref
       }
     };
@@ -2136,7 +2139,7 @@ function initialAssessmentTargetRows(dashboardView) {
 }
 
 function canonicalSetupHref(context = getRouteContext()) {
-  return toAppHref("/setup", context) ?? "/setup";
+  return toAppHref("/focus-plan", context) ?? "/focus-plan";
 }
 
 function canonicalDashboardHref(href, context = getRouteContext()) {
@@ -2149,7 +2152,7 @@ function canonicalDashboardHref(href, context = getRouteContext()) {
 
   const [pathname, query = ""] = href.split("?");
   const suffix = query ? `?${query}` : "";
-  if (pathname === "/goals" || pathname === "/onboarding" || pathname.startsWith("/focus/") || pathname === "/setup") {
+  if (pathname === "/goals" || pathname === "/onboarding" || pathname.startsWith("/focus/") || pathname === "/setup" || pathname === "/focus-plan") {
     return `${canonicalSetupHref(context)}${suffix}`;
   }
   if (pathname === "/team" || pathname === "/team-focus" || pathname === "/library" || pathname === "/training" || pathname === "/drills" || pathname === "/test") {
@@ -2320,7 +2323,7 @@ function activeGoalName(review = {}) {
     return fromGoal;
   }
   const relevance = review.goalRelevance ?? review.relevanceReason ?? "";
-  return relevance ? String(relevance).split("·")[0].trim() : "Active goal";
+  return relevance ? String(relevance).split("·")[0].trim() : "Current focus";
 }
 
 function activeGoalKind(goalName) {
@@ -4839,9 +4842,9 @@ async function renderReviewLanding(root, context = getRouteContext()) {
       <section class="panel active-goal-panel">
         <p class="eyebrow">Review</p>
         <h2>Review queue</h2>
-        <p class="muted">Pick a prepared game and review its moments against ${escapeHtml(goal.title ?? "your active goal")}.</p>
+        <p class="muted">Pick a prepared game and review its moments against ${escapeHtml(goal.title ?? "your current focus")}.</p>
         <div class="action-row">
-          <a class="button secondary" href="${escapeHtml(canonicalSetupHref(context))}">Edit setup</a>
+          <a class="button secondary" href="${escapeHtml(canonicalSetupHref(context))}">Edit Focus Plan</a>
         </div>
       </section>
       <section class="panel review-run-panel">
@@ -4917,7 +4920,7 @@ function renderMatchReview(root, review, context = getRouteContext()) {
     <section class="review-secondary-stack">
       <details class="panel technical-evidence">
         <summary>Technical evidence</summary>
-        <p class="muted"><a href="${escapeHtml(toAppHref("/system-inventory", context) ?? "/system-inventory")}">System inventory</a></p>
+        <p class="muted"><a href="${escapeHtml(toAppHref("/training-taxonomy", context) ?? "/training-taxonomy")}">Training Taxonomy</a></p>
         ${review.evaluationSummary ? renderDeathFacts(review.deathEvents, review.reviewedMoments) : '<p class="muted">Evaluation is not prepared for this match yet.</p>'}
         ${renderTagCounts(review.deterministicTagCounts)}
       </details>
@@ -5178,67 +5181,154 @@ async function renderReviewPage(root, context = getRouteContext()) {
 
 async function renderSystemInventoryPage(root, context = getRouteContext()) {
   if (!getSessionState().authenticated) {
-    renderAuthRequiredPage(root, "Sign in to open system inventory", "System inventory uses your RiftSense setup.");
+    renderAuthRequiredPage(root, "Sign in to open Training Taxonomy", "Training Taxonomy uses your RiftSense Focus Plan.");
     return;
   }
 
   const inventory = await requestJson("/api/system-inventory", context.requestOptions);
+  const taxonomy = inventory.taxonomy ?? {};
+  const sources = inventory.deterministicSources ?? {};
+  const goals = taxonomy.goals ?? inventory.goalTypes ?? [];
+  const focuses = taxonomy.focuses ?? [];
+  const signals = taxonomy.signals ?? [];
+  const metrics = taxonomy.metrics ?? [];
+  const targets = taxonomy.targets ?? [];
+  const actions = taxonomy.actions ?? [];
+  const focusById = new Map(focuses.map((focus) => [focus.id, focus]));
+  const signalById = new Map(signals.map((signal) => [signal.id, signal]));
+  const metricById = new Map(metrics.map((metric) => [metric.id, metric]));
+  const actionById = new Map(actions.map((action) => [action.id, action]));
+  const targetLabel = (target) => {
+    const metric = metricById.get(target.metricId);
+    return `${metric?.label ?? target.metricId} ${target.operator ?? "<="} ${target.value ?? target.targetValue} (${target.window ?? metric?.defaultWindow ?? "week"})`;
+  };
+  const summaryCards = [
+    ["Goals", goals.length],
+    ["Focuses", focuses.length],
+    ["Signals", signals.length],
+    ["Metrics", metrics.length],
+    ["Actions", actions.length],
+    ["Detection rules", (sources.activeParsers ?? inventory.deterministicEvidenceParsers ?? []).length]
+  ];
   root.innerHTML = appShell(`
     <section class="section-heading">
       <div>
-        <p class="eyebrow">System inventory</p>
-        <h2>Known evidence patterns</h2>
+        <p class="eyebrow">Training Taxonomy</p>
+        <h2>Training Taxonomy</h2>
       </div>
-      <p class="section-copy">Read-only view of goal types, evidence categories, and detected evidence patterns.</p>
+      <p class="section-copy">Read-only map of RiftSense goals, focuses, signals, metrics, targets, and actions.</p>
+    </section>
+    <section class="metric-grid">
+      ${summaryCards.map(([label, value]) => `
+        <article class="metric-card">
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(value)}</strong>
+        </article>
+      `).join("")}
     </section>
     <section class="goal-dashboard-stack">
       <section class="panel dashboard-compact-panel">
-        <p class="eyebrow">Goal types</p>
-        <h3>Configured goals</h3>
+        <p class="eyebrow">Goals and Focus Paths</p>
+        <h3>Broad goals and training paths</h3>
         <section class="compact-list">
-          ${(inventory.goalTypes ?? []).map((goal) => `
+          ${goals.map((goal) => `
             <article class="compact-row">
               <div>
                 <span class="compact-row-main">${escapeHtml(goal.title ?? goal.id)}</span>
-                <span class="compact-row-value">Evidence: ${escapeHtml((goal.evidenceCategories ?? []).join(", ") || "None configured")}</span>
-                <span class="compact-row-value">Subscribed patterns: ${escapeHtml((goal.subscribedPatterns ?? []).join(", ") || "None configured")}</span>
+                <span class="compact-row-value">Focus path: ${escapeHtml((goal.defaultFocusPath ?? []).map((focusId) => focusById.get(focusId)?.title ?? focusId).join(" -> ") || "No focus path configured")}</span>
+                <span class="compact-row-value">${escapeHtml(goal.description ?? "")}</span>
               </div>
             </article>
-          `).join("") || '<p class="muted">No goal types are configured.</p>'}
+          `).join("") || '<p class="muted">No goals are configured.</p>'}
         </section>
       </section>
       <section class="panel dashboard-compact-panel">
-        <p class="eyebrow">Evidence parsers</p>
-        <h3>Active deterministic parsers</h3>
-        ${renderSignalList(inventory.deterministicEvidenceParsers ?? [], "No deterministic parsers are listed.")}
+        <p class="eyebrow">Focus Library</p>
+        <h3>Training focuses</h3>
+        <section class="compact-list">
+          ${focuses.map((focus) => `
+            <article class="compact-row">
+              <div>
+                <span class="compact-row-main">${escapeHtml(focus.title ?? focus.id)}</span>
+                <span class="compact-row-value">${escapeHtml([focus.category, focus.role].filter(Boolean).join(" · "))}</span>
+                <span class="compact-row-value">Signals: ${escapeHtml((focus.defaultSignalIds ?? []).map((id) => signalById.get(id)?.label ?? id).join(", ") || "None")}</span>
+                <span class="compact-row-value">Metrics: ${escapeHtml((focus.defaultMetricIds ?? []).map((id) => metricById.get(id)?.label ?? id).join(", ") || "None")}</span>
+                <span class="compact-row-value">Targets: ${escapeHtml((focus.suggestedTargets ?? []).map(targetLabel).join(", ") || "None")}</span>
+                <span class="compact-row-value">Actions: ${escapeHtml((focus.defaultActionIds ?? []).map((id) => actionById.get(id)?.title ?? id).join(", ") || "None")}</span>
+              </div>
+            </article>
+          `).join("") || '<p class="muted">No focuses are configured.</p>'}
+        </section>
       </section>
       <section class="panel dashboard-compact-panel">
-        <p class="eyebrow">System evidence patterns</p>
-        <h3>Detected evidence patterns</h3>
-        ${renderSignalList((inventory.systemEvidencePatterns ?? []).map(tagLabel), "No evidence patterns are listed.")}
+        <p class="eyebrow">Signals</p>
+        <h3>Detectable patterns and behaviors</h3>
+        <section class="compact-list">
+          ${signals.map((signal) => `
+            <article class="compact-row">
+              <div>
+                <span class="compact-row-main">${escapeHtml(signal.label ?? signal.id)}</span>
+                <span class="compact-row-value">${escapeHtml([signal.polarity, ...(signal.categories ?? [])].filter(Boolean).join(" · "))}</span>
+                <span class="compact-row-value">Used by: ${escapeHtml((signal.usedByFocusIds ?? []).map((id) => focusById.get(id)?.title ?? id).join(", ") || "No focus yet")}</span>
+              </div>
+            </article>
+          `).join("") || '<p class="muted">No signals are configured.</p>'}
+        </section>
       </section>
       <section class="panel dashboard-compact-panel">
-        <p class="eyebrow">Game phase</p>
-        <h3>Phase thresholds</h3>
-        <p class="muted">${escapeHtml(inventory.gamePhase?.note ?? "Phase thresholds are not configured.")}</p>
+        <p class="eyebrow">Metrics and Targets</p>
+        <h3>Counts and thresholds</h3>
+        <section class="compact-list">
+          ${metrics.map((metric) => `
+            <article class="compact-row">
+              <div>
+                <span class="compact-row-main">${escapeHtml(metric.label ?? metric.id)}</span>
+                <span class="compact-row-value">Signals: ${escapeHtml((metric.signalIds ?? []).map((id) => signalById.get(id)?.label ?? id).join(", ") || "None")}</span>
+                <span class="compact-row-value">Aggregation: ${escapeHtml(metric.aggregation ?? "count")} · Window: ${escapeHtml(metric.defaultWindow ?? "week")}</span>
+              </div>
+            </article>
+          `).join("") || '<p class="muted">No metrics are configured.</p>'}
+          ${targets.length > 0 ? `<article class="compact-row"><div><span class="compact-row-main">Suggested targets</span><span class="compact-row-value">${escapeHtml(targets.map(targetLabel).join(", "))}</span></div></article>` : '<p class="muted">No suggested targets are configured.</p>'}
+        </section>
       </section>
       <section class="panel dashboard-compact-panel">
-        <p class="eyebrow">Map timers</p>
-        <h3>Objective and jungle timers</h3>
+        <p class="eyebrow">Actions</p>
+        <h3>Review priorities and drills</h3>
+        <section class="compact-list">
+          ${actions.map((action) => `
+            <article class="compact-row">
+              <div>
+                <span class="compact-row-main">${escapeHtml(action.title ?? action.id)}</span>
+                <span class="compact-row-value">${escapeHtml([action.type, action.estimatedMinutes ? `${action.estimatedMinutes} min` : ""].filter(Boolean).join(" · "))}</span>
+                <span class="compact-row-value">Supports: ${escapeHtml((action.linkedFocusTemplateIds ?? []).map((id) => focusById.get(id)?.title ?? id).join(", ") || "No focus linked")}</span>
+              </div>
+            </article>
+          `).join("") || '<p class="muted">No actions are configured.</p>'}
+        </section>
+      </section>
+      <section class="panel dashboard-compact-panel">
+        <p class="eyebrow">Detection Sources</p>
+        <h3>Rules and parsers</h3>
+        <p class="muted">${escapeHtml((sources.gamePhase ?? inventory.gamePhase)?.note ?? "Phase rules are not configured.")}</p>
+        <h4>Deterministic parsers</h4>
+        ${renderSignalList(sources.activeParsers ?? inventory.deterministicEvidenceParsers ?? [], "No deterministic parsers are listed.")}
+        <h4>Generated evidence tags</h4>
+        ${renderSignalList(((sources.emittedTags ?? inventory.systemEvidencePatterns) ?? []).map(tagLabel), "No generated evidence tags are listed.")}
+        <h4>Map timers</h4>
         ${renderSignalList([
-          inventory.mapTimers?.rules?.dragon?.firstSpawnSeconds ? `Dragon first spawn: ${inventory.mapTimers.rules.dragon.firstSpawnSeconds}s` : "",
-          inventory.mapTimers?.rules?.voidgrubs?.firstSpawnSeconds ? `Voidgrubs first spawn: ${inventory.mapTimers.rules.voidgrubs.firstSpawnSeconds}s` : "",
-          inventory.mapTimers?.rules?.riftHerald?.firstSpawnSeconds ? `Rift Herald first spawn: ${inventory.mapTimers.rules.riftHerald.firstSpawnSeconds}s` : "",
-          inventory.mapTimers?.rules?.baron?.firstSpawnSeconds ? `Baron first spawn: ${inventory.mapTimers.rules.baron.firstSpawnSeconds}s` : "",
-          inventory.mapTimers?.rules?.scuttle?.firstSpawnSeconds ? `Scuttle first spawn: ${inventory.mapTimers.rules.scuttle.firstSpawnSeconds}s` : "",
-          inventory.mapTimers?.rules?.jungleCamps?.minorCampRespawnSeconds ? `Minor camp respawn: ${inventory.mapTimers.rules.jungleCamps.minorCampRespawnSeconds}s` : "",
-          inventory.mapTimers?.rules?.jungleCamps?.buffRespawnSeconds ? `Buff respawn: ${inventory.mapTimers.rules.jungleCamps.buffRespawnSeconds}s` : ""
+          (sources.mapTimers ?? inventory.mapTimers)?.rules?.dragon?.firstSpawnSeconds ? `Dragon first spawn: ${(sources.mapTimers ?? inventory.mapTimers).rules.dragon.firstSpawnSeconds}s` : "",
+          (sources.mapTimers ?? inventory.mapTimers)?.rules?.voidgrubs?.firstSpawnSeconds ? `Voidgrubs first spawn: ${(sources.mapTimers ?? inventory.mapTimers).rules.voidgrubs.firstSpawnSeconds}s` : "",
+          (sources.mapTimers ?? inventory.mapTimers)?.rules?.riftHerald?.firstSpawnSeconds ? `Rift Herald first spawn: ${(sources.mapTimers ?? inventory.mapTimers).rules.riftHerald.firstSpawnSeconds}s` : "",
+          (sources.mapTimers ?? inventory.mapTimers)?.rules?.baron?.firstSpawnSeconds ? `Baron first spawn: ${(sources.mapTimers ?? inventory.mapTimers).rules.baron.firstSpawnSeconds}s` : "",
+          (sources.mapTimers ?? inventory.mapTimers)?.rules?.scuttle?.firstSpawnSeconds ? `Scuttle first spawn: ${(sources.mapTimers ?? inventory.mapTimers).rules.scuttle.firstSpawnSeconds}s` : "",
+          (sources.mapTimers ?? inventory.mapTimers)?.rules?.jungleCamps?.minorCampRespawnSeconds ? `Minor camp respawn: ${(sources.mapTimers ?? inventory.mapTimers).rules.jungleCamps.minorCampRespawnSeconds}s` : "",
+          (sources.mapTimers ?? inventory.mapTimers)?.rules?.jungleCamps?.buffRespawnSeconds ? `Buff respawn: ${(sources.mapTimers ?? inventory.mapTimers).rules.jungleCamps.buffRespawnSeconds}s` : ""
         ].filter(Boolean), "Map timer rules are not configured.")}
       </section>
     </section>
   `, {
-    eyebrow: "System inventory",
-    title: "Known evidence patterns",
+    eyebrow: "Training Taxonomy",
+    title: "Training Taxonomy",
     text: "Read-only configuration.",
     compact: true
   });
@@ -5421,12 +5511,15 @@ async function renderHome(root, context = getRouteContext()) {
       ? (() => {
         const href = canonicalDashboardHref(home.setupGuide.href, context) ?? setupHref;
         const label = href === setupHref && (home.setupGuide.label === "View Goals" || home.setupGuide.href === "/goals" || home.setupGuide.href === "/onboarding")
-          ? "Open setup"
-          : home.setupGuide.label ?? "Open setup";
+          ? "Open Focus Plan"
+          : home.setupGuide.label ?? "Open Focus Plan";
+        const title = home.setupGuide.status === "setup-needed" || home.setupGuide.title === "Setup needed"
+          ? "Focus Plan needed"
+          : home.setupGuide.title ?? "Focus Plan needed";
         return `
       <section class="panel panel-slim">
-        <p class="eyebrow">${escapeHtml(home.setupGuide.status === "setup-needed" ? "Setup" : "Next")}</p>
-        <h2>${escapeHtml(home.setupGuide.title ?? "Setup needed")}</h2>
+        <p class="eyebrow">${escapeHtml(home.setupGuide.status === "setup-needed" ? "Focus Plan" : "Next")}</p>
+        <h2>${escapeHtml(title)}</h2>
         <p class="muted">${escapeHtml(home.setupGuide.summary ?? "")}</p>
         ${home.setupGuide.href ? `<a class="button" href="${escapeHtml(href)}">${escapeHtml(label)}</a>` : ""}
       </section>
@@ -5443,15 +5536,15 @@ async function renderHome(root, context = getRouteContext()) {
           <section class="panel active-goal-panel">
             <div class="active-goal-hero">
               <div class="active-goal-copy">
-                <p class="eyebrow">Active Goal</p>
-                <h2>${escapeHtml(goal.title ?? "No active goal yet")}</h2>
+                <p class="eyebrow">Current Focus</p>
+                <h2>${escapeHtml(goal.title ?? "No current focus yet")}</h2>
                 ${activeGoalAgeLine(dashboardView.goalProgress)}
                 <div class="badge-row">
-                  <span class="context-badge">${escapeHtml(focusTagline)}</span>
+                  <span class="context-badge">${goal.broadGoalTitle ? `Goal: ${escapeHtml(goal.broadGoalTitle)} · ` : ""}${escapeHtml(focusTagline)}</span>
                   ${statusBadge(activeReviewStatus, activeReviewTrend)}
                 </div>
               </div>
-              <a class="button secondary" href="${escapeHtml(setupHref)}">Edit setup</a>
+              <a class="button secondary" href="${escapeHtml(setupHref)}">Edit Focus Plan</a>
             </div>
           </section>
           ${coachingNextStepCard(nextStep)}
@@ -5478,7 +5571,7 @@ async function renderHome(root, context = getRouteContext()) {
                 const href = canonicalDashboardHref(step.href, context);
                 const [stepPathname] = (step.href ?? "").split("?");
                 const label = href === setupHref && (stepPathname === "/goals" || stepPathname === "/onboarding" || stepPathname.startsWith("/focus/"))
-                  ? "Edit setup"
+                  ? "Edit Focus Plan"
                   : step.label;
                 return nextStepCard({
                   ...step,
@@ -5491,7 +5584,7 @@ async function renderHome(root, context = getRouteContext()) {
               ${nextStepCard(dashboardView.inInitialAssessment
                 ? { title: "Assessment games", summary: "Review the remaining assessment games.", href: reviewHref, label: "Open assessment games" }
                 : { title: "Review queue", summary: "Pick a prepared game and review its moments.", href: reviewHref, label: "Open review" })}
-              ${nextStepCard({ title: "Setup", summary: "Update your active goal, role, and team focus.", href: setupHref, label: "Edit setup" })}
+              ${nextStepCard({ title: "Focus Plan", summary: "Update your goal, focus path, role, and team focus.", href: setupHref, label: "Edit Focus Plan" })}
               ${nextStepCard({ title: "Library", summary: "Library fills as you review games.", status: "Under construction" })}
             `}
         </section>
@@ -5621,16 +5714,16 @@ async function renderGoalDashboardPage(root, page, context = getRouteContext()) 
     team: {
       eyebrow: "Team Focus",
       title: teamFocus.title ?? "Team Focus",
-      text: "Current team-oriented focus. Setup owns editing.",
+      text: "Current team-oriented focus. Focus Plan owns editing.",
       content: `
         <section class="panel team-focus-panel">
           <p class="eyebrow">Current team focus</p>
           <h3>${escapeHtml(teamFocus.practiceTopic ?? "No practice topic configured")}</h3>
           <p><strong>Assigned review:</strong> ${escapeHtml(teamFocus.assignedReview ?? "Not set")}</p>
-          <p class="muted">Team Focus is seeded from setup until reviewed game evidence updates it.</p>
+          <p class="muted">Team Focus is saved from Focus Plan until reviewed game evidence updates it.</p>
           ${teamChecklist(teamFocus.checklist)}
           <div class="action-row">
-            <a class="button secondary" href="${escapeHtml(canonicalSetupHref(context))}">Edit setup</a>
+            <a class="button secondary" href="${escapeHtml(canonicalSetupHref(context))}">Edit Focus Plan</a>
           </div>
         </section>
         <section class="panel recent-signals-panel">
@@ -5697,20 +5790,23 @@ function onboardingSignalCheckbox(signal, checked) {
   `;
 }
 
-function onboardingTargetCheckbox(target, signal, checked = true) {
+function onboardingTargetRow(target, metric, checked = true) {
   return `
     <label class="checkbox option-card">
       <input
         type="checkbox"
-        name="weeklyTargetSignalIds"
-        value="${escapeHtml(target.signalId)}"
-        data-target-value="${escapeHtml(target.targetValue)}"
-        data-target-label="${escapeHtml(target.label ?? signal?.label ?? target.signalId)}"
+        name="selectedTargetIds"
+        value="${escapeHtml(target.id ?? target.metricId)}"
+        data-metric-id="${escapeHtml(target.metricId)}"
+        data-target-operator="${escapeHtml(target.operator ?? "<=")}"
+        data-target-value="${escapeHtml(target.value ?? target.targetValue)}"
+        data-target-window="${escapeHtml(target.window ?? metric?.defaultWindow ?? "week")}"
+        data-target-label="${escapeHtml(target.label ?? metric?.label ?? target.metricId)}"
         ${checked ? "checked" : ""}
       />
       <span>
-        <strong>${escapeHtml(target.label ?? signal?.label ?? target.signalId)}</strong>
-        <small>Target: ${escapeHtml(target.targetValue)}</small>
+        <strong>${escapeHtml(metric?.label ?? target.metricId)}</strong>
+        <small>Target ${escapeHtml(target.operator ?? "<=")} ${escapeHtml(target.value ?? target.targetValue)} · ${escapeHtml(target.window ?? metric?.defaultWindow ?? "week")}</small>
       </span>
     </label>
   `;
@@ -5718,6 +5814,7 @@ function onboardingTargetCheckbox(target, signal, checked = true) {
 
 function onboardingPreview({ state, templates }) {
   const goal = findTemplate(templates.goalTemplates, state.selectedGoalTemplateId);
+  const focus = findTemplate(templates.focusTemplates, state.primaryFocusTemplateId) ?? goal;
   const action = findTemplate(templates.actionTemplates, state.selectedActionTemplateId);
   const teamFocus = findTemplate(templates.teamFocusTemplates, state.selectedTeamFocusTemplateId);
   const signalLabels = state.selectedSignalIds
@@ -5727,16 +5824,17 @@ function onboardingPreview({ state, templates }) {
   return `
     <section class="onboarding-preview">
       <article class="panel panel-slim">
-        <p class="eyebrow">Dashboard Preview</p>
-        <h3>${escapeHtml(goal?.title ?? "No personal goal selected")}</h3>
-        <p class="muted">${escapeHtml(goal?.description ?? "Team-only onboarding will create a team focus without a personal goal.")}</p>
-        <p><strong>Signals:</strong> ${escapeHtml(signalLabels.join(", ") || "None selected")}</p>
-        <p><strong>First action:</strong> ${escapeHtml(action?.title ?? "None selected")}</p>
+        <p class="eyebrow">Focus Plan Preview</p>
+        <h3>${escapeHtml(goal?.title ?? "No goal selected")}</h3>
+        <p class="muted">${escapeHtml(focus?.description ?? "Select a focus to start tracking.")}</p>
+        <p><strong>Primary Focus:</strong> ${escapeHtml(focus?.title ?? "None selected")}</p>
+        <p><strong>Tracked signals:</strong> ${escapeHtml(signalLabels.join(", ") || "None selected")}</p>
+        <p><strong>Review Priority:</strong> ${escapeHtml(action?.title ?? "None selected")}</p>
       </article>
       <article class="panel panel-slim">
         <p class="eyebrow">Team Focus</p>
         <h3>${escapeHtml(teamFocus?.title ?? "Skipped")}</h3>
-        <p class="muted">${escapeHtml(teamFocus?.description ?? "No team focus will be created for this setup.")}</p>
+        <p class="muted">${escapeHtml(teamFocus?.description ?? "No team focus will be saved.")}</p>
       </article>
     </section>
   `;
@@ -5754,56 +5852,83 @@ async function renderOnboarding(root, context = getRouteContext()) {
   const { home } = await requestJson(context.homeApiUrl, context.requestOptions);
   const dashboard = home.goalDashboard ?? {};
   const profile = home.user?.profile ?? {};
+  const focusPlan = dashboard.focusPlan ?? {};
   const currentGoal = dashboard.activePersonalGoal ?? {};
+  const currentBroadGoal = focusPlan.goal ?? {};
+  const currentPrimaryFocus = focusPlan.primaryFocus ?? currentGoal;
   const currentTeamFocus = dashboard.activeTeamFocus ?? {};
   const riotEvidence = currentGoal.riotEvidence ?? {};
-  const initialGoal = templates.goalTemplates.find((template) => template.title === currentGoal.title) ?? templates.goalTemplates[0];
+  const focusTemplates = templates.focusTemplates ?? templates.goalTemplates ?? [];
+  const initialGoal = templates.goalTemplates.find((template) =>
+    template.id === currentBroadGoal.templateId || template.title === currentBroadGoal.title
+  ) ?? templates.goalTemplates[0];
+  const initialFocus = focusTemplates.find((template) =>
+    template.id === currentPrimaryFocus.focusTemplateId ||
+    template.id === currentPrimaryFocus.templateId ||
+    template.title === currentPrimaryFocus.title ||
+    template.legacyGoalTemplateIds?.includes(currentPrimaryFocus.templateId)
+  ) ?? focusTemplates.find((template) => template.id === initialGoal?.defaultFocusPath?.[0]) ?? focusTemplates[0];
   const initialTeamFocus = templates.teamFocusTemplates.find((template) =>
     template.title === currentTeamFocus.title || template.title === currentTeamFocus.practiceTopic
   ) ?? templates.teamFocusTemplates[0];
   const state = {
     context: "both",
-    role: currentGoal.role ?? profile.primaryRole ?? "ADC",
+    role: currentPrimaryFocus.role ?? profile.primaryRole ?? "ADC",
     selectedGoalTemplateId: initialGoal?.id ?? "",
-    selectedSignalIds: initialGoal?.defaultSignalIds ?? [],
-    selectedWeeklyTargetIds: (initialGoal?.suggestedWeeklyTargets ?? []).map((target) => target.signalId),
-    selectedActionTemplateId: initialGoal?.defaultActionIds?.[0] ?? templates.actionTemplates[0]?.id ?? "",
+    primaryFocusTemplateId: initialFocus?.id ?? "",
+    supportingFocusTemplateIds: (focusPlan.supportingFocuses ?? []).map((focus) => focus.focusTemplateId ?? focus.templateId).filter(Boolean),
+    laterFocusTemplateIds: (focusPlan.laterFocuses ?? []).map((focus) => focus.focusTemplateId ?? focus.templateId).filter(Boolean),
+    selectedSignalIds: initialFocus?.defaultSignalIds ?? [],
+    selectedMetricIds: initialFocus?.defaultMetricIds ?? [],
+    selectedTargetIds: (initialFocus?.suggestedTargets ?? []).map((target) => target.id ?? target.metricId),
+    selectedActionTemplateId: initialFocus?.defaultActionIds?.[0] ?? templates.actionTemplates[0]?.id ?? "",
     selectedTeamFocusTemplateId: initialTeamFocus?.id ?? ""
   };
 
   function syncStateFromForm(form) {
     const formData = new FormData(form);
     const nextGoalId = String(formData.get("selectedGoalTemplateId") ?? "");
+    const nextFocusId = String(formData.get("primaryFocusTemplateId") ?? "");
     const goalChanged = nextGoalId && nextGoalId !== state.selectedGoalTemplateId;
+    const focusChanged = nextFocusId && nextFocusId !== state.primaryFocusTemplateId;
     const nextGoal = findTemplate(templates.goalTemplates, nextGoalId);
+    const nextFocus = findTemplate(focusTemplates, nextFocusId) ??
+      findTemplate(focusTemplates, nextGoal?.defaultFocusPath?.[0]);
 
     state.context = String(formData.get("context") ?? "personal");
     state.role = String(formData.get("role") ?? "ADC");
     state.selectedGoalTemplateId = nextGoalId;
+    state.primaryFocusTemplateId = nextFocusId || nextFocus?.id || "";
     state.selectedTeamFocusTemplateId = String(formData.get("selectedTeamFocusTemplateId") ?? "");
 
-    if (goalChanged && nextGoal) {
-      state.selectedSignalIds = nextGoal.defaultSignalIds ?? [];
-      state.selectedWeeklyTargetIds = (nextGoal.suggestedWeeklyTargets ?? []).map((target) => target.signalId);
-      state.selectedActionTemplateId = nextGoal.defaultActionIds?.[0] ?? state.selectedActionTemplateId;
+    if ((goalChanged || focusChanged) && nextFocus) {
+      state.primaryFocusTemplateId = nextFocus.id;
+      state.selectedSignalIds = nextFocus.defaultSignalIds ?? [];
+      state.selectedMetricIds = nextFocus.defaultMetricIds ?? [];
+      state.selectedTargetIds = (nextFocus.suggestedTargets ?? []).map((target) => target.id ?? target.metricId);
+      state.selectedActionTemplateId = nextFocus.defaultActionIds?.[0] ?? state.selectedActionTemplateId;
       return;
     }
 
     state.selectedSignalIds = formData.getAll("selectedSignalIds").map(String);
-    state.selectedWeeklyTargetIds = formData.getAll("weeklyTargetSignalIds").map(String);
+    state.selectedMetricIds = formData.getAll("selectedMetricIds").map(String);
+    state.selectedTargetIds = formData.getAll("selectedTargetIds").map(String);
     state.selectedActionTemplateId = String(formData.get("selectedActionTemplateId") ?? "");
   }
 
   function payloadFromForm(form) {
     syncStateFromForm(form);
     const formData = new FormData(form);
-    const weeklyTargets = formData.getAll("weeklyTargetSignalIds").map((signalId) => {
-      const input = Array.from(form.querySelectorAll('input[name="weeklyTargetSignalIds"]'))
-        .find((targetInput) => targetInput.value === signalId);
+    const targets = formData.getAll("selectedTargetIds").map((targetId) => {
+      const input = Array.from(form.querySelectorAll('input[name="selectedTargetIds"]'))
+        .find((targetInput) => targetInput.value === targetId);
       return {
-        signalId,
-        targetValue: Number(input?.dataset.targetValue ?? 0),
-        label: input?.dataset.targetLabel ?? signalId
+        id: targetId,
+        metricId: input?.dataset.metricId ?? targetId,
+        operator: input?.dataset.targetOperator ?? "<=",
+        value: Number(input?.dataset.targetValue ?? 0),
+        window: input?.dataset.targetWindow ?? "week",
+        label: input?.dataset.targetLabel ?? targetId
       };
     });
 
@@ -5811,8 +5936,12 @@ async function renderOnboarding(root, context = getRouteContext()) {
       context: state.context,
       role: state.role,
       selectedGoalTemplateId: state.selectedGoalTemplateId,
+      primaryFocusTemplateId: state.primaryFocusTemplateId,
+      supportingFocusTemplateIds: state.supportingFocusTemplateIds,
+      laterFocusTemplateIds: state.laterFocusTemplateIds,
       selectedSignalIds: state.selectedSignalIds,
-      weeklyTargets,
+      selectedMetricIds: state.selectedMetricIds,
+      targets,
       selectedActionTemplateId: state.selectedActionTemplateId,
       selectedTeamFocusTemplateId: state.selectedTeamFocusTemplateId
     };
@@ -5820,12 +5949,20 @@ async function renderOnboarding(root, context = getRouteContext()) {
 
   function render() {
     const selectedGoal = findTemplate(templates.goalTemplates, state.selectedGoalTemplateId) ?? templates.goalTemplates[0];
+    const selectedFocus = findTemplate(focusTemplates, state.primaryFocusTemplateId) ??
+      findTemplate(focusTemplates, selectedGoal?.defaultFocusPath?.[0]) ??
+      focusTemplates[0];
     const selectedTeamFocus = findTemplate(templates.teamFocusTemplates, state.selectedTeamFocusTemplateId);
-    const selectedActionIds = selectedGoal?.defaultActionIds ?? [];
-    const signalIds = new Set(selectedGoal?.defaultSignalIds ?? []);
+    const selectedActionIds = selectedFocus?.defaultActionIds ?? [];
+    const signalIds = new Set(selectedFocus?.defaultSignalIds ?? []);
     state.selectedSignalIds.forEach((signalId) => signalIds.add(signalId));
     const visibleSignals = templates.signalTemplates.filter((signal) => signalIds.has(signal.id));
-    const weeklyTargets = selectedGoal?.suggestedWeeklyTargets ?? [];
+    const reduceSignals = visibleSignals.filter((signal) => signal.polarity !== "positive");
+    const reinforceSignals = visibleSignals.filter((signal) => signal.polarity === "positive");
+    const metricIds = new Set(selectedFocus?.defaultMetricIds ?? []);
+    state.selectedMetricIds.forEach((metricId) => metricIds.add(metricId));
+    const visibleMetrics = (templates.metricTemplates ?? []).filter((metric) => metricIds.has(metric.id));
+    const targets = selectedFocus?.suggestedTargets ?? [];
     const dashboardHref = toAppHref("/", context) ?? "/";
     const reviewHref = toAppHref("/review", context) ?? "/review";
     const counts = riotReadinessCounts(riotEvidence);
@@ -5834,20 +5971,34 @@ async function renderOnboarding(root, context = getRouteContext()) {
       : "Not connected";
     const recentGamesLabel = counts.discoveredCount > 0 ? `${counts.discoveredCount} available` : "None available";
     const reviewReadyLabel = counts.evaluationReadyCount > 0 ? `${counts.evaluationReadyCount} available` : "None available";
+    const pendingLabel = counts.evaluationsPendingCount > 0 ? `${counts.evaluationsPendingCount} pending` : "None pending";
+    const stageText = currentPrimaryFocus.stageLabel ?? currentPrimaryFocus.stage ?? "Initial assessment";
+    const assessment = riotEvidence.initialAssessment ?? {};
+    const assessmentProgress = Number.isFinite(Number(assessment.completedCount)) && Number.isFinite(Number(assessment.target))
+      ? ` · ${assessment.completedCount}/${assessment.target} reviews complete`
+      : "";
+    const alsoTracking = state.supportingFocusTemplateIds.map((id) => findTemplate(focusTemplates, id)?.title).filter(Boolean).join(", ") || "None";
+    const later = state.laterFocusTemplateIds.map((id) => findTemplate(focusTemplates, id)?.title).filter(Boolean).join(", ") ||
+      (selectedGoal?.defaultFocusPath ?? []).slice(1).map((id) => findTemplate(focusTemplates, id)?.title).filter(Boolean).join(", ") ||
+      "None";
 
     root.innerHTML = appShell(`
       <section class="section-heading">
         <div>
-          <p class="eyebrow">${context.demoMode ? "Demo Setup" : "Setup"}</p>
-          <h2>Setup</h2>
+          <p class="eyebrow">Focus Plan</p>
+          <h2>Focus Plan</h2>
         </div>
-        <p class="section-copy">Active goal, review readiness, and team focus seed.</p>
+        <p class="section-copy">Choose your goal, current focus, tracked habits, targets, and review priority.</p>
       </section>
       <form class="onboarding-flow" id="onboarding-form">
         <section class="panel onboarding-step">
-          <p class="eyebrow">Personal focus</p>
-          <h3>${escapeHtml(currentGoal.title ?? selectedGoal?.title ?? "No active goal yet")}</h3>
-          <p><strong>Role/context:</strong> ${escapeHtml(state.role)} · ${escapeHtml(currentGoal.scope ?? "personal")}</p>
+          <p class="eyebrow">Current path</p>
+          <h3>${escapeHtml(selectedGoal?.title ?? "No goal selected")}</h3>
+          <p><strong>Goal:</strong> ${escapeHtml(selectedGoal?.title ?? "None")}</p>
+          <p><strong>Primary Focus:</strong> ${escapeHtml(selectedFocus?.title ?? "None")}</p>
+          <p><strong>Stage:</strong> ${escapeHtml(stageText)}${escapeHtml(assessmentProgress)}</p>
+          <p><strong>Also tracking:</strong> ${escapeHtml(alsoTracking)}</p>
+          <p><strong>Later:</strong> ${escapeHtml(later)}</p>
           <input type="hidden" name="context" value="both" />
           <div class="field-row">
             <label>
@@ -5859,73 +6010,108 @@ async function renderOnboarding(root, context = getRouteContext()) {
               </select>
             </label>
             <label>
-              Active goal
+              Goal
               <select name="selectedGoalTemplateId">
                 ${templates.goalTemplates.map((template) => templateOption(template, selectedGoal?.id)).join("")}
               </select>
             </label>
             <label>
-              First action
+              Primary Focus
+              <select name="primaryFocusTemplateId">
+                ${focusTemplates.map((template) => templateOption(template, selectedFocus?.id)).join("")}
+              </select>
+            </label>
+            <label>
+              Review Priority
               <select name="selectedActionTemplateId">
                 ${templates.actionTemplates
-                  .filter((template) => selectedActionIds.includes(template.id) || template.linkedGoalTemplateIds?.includes(selectedGoal?.id))
+                  .filter((template) => selectedActionIds.includes(template.id) || template.linkedFocusTemplateIds?.includes(selectedFocus?.id) || template.linkedGoalTemplateIds?.includes(selectedFocus?.legacyGoalTemplateIds?.[0]))
                   .map((template) => templateOption(template, state.selectedActionTemplateId))
                   .join("")}
               </select>
             </label>
           </div>
+        </section>
+
+        <section class="panel onboarding-step">
+          <p class="eyebrow">Current Focus details</p>
+          <h3>${escapeHtml(selectedFocus?.title ?? "Tracked habits")}</h3>
+          <p class="muted">${escapeHtml(selectedFocus?.description ?? "")}</p>
+          <h4>Patterns to reduce</h4>
           <section class="option-grid target-option-grid" aria-label="Goal signals">
-            ${visibleSignals.map((signal) => onboardingSignalCheckbox(signal, state.selectedSignalIds.includes(signal.id))).join("")}
-            ${weeklyTargets.map((target) => onboardingTargetCheckbox(
+            ${reduceSignals.map((signal) => onboardingSignalCheckbox(signal, state.selectedSignalIds.includes(signal.id))).join("") || '<p class="muted">No reduction signals configured.</p>'}
+          </section>
+          <h4>Behaviors to reinforce</h4>
+          <section class="option-grid target-option-grid" aria-label="Reinforcement signals">
+            ${reinforceSignals.map((signal) => onboardingSignalCheckbox(signal, state.selectedSignalIds.includes(signal.id))).join("") || '<p class="muted">No reinforcement signals configured.</p>'}
+          </section>
+        </section>
+
+        <section class="panel onboarding-step">
+          <p class="eyebrow">Metrics and Targets</p>
+          <h3>Current checkpoints</h3>
+          <section class="option-grid target-option-grid" aria-label="Focus metrics">
+            ${visibleMetrics.map((metric) => `
+              <label class="checkbox option-card">
+                <input type="checkbox" name="selectedMetricIds" value="${escapeHtml(metric.id)}" ${state.selectedMetricIds.includes(metric.id) ? "checked" : ""} />
+                <span>
+                  <strong>${escapeHtml(metric.label ?? metric.id)}</strong>
+                  <small>${escapeHtml((metric.signalIds ?? []).map((id) => findTemplate(templates.signalTemplates, id)?.label ?? id).join(", "))}</small>
+                </span>
+              </label>
+            `).join("") || '<p class="muted">No metrics configured for this focus.</p>'}
+            ${targets.map((target) => onboardingTargetRow(
               target,
-              findTemplate(templates.signalTemplates, target.signalId),
-              state.selectedWeeklyTargetIds.includes(target.signalId)
+              findTemplate(templates.metricTemplates ?? [], target.metricId),
+              state.selectedTargetIds.includes(target.id ?? target.metricId)
             )).join("")}
           </section>
         </section>
 
         <section class="panel onboarding-step">
-          <p class="eyebrow">Review setup</p>
+          <p class="eyebrow">Review Data</p>
           <h3>Review readiness</h3>
           <div class="progress-checklist">
             <span>Nexus/Riot identity: ${escapeHtml(riotIdentityLabel)}</span>
-            <span>Recent games: ${escapeHtml(recentGamesLabel)}</span>
-            <span>Review-ready games: ${escapeHtml(reviewReadyLabel)}</span>
+            <span>Recent games discovered: ${escapeHtml(recentGamesLabel)}</span>
+            <span>Evaluations ready: ${escapeHtml(reviewReadyLabel)}</span>
+            <span>Evaluations pending: ${escapeHtml(pendingLabel)}</span>
           </div>
           <div class="action-row">
-            <a class="button secondary" href="${escapeHtml(reviewHref)}">Go to Review</a>
+            <a class="button secondary" href="${escapeHtml(reviewHref)}">${escapeHtml(counts.evaluationReadyCount > 0 ? "Review ready games" : "Open review queue")}</a>
           </div>
         </section>
 
         <section class="panel onboarding-step">
-          <p class="eyebrow">Team focus seed</p>
+          <p class="eyebrow">Team Focus</p>
           <h3>${escapeHtml(currentTeamFocus.title ?? selectedTeamFocus?.title ?? "No team focus configured")}</h3>
+          <p class="context-badge">Under construction</p>
           <p><strong>Assignment:</strong> ${escapeHtml(currentTeamFocus.assignment ?? currentTeamFocus.assignedReview ?? "Not set")}</p>
           <label>
-            Team focus seed
+            Team focus
             <select name="selectedTeamFocusTemplateId">
               ${templates.teamFocusTemplates.map((template) => templateOption(template, selectedTeamFocus?.id)).join("")}
             </select>
           </label>
-          <p class="muted">Team Focus is under construction; this setup value is saved as a seed for later team workflows.</p>
+          <p class="muted">Saved team focus will be used when team workflows are ready.</p>
         </section>
 
         <section class="panel panel-slim onboarding-submit">
           <div>
-            <p class="eyebrow">Save setup</p>
-            <h3>${context.demoMode ? "Preview demo setup" : "Save setup"}</h3>
-            <p class="muted" id="onboarding-status" aria-live="polite">${context.demoMode ? "Demo setup does not write server state." : "Saving will update your dashboard, goal, and team focus."}</p>
+            <p class="eyebrow">Save Focus Plan</p>
+            <h3>${context.demoMode ? "Preview Focus Plan" : "Save Focus Plan"}</h3>
+            <p class="muted" id="onboarding-status" aria-live="polite">${context.demoMode ? "Demo mode previews the current plan." : "Saving will update your goal, focus path, tracked signals, targets, and review priority."}</p>
           </div>
           <div class="action-row">
-            <button class="button" type="submit">${context.demoMode ? "Preview Setup" : "Save Setup"}</button>
+            <button class="button" type="submit">${context.demoMode ? "Preview Focus Plan" : "Save Focus Plan"}</button>
             <a class="button secondary" href="${escapeHtml(dashboardHref)}">Dashboard</a>
           </div>
         </section>
       </form>
     `, {
-      eyebrow: context.demoMode ? "Demo Setup" : "Setup",
-      title: "Setup",
-      text: "Save active goal and team focus setup.",
+      eyebrow: "Focus Plan",
+      title: "Focus Plan",
+      text: "Save goal, focus path, and review priority.",
       compact: true
     });
 
@@ -5935,7 +6121,7 @@ async function renderOnboarding(root, context = getRouteContext()) {
 
     const form = root.querySelector("#onboarding-form");
     form?.addEventListener("change", (event) => {
-      if (event.target?.name === "selectedSignalIds" || event.target?.name === "weeklyTargetSignalIds") {
+      if (event.target?.name === "selectedSignalIds" || event.target?.name === "selectedTargetIds" || event.target?.name === "selectedMetricIds") {
         syncStateFromForm(form);
         return;
       }
@@ -5949,7 +6135,7 @@ async function renderOnboarding(root, context = getRouteContext()) {
       const payload = payloadFromForm(form);
 
       if (context.demoMode) {
-        status.textContent = "Demo preview is ready. The selected setup matches what the dashboard save would create.";
+        status.textContent = "Demo preview is ready. The selected Focus Plan matches what the dashboard save would create.";
         return;
       }
 
@@ -5965,7 +6151,7 @@ async function renderOnboarding(root, context = getRouteContext()) {
         });
         window.location.href = "/";
       } catch (error) {
-        status.textContent = error instanceof Error ? error.message : "Setup save failed.";
+        status.textContent = error instanceof Error ? error.message : "Focus Plan save failed.";
       }
     });
   }
@@ -5984,21 +6170,21 @@ async function renderFocusPage(root, scope, context = getRouteContext()) {
   root.innerHTML = appShell(`
     <section class="section-heading">
       <div>
-        <p class="eyebrow">Setup</p>
+        <p class="eyebrow">Focus Plan</p>
         <h2>${escapeHtml(label)}</h2>
       </div>
-      <p class="section-copy">This setup view moved.</p>
+      <p class="section-copy">This Focus Plan view moved.</p>
     </section>
     <section class="panel panel-slim">
-      <p class="muted">Use Setup for active goal details, weekly targets, linked signals, and team focus.</p>
+      <p class="muted">Use Focus Plan for goal details, targets, tracked signals, and team focus.</p>
       <div class="action-row">
-        <a class="button" href="${escapeHtml(setupHref)}">Open setup</a>
+        <a class="button" href="${escapeHtml(setupHref)}">Open Focus Plan</a>
       </div>
     </section>
   `, {
-    eyebrow: "Setup",
+    eyebrow: "Focus Plan",
     title: label,
-    text: "This view moved to Setup.",
+    text: "This view moved to Focus Plan.",
     compact: true
   });
 }
@@ -6565,7 +6751,7 @@ export async function renderApp(root) {
       return;
     }
 
-    if (pathname === "/setup" || pathname === "/demo/setup" || pathname === "/goals" || pathname === "/demo/goals" || pathname === "/onboarding" || pathname === "/demo/onboarding") {
+    if (pathname === "/setup" || pathname === "/focus-plan" || pathname === "/demo/setup" || pathname === "/goals" || pathname === "/demo/goals" || pathname === "/onboarding" || pathname === "/demo/onboarding") {
       await renderOnboarding(root, context);
       return;
     }
@@ -6618,7 +6804,7 @@ export async function renderApp(root) {
       return;
     }
 
-    if (pathname === "/system-inventory") {
+    if (pathname === "/system-inventory" || pathname === "/training-taxonomy") {
       await renderSystemInventoryPage(root, context);
       bindNavControls(root);
       bindNavSectionControls(root);

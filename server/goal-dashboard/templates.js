@@ -2,7 +2,38 @@ import "./model-docs.js";
 
 const goalTemplates = [
   {
-    id: "goal-template-adc-die-less",
+    id: "goal-reach-emerald",
+    title: "Reach Emerald",
+    scope: "personal",
+    category: "ranked-climb",
+    description:
+      "Build the consistency, review habits, and game fundamentals needed to climb toward Emerald.",
+    defaultFocusPath: ["focus-die-less", "focus-farm-better", "focus-lane-better"]
+  },
+  {
+    id: "goal-reliable-adc",
+    title: "Become a reliable ADC",
+    scope: "personal",
+    category: "role-mastery",
+    description:
+      "Become a dependable bot-lane carry through safer deaths, stronger lane reads, and cleaner fights.",
+    defaultFocusPath: ["focus-die-less", "focus-lane-better", "focus-teamfight-better"]
+  },
+  {
+    id: "goal-win-more-clash",
+    title: "Win more Clash / team games",
+    scope: "team",
+    category: "team-play",
+    description:
+      "Improve coordinated objective setup, fight selection, and communication in organized games.",
+    defaultFocusPath: ["focus-objective-setup", "focus-teamfight-better", "focus-communication"]
+  }
+];
+
+const focusTemplates = [
+  {
+    id: "focus-die-less",
+    legacyGoalTemplateIds: ["goal-template-adc-die-less"],
     title: "Die Less",
     role: "ADC",
     scope: "personal",
@@ -20,10 +51,41 @@ const goalTemplates = [
       "action-death-review-v1",
       "action-pregame-danger-check-v1"
     ],
+    defaultMetricIds: [
+      "metric-known-danger-deaths-week",
+      "metric-preventable-deaths-game",
+      "metric-clean-disengages-week"
+    ],
     relatedContentIds: [
       "content-adc-survivability-basics",
       "content-adc-pre6-trading-check",
       "content-jungle-threat-awareness"
+    ],
+    suggestedTargets: [
+      {
+        id: "target-known-danger-deaths-week-zero",
+        metricId: "metric-known-danger-deaths-week",
+        operator: "<=",
+        value: 0,
+        window: "week",
+        label: "Known-danger deaths this week <= 0"
+      },
+      {
+        id: "target-preventable-deaths-game-two",
+        metricId: "metric-preventable-deaths-game",
+        operator: "<=",
+        value: 2,
+        window: "game",
+        label: "Preventable deaths per game <= 2"
+      },
+      {
+        id: "target-clean-disengages-week-three",
+        metricId: "metric-clean-disengages-week",
+        operator: ">=",
+        value: 3,
+        window: "week",
+        label: "Clean disengages this week >= 3"
+      }
     ],
     suggestedWeeklyTargets: [
       {
@@ -44,8 +106,10 @@ const goalTemplates = [
     ]
   },
   {
-    id: "goal-template-adc-trading",
-    title: "Trade Better",
+    id: "focus-lane-better",
+    legacyGoalTemplateIds: ["goal-template-adc-trading"],
+    title: "Lane Better",
+    alternateTitles: ["Trade Better"],
     role: "ADC",
     scope: "personal",
     category: "lane-phase",
@@ -57,7 +121,18 @@ const goalTemplates = [
       "signal-clean-disengage"
     ],
     defaultActionIds: ["action-adc-pre6-trade-check-v1"],
+    defaultMetricIds: ["metric-preventable-deaths-game", "metric-bad-pre6-allins-week"],
     relatedContentIds: ["content-adc-pre6-trading-check"],
+    suggestedTargets: [
+      {
+        id: "target-bad-pre6-allins-week-zero",
+        metricId: "metric-bad-pre6-allins-week",
+        operator: "<=",
+        value: 0,
+        window: "week",
+        label: "Bad pre-6 all-ins this week <= 0"
+      }
+    ],
     suggestedWeeklyTargets: [
       {
         signalId: "signal-bad-pre6-allin",
@@ -65,6 +140,112 @@ const goalTemplates = [
         label: "0 bad pre-6 all-ins"
       }
     ]
+  },
+  {
+    id: "focus-farm-better",
+    title: "Farm Better",
+    role: "ADC",
+    scope: "personal",
+    category: "farm",
+    description: "Improve last-hitting and wave discipline without trading away health or tempo.",
+    defaultSignalIds: ["signal-cs-missed-while-present", "signal-greed-wave-death"],
+    defaultMetricIds: ["metric-cs-missed-while-present"],
+    suggestedTargets: [
+      {
+        id: "target-cs-missed-while-present-game",
+        metricId: "metric-cs-missed-while-present",
+        operator: "<=",
+        value: 10,
+        window: "game",
+        label: "CS missed while present per game <= 10"
+      }
+    ],
+    defaultActionIds: ["action-death-review-v1"],
+    relatedContentIds: ["content-adc-survivability-basics"],
+    suggestedWeeklyTargets: []
+  },
+  {
+    id: "focus-objective-setup",
+    title: "Objective Setup",
+    role: "ANY",
+    scope: "team",
+    category: "objective-control",
+    description: "Arrive before objective windows with waves, vision, and a shared fight/trade/give call.",
+    defaultSignalIds: [
+      "signal-late-objective-arrival",
+      "signal-failed-vision-retake",
+      "signal-unclear-fight-trade-give-call"
+    ],
+    defaultMetricIds: ["metric-late-objective-arrivals-week"],
+    suggestedTargets: [
+      {
+        id: "target-late-objective-arrivals-week-one",
+        metricId: "metric-late-objective-arrivals-week",
+        operator: "<=",
+        value: 1,
+        window: "week",
+        label: "Late objective arrivals this week <= 1"
+      }
+    ],
+    defaultActionIds: ["action-dragon-setup-review-v1"],
+    relatedContentIds: ["content-dragon-setup-90-60-30"],
+    suggestedWeeklyTargets: []
+  },
+  {
+    id: "focus-teamfight-better",
+    title: "Teamfight Better",
+    role: "ANY",
+    scope: "personal",
+    category: "teamfighting",
+    description: "Choose safer fight positions, cleaner targets, and better exits around major cooldowns.",
+    defaultSignalIds: ["signal-known-danger-death", "signal-clean-disengage"],
+    defaultMetricIds: ["metric-preventable-deaths-game", "metric-clean-disengages-week"],
+    suggestedTargets: [],
+    defaultActionIds: ["action-death-review-v1"],
+    relatedContentIds: ["content-adc-survivability-basics"],
+    suggestedWeeklyTargets: []
+  },
+  {
+    id: "focus-convert-leads",
+    title: "Convert Leads",
+    role: "ANY",
+    scope: "personal",
+    category: "tempo",
+    description: "Turn lane or fight advantages into plates, resets, objective setup, or map pressure.",
+    defaultSignalIds: ["signal-late-objective-arrival", "signal-greed-wave-death"],
+    defaultMetricIds: ["metric-late-objective-arrivals-week"],
+    suggestedTargets: [],
+    defaultActionIds: ["action-dragon-setup-review-v1"],
+    relatedContentIds: ["content-wave-drop-before-objective"],
+    suggestedWeeklyTargets: []
+  },
+  {
+    id: "focus-play-from-behind",
+    title: "Play From Behind",
+    role: "ANY",
+    scope: "personal",
+    category: "resilience",
+    description: "Stabilize losing games through safer waves, information checks, and lower-risk trades.",
+    defaultSignalIds: ["signal-greed-wave-death", "signal-clean-disengage"],
+    defaultMetricIds: ["metric-clean-disengages-week"],
+    suggestedTargets: [],
+    defaultActionIds: ["action-pregame-danger-check-v1"],
+    relatedContentIds: ["content-jungle-threat-awareness"],
+    suggestedWeeklyTargets: []
+  },
+  {
+    id: "focus-communication",
+    title: "Communication",
+    role: "ANY",
+    scope: "team",
+    category: "communication",
+    description: "Make one shared call before objective and fight windows.",
+    defaultSignalIds: ["signal-unclear-fight-trade-give-call"],
+    defaultMetricIds: ["metric-unclear-calls-week"],
+    suggestedTargets: [],
+    defaultActionIds: ["action-dragon-setup-review-v1"],
+    relatedContentIds: ["content-dragon-setup-90-60-30"],
+    suggestedWeeklyTargets: []
   }
 ];
 
@@ -166,6 +347,63 @@ const signalTemplates = [
   }
 ];
 
+const metricTemplates = [
+  {
+    id: "metric-known-danger-deaths-week",
+    label: "Known-danger deaths this week",
+    signalIds: ["signal-known-danger-death"],
+    aggregation: "count",
+    defaultWindow: "week"
+  },
+  {
+    id: "metric-preventable-deaths-game",
+    label: "Preventable deaths per game",
+    signalIds: [
+      "signal-known-danger-death",
+      "signal-greed-wave-death",
+      "signal-bad-pre6-allin",
+      "signal-bad-2v2-death"
+    ],
+    aggregation: "count",
+    defaultWindow: "game"
+  },
+  {
+    id: "metric-clean-disengages-week",
+    label: "Clean disengages this week",
+    signalIds: ["signal-clean-disengage"],
+    aggregation: "count",
+    defaultWindow: "week"
+  },
+  {
+    id: "metric-cs-missed-while-present",
+    label: "CS missed while present",
+    signalIds: ["signal-cs-missed-while-present"],
+    aggregation: "count",
+    defaultWindow: "game"
+  },
+  {
+    id: "metric-bad-pre6-allins-week",
+    label: "Bad pre-6 all-ins this week",
+    signalIds: ["signal-bad-pre6-allin"],
+    aggregation: "count",
+    defaultWindow: "week"
+  },
+  {
+    id: "metric-late-objective-arrivals-week",
+    label: "Late objective arrivals this week",
+    signalIds: ["signal-late-objective-arrival"],
+    aggregation: "count",
+    defaultWindow: "week"
+  },
+  {
+    id: "metric-unclear-calls-week",
+    label: "Unclear fight/trade/give calls this week",
+    signalIds: ["signal-unclear-fight-trade-give-call"],
+    aggregation: "count",
+    defaultWindow: "week"
+  }
+];
+
 const actionTemplates = [
   {
     id: "action-death-review-v1",
@@ -186,6 +424,7 @@ const actionTemplates = [
       "signal-greed-wave-death"
     ],
     linkedGoalTemplateIds: ["goal-template-adc-die-less"],
+    linkedFocusTemplateIds: ["focus-die-less", "focus-farm-better", "focus-teamfight-better"],
     ctaLabel: "Start 5-minute review",
     href: "/review"
   },
@@ -202,6 +441,7 @@ const actionTemplates = [
       "Decide the wave state where trading is allowed."
     ],
     linkedGoalTemplateIds: ["goal-template-adc-die-less"],
+    linkedFocusTemplateIds: ["focus-die-less", "focus-play-from-behind"],
     ctaLabel: "Open checklist",
     href: "/training"
   },
@@ -220,6 +460,7 @@ const actionTemplates = [
     ],
     producesSignalIds: ["signal-bad-trade-read", "signal-bad-pre6-allin"],
     linkedGoalTemplateIds: ["goal-template-adc-trading", "goal-template-adc-die-less"],
+    linkedFocusTemplateIds: ["focus-lane-better", "focus-die-less"],
     ctaLabel: "Run trade check",
     href: "/training"
   },
@@ -237,6 +478,7 @@ const actionTemplates = [
       "On spawn: arrive as a team or commit to the trade."
     ],
     linkedTeamFocusTemplateIds: ["team-focus-template-dragon-setup"],
+    linkedFocusTemplateIds: ["focus-objective-setup", "focus-convert-leads", "focus-communication"],
     ctaLabel: "Open team focus",
     href: "/team"
   }
@@ -322,9 +564,38 @@ const teamFocusTemplates = [
   }
 ];
 
+const targetTemplates = focusTemplates.flatMap((template) =>
+  (template.suggestedTargets ?? []).map((target) => ({
+    ...target,
+    focusTemplateId: template.id
+  }))
+);
+
+function focusIdsUsingSignal(signalId) {
+  return focusTemplates
+    .filter((template) => template.defaultSignalIds?.includes(signalId))
+    .map((template) => template.id);
+}
+
+function enrichSignalTemplate(template) {
+  return {
+    ...template,
+    sourceTypes: template.sourceTypes ?? ["manual", "review"],
+    usedByFocusIds: template.usedByFocusIds ?? focusIdsUsingSignal(template.id),
+    evidenceShape: template.evidenceShape ?? {
+      value: template.type,
+      note: "optional",
+      sourceType: "manual|review|deterministic"
+    }
+  };
+}
+
 export const templateLibrary = {
   goalTemplates,
+  focusTemplates,
   signalTemplates,
+  metricTemplates,
+  targetTemplates,
   actionTemplates,
   contentTemplates,
   teamFocusTemplates
@@ -333,7 +604,10 @@ export const templateLibrary = {
 export function getTemplateLibrary() {
   return {
     goalTemplates: goalTemplates.map((template) => ({ ...template })),
-    signalTemplates: signalTemplates.map((template) => ({ ...template })),
+    focusTemplates: focusTemplates.map((template) => ({ ...template })),
+    signalTemplates: signalTemplates.map(enrichSignalTemplate),
+    metricTemplates: metricTemplates.map((template) => ({ ...template })),
+    targetTemplates: targetTemplates.map((template) => ({ ...template })),
     actionTemplates: actionTemplates.map((template) => ({ ...template })),
     contentTemplates: contentTemplates.map((template) => ({ ...template })),
     teamFocusTemplates: teamFocusTemplates.map((template) => ({ ...template }))
