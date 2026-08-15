@@ -18,6 +18,12 @@ function normalizeNonEmptyString(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function normalizeNullableNumber(value) {
+  return value === null || value === undefined || value === "" || !Number.isFinite(Number(value))
+    ? null
+    : Number(value);
+}
+
 function defaultHomeRecord(userId, identity) {
   return {
     id: userId,
@@ -132,16 +138,12 @@ function validateTemplateIds(body, library) {
     goalTarget: {
       rank: normalizeNonEmptyString(body.goalTarget?.rank ?? body.goalTarget?.targetRank),
       division: normalizeNonEmptyString(body.goalTarget?.division ?? body.goalTarget?.targetDivision),
-      lp: Number.isFinite(Number(body.goalTarget?.lp ?? body.goalTarget?.targetLp))
-        ? Number(body.goalTarget?.lp ?? body.goalTarget?.targetLp)
-        : null
+      lp: normalizeNullableNumber(body.goalTarget?.lp ?? body.goalTarget?.targetLp)
     },
     goalOriginal: {
       rank: normalizeNonEmptyString(body.goalOriginal?.rank ?? body.goalOriginal?.startRank),
       division: normalizeNonEmptyString(body.goalOriginal?.division ?? body.goalOriginal?.startDivision),
-      lp: Number.isFinite(Number(body.goalOriginal?.lp ?? body.goalOriginal?.startLp))
-        ? Number(body.goalOriginal?.lp ?? body.goalOriginal?.startLp)
-        : null
+      lp: normalizeNullableNumber(body.goalOriginal?.lp ?? body.goalOriginal?.startLp)
     }
   };
 }

@@ -345,27 +345,17 @@ function appShell(content, hero = {}) {
   const heroHidden = hero.hidden === true;
   const heroTitle = hero.title ?? "RiftSense";
   const heroEyebrow = hero.eyebrow ?? "Dashboard";
-  const heroText = hero.text ?? "Open dashboard, review, or Goal Plan.";
+  const heroText = hero.text ?? "";
   const heroPills = Array.isArray(hero.pills) ? hero.pills : [];
   const heroCompact = hero.compact !== false;
 
-  const navSections = [
-    {
-      key: "learn",
-      title: "Improve",
-      items: publicMode
-        ? [
-            { href: "/login", label: "Sign in", active: pathname === "/login" }
-          ]
-        : [
-            { href: "/", label: "Dashboard", active: pathname === "/" || pathname === "/dashboard" },
-            { href: "/review", label: "Review", active: pathname === "/review" },
-            { href: "/goal-plan", label: "Goal Plan", active: pathname === "/goal-plan" }
-          ]
-    }
-  ];
-  const activeSection = navSections.find((section) => section.items.some((item) => item.active))?.key ?? "learn";
-  const openSection = window.localStorage.getItem("riftsense.navSection") ?? activeSection;
+  const navItems = publicMode
+    ? [{ href: "/login", label: "Sign in", active: pathname === "/login" }]
+    : [
+        { href: "/", label: "Dashboard", active: pathname === "/" || pathname === "/dashboard" },
+        { href: "/review", label: "Review", active: pathname === "/review" },
+        { href: "/goal-plan", label: "Goal Plan", active: pathname === "/goal-plan" }
+      ];
   return `
     <div class="page-shell">
       <aside class="nav-drawer${navCollapsed ? " is-collapsed" : ""}" aria-label="Primary" id="nav-drawer">
@@ -388,32 +378,12 @@ function appShell(content, hero = {}) {
               title="${navCollapsed ? "Expand sidebar" : "Collapse sidebar"}"
             >${navCollapsed ? "▶" : "◀"}</button>
           </div>
-          <p class="nav-meta">${escapeHtml(publicMode ? "Sign in to continue." : "Open dashboard, review, or Goal Plan.")}</p>
           <div class="side-nav-sections">
-            ${navSections.map((section) => `
-              <details
-                class="side-nav-accordion${section.key === activeSection ? " is-current" : ""}"
-                data-nav-section="${escapeHtml(section.key)}"
-                ${section.key === openSection ? "open" : ""}
-              >
-                <summary class="side-nav-summary">${escapeHtml(section.title)}</summary>
-                <div class="side-nav-links">
-                  ${section.items
-                    .map((item) => {
-                      if (item.disabled || item.upcoming) {
-                        const statusTitle = item.statusTitle ?? item.status ?? "Under construction";
-                        return `<span class="side-nav-link is-disabled" aria-disabled="true" title="${escapeHtml(statusTitle)}"><span class="side-nav-label">${escapeHtml(item.label)}</span><span class="side-nav-status" aria-label="${escapeHtml(statusTitle)}">${escapeHtml(item.status ?? "Soon")}</span></span>`;
-                      }
-
-                      return `<a class="side-nav-link${item.active ? " is-active" : ""}${item.muted ? " is-muted" : ""}" href="${item.href}">
-                        <span class="side-nav-label">${escapeHtml(item.label)}</span>
-                        ${item.status ? `<span class="side-nav-status">${escapeHtml(item.status)}</span>` : ""}
-                      </a>`;
-                    })
-                    .join("")}
-                </div>
-              </details>
-            `).join("")}
+            <div class="side-nav-links">
+              ${navItems.map((item) => `<a class="side-nav-link${item.active ? " is-active" : ""}" href="${item.href}">
+                <span class="side-nav-label">${escapeHtml(item.label)}</span>
+              </a>`).join("")}
+            </div>
           </div>
           <div class="side-nav-spacer"></div>
           ${renderSessionPanel()}
@@ -1205,7 +1175,7 @@ function riotPreparationStatusBlock(riotEvidence) {
   return "";
 }
 
-function riotEvidenceCard(riotEvidence, context = {}) {
+function riotEvidenceCard(riotEvidence, context = {}, primaryGameId = null) {
   if (!riotEvidence) {
     return "";
   }
@@ -1226,8 +1196,8 @@ function riotEvidenceCard(riotEvidence, context = {}) {
     <section class="panel riot-evidence-panel" id="review-ready-games">
       <div class="panel-header">
         <div>
-          <p class="eyebrow">Recent Games</p>
-          <h2>Review-ready games</h2>
+          <p class="eyebrow">Recent games</p>
+          <h2>Games</h2>
           ${sourceLabel}
         </div>
         <div class="action-row">
@@ -1255,7 +1225,7 @@ function riotEvidenceCard(riotEvidence, context = {}) {
             const value = hasSummaryMetadata
               ? `${game.queueLabel} · ${game.kda} KDA${game.csPerMinute ? ` · ${game.csPerMinute} cs/min` : ""}`
               : state.label;
-            const action = state.canReview
+            const action = state.canReview && game.matchId !== primaryGameId
               ? `<a class="button secondary compact-row-action" href="${escapeHtml(reviewHrefForGame(game, context))}">${escapeHtml(state.actionLabel)}</a>`
               : "";
 
@@ -1268,6 +1238,7 @@ function riotEvidenceCard(riotEvidence, context = {}) {
                 </div>
                 <div class="game-evidence-actions">
                   ${reviewStatusBadge(displayStatus, reviewStatusTrend(displayStatus))}
+                  ${game.matchId === primaryGameId ? '<span class="context-badge">Recommended</span>' : ""}
                   ${action}
                 </div>
               </article>
@@ -1331,6 +1302,14 @@ function reviewMomentCount(game = {}) {
 function reviewMomentLabel(game = {}) {
   const count = reviewMomentCount(game);
   return `${count} review ${count === 1 ? "moment" : "moments"}`;
+}
+
+function reviewStateForGame(game = {}) {
+  if (game.reviewStatus === "triaged" || game.reviewedAt || game.lastReviewedAt) return { label: "Reviewed" };
+  if (game.reviewStatus === "needs_manual_review") return { label: "Needs manual review" };
+  if (gameIsEvaluationReady(game) && reviewMomentCount(game) > 0) return { label: "Ready for review" };
+  if (game.evaluationStatus && game.evaluationStatus !== "current") return { label: "Preparing" };
+  return { label: "Recent game" };
 }
 
 function reviewQueueGames(riotEvidence, limit = 3) {
@@ -1439,7 +1418,7 @@ function resolveCoachingNextStep({ state: dashboardView, action = {}, context = 
         type: "review_assessment_game",
         title: "Review next assessment game",
         description: `Finish the ${dashboardView.assessmentTarget}-game baseline so coaching targets can use reviewed evidence.`,
-        reason: assessmentNextGameReason(nextGame, dashboardView.initialAssessment) ?? "This is the next assessment game with review moments ready.",
+        reason: assessmentNextGameReason(nextGame, dashboardView.initialAssessment),
         primaryCta: {
           label: isAssessmentReviewInProgress(nextGame) ? "Continue this game" : "Review this game",
           href: reviewHrefForGame(nextGame, context)
@@ -1700,7 +1679,7 @@ function coachingNextStepCard(nextStep) {
       <p class="eyebrow">Coaching next step</p>
       <h2>${escapeHtml(nextStep.title)}</h2>
       <p class="muted">${escapeHtml(nextStep.description)}</p>
-      <p class="muted">Why: ${escapeHtml(nextStep.reason)}</p>
+      ${nextStep.reason ? `<p class="muted">Why: ${escapeHtml(nextStep.reason)}</p>` : ""}
       <div class="action-row">
         ${primary.href
           ? `<a class="button" href="${escapeHtml(primary.href)}">${escapeHtml(primary.label ?? "Open")}</a>`
@@ -1712,13 +1691,13 @@ function coachingNextStepCard(nextStep) {
   `;
 }
 
-function reviewQueueSummary(reviewQueue, context = {}) {
+function reviewQueueSummary(reviewQueue, context = {}, primaryGameId = null) {
   return `
     <section class="panel dashboard-compact-panel" id="review-queue">
       <div class="panel-header">
         <div>
-          <p class="eyebrow">Waiting for review</p>
-          <h2>Review queue</h2>
+          <p class="eyebrow">Recent games</p>
+          <h2>Games ready for review</h2>
         </div>
       </div>
       <section class="compact-list">
@@ -1729,7 +1708,9 @@ function reviewQueueSummary(reviewQueue, context = {}) {
                 <span class="compact-row-main">${escapeHtml(game.champion ?? game.championName ?? "Unknown champion")} · ${escapeHtml(game.result ?? "Result unknown")}</span>
                 <span class="compact-row-value">${escapeHtml(game.queueLabel ?? "Queue unknown")} · ${escapeHtml(reviewMomentLabel(game))}</span>
               </div>
-              <a class="button secondary compact-row-action" href="${escapeHtml(reviewHrefForGame(game, context))}">Review</a>
+              ${game.matchId === primaryGameId
+                ? '<span class="context-badge">Recommended</span>'
+                : `<a class="button secondary compact-row-action" href="${escapeHtml(reviewHrefForGame(game, context))}">Review</a>`}
             </article>
           `).join("")
           : '<p class="muted">No review-ready games yet.</p>'}
@@ -1774,45 +1755,6 @@ function assessmentGameRow(game, assessment, context = {}) {
         <a class="button secondary compact-row-action" href="${escapeHtml(reviewHrefForGame(game, context))}">Review</a>
       </div>
     </article>
-  `;
-}
-
-function initialAssessmentPanel(dashboardView, context = {}) {
-  const assessment = dashboardView.initialAssessment;
-  if (!assessment || !dashboardView.inInitialAssessment) return "";
-  const target = dashboardView.assessmentTarget;
-  const completedCount = dashboardView.assessmentCompleted;
-  const remaining = Math.max(0, target - completedCount);
-  const nextGame = assessmentNextGame(assessment);
-  const nextChampion = nextGame?.champion ?? nextGame?.championName ?? "Unknown champion";
-  const nextResult = nextGame?.result ?? "Result unknown";
-  const nextQueue = nextGame?.queueLabel ?? "Queue unknown";
-  const nextKda = gameKdaLabel(nextGame ?? {}) ?? "KDA unknown";
-  const nextMomentCount = reviewMomentCount(nextGame ?? {});
-  const reason = assessmentNextGameReason(nextGame, assessment);
-  const reasonLine = reason ? `<p class="muted">Why this game: ${escapeHtml(reason)}</p>` : "";
-  const ctaLabel = isAssessmentReviewInProgress(nextGame)
-    ? "Continue this game"
-    : "Review this game";
-  return `
-    <section class="panel primary-action-panel initial-assessment-panel">
-      <p class="eyebrow">Initial assessment</p>
-      <h2>${escapeHtml(completedCount)} of ${escapeHtml(target)} games reviewed</h2>
-      <p class="muted">${remaining === 1 ? "Review one more game to finish the baseline." : `Review ${remaining} more games to finish the baseline.`}</p>
-      ${nextGame ? `
-      <article class="recommended-review-card">
-        <div>
-          <p class="eyebrow">Recommended next review</p>
-          <h3>${escapeHtml(nextChampion)} · ${escapeHtml(nextResult)}</h3>
-          <p class="muted">${escapeHtml(nextQueue)} · ${escapeHtml(nextKda)} KDA · ${escapeHtml(nextMomentCount)} review ${nextMomentCount === 1 ? "moment" : "moments"}</p>
-          ${reasonLine}
-        </div>
-        <div class="action-row">
-          <a class="button" href="${escapeHtml(reviewHrefForGame(nextGame, context))}">${escapeHtml(ctaLabel)}</a>
-          <a class="button secondary" href="#review-ready-games">Choose a different game</a>
-        </div>
-      </article>` : ""}
-    </section>
   `;
 }
 
@@ -5408,7 +5350,7 @@ async function renderHome(root, context = getRouteContext()) {
     const riotEvidence = goal.riotEvidence ?? null;
     const dashboardView = dashboardState({ dashboard, goal, riotEvidence });
     const activeReviewStatus = dashboardView.inInitialAssessment
-      ? `Initial assessment: ${dashboardView.assessmentCompleted}/${dashboardView.assessmentTarget} reviewed`
+      ? `Assessment: ${dashboardView.assessmentCompleted}/${dashboardView.assessmentTarget} reviewed`
       : dashboardView.hasReviewedGames ? (goal.goalStatus ?? "Evidence started") : "No reviewed games yet";
     const activeReviewTrend = dashboardView.inInitialAssessment
       ? "watch"
@@ -5448,6 +5390,7 @@ async function renderHome(root, context = getRouteContext()) {
                 <p class="eyebrow">Current Focus</p>
                 <h2>${escapeHtml(goal.title ?? "No current focus yet")}</h2>
                 ${activeGoalAgeLine(dashboardView.goalProgress)}
+                ${dashboardView.inInitialAssessment ? `<p class="muted">Assessment progress: ${escapeHtml(dashboardView.assessmentCompleted)} of ${escapeHtml(dashboardView.assessmentTarget)} games reviewed</p>` : ""}
                 <div class="badge-row">
                   <span class="context-badge">${goal.broadGoalTitle ? `Goal: ${escapeHtml(goal.broadGoalTitle)} · ` : ""}${escapeHtml(focusTagline)}</span>
                   ${statusBadge(activeReviewStatus, activeReviewTrend)}
@@ -5457,10 +5400,7 @@ async function renderHome(root, context = getRouteContext()) {
             </div>
           </section>
           ${coachingNextStepCard(nextStep)}
-          ${dashboardView.inInitialAssessment ? initialAssessmentPanel(dashboardView, context) : ""}
-          ${dashboardView.inInitialAssessment ? "" : reviewQueueSummary(dashboardView.reviewQueue, context)}
-          ${riotEvidence ? riotEvidenceCard(riotEvidence, context) : ""}
-          ${dashboardView.inInitialAssessment ? "" : evidenceProgressCard(dashboardView)}
+          ${riotEvidence ? riotEvidenceCard(riotEvidence, context, nextStep.gameId) : reviewQueueSummary(dashboardView.reviewQueue, context, nextStep.gameId)}
         </section>
       </section>
     </section>
@@ -5637,10 +5577,9 @@ async function renderGoalDashboardPage(root, page, context = getRouteContext()) 
 }
 
 function templateOption(template, selectedId) {
-  const meta = [template.role, template.category].filter(Boolean).join(" · ");
   return `
     <option value="${escapeHtml(template.id)}" ${template.id === selectedId ? "selected" : ""}>
-      ${escapeHtml(template.title)}${meta ? ` (${escapeHtml(meta)})` : ""}
+      ${escapeHtml(template.title)}
     </option>
   `;
 }
@@ -6102,7 +6041,6 @@ async function renderLegacyOnboarding(root, context = getRouteContext()) {
     });
 
     bindNavControls(root);
-    bindNavSectionControls(root);
     bindSessionControls(root);
 
     const form = root.querySelector("#onboarding-form");
@@ -6206,6 +6144,16 @@ async function renderOnboarding(root, context = getRouteContext()) {
   const divisions = ["IV", "III", "II", "I"];
   const roleOptions = ["Top", "Jungle", "Mid", "Bot", "Support", "Multiple"];
   const selected = (items, id) => items.find((item) => item.id === id);
+  const rankSelect = (name, value) => `
+    <select name="${name}">
+      <option value="" ${value ? "" : "selected"}>Select rank</option>
+      ${rankOptions.map((rank) => `<option value="${rank}" ${value === rank ? "selected" : ""}>${rank}</option>`).join("")}
+    </select>`;
+  const divisionSelect = (name, value) => `
+    <select name="${name}">
+      <option value="" ${value ? "" : "selected"}>Select division</option>
+      ${divisions.map((division) => `<option value="${division}" ${value === division ? "selected" : ""}>${division}</option>`).join("")}
+    </select>`;
 
   function render() {
     const goal = selected(templates.goalTemplates, selectedGoalId) ?? templates.goalTemplates[0];
@@ -6215,11 +6163,10 @@ async function renderOnboarding(root, context = getRouteContext()) {
     const isRanked = goal?.category === "ranked-climb";
     const targets = savedFocus.rawTargets?.length ? savedFocus.rawTargets : (focus?.suggestedTargets ?? []);
     const currentRole = roleLabel(savedFocus.role ?? profile.primaryRole ?? "Multiple");
+    const startPoint = savedGoal.original?.rank ? savedGoal.original : (savedGoal.current?.rank ? savedGoal.current : {});
+    const targetPoint = savedGoal.target?.rank ? savedGoal.target : {};
 
     root.innerHTML = appShell(`
-      <section class="section-heading">
-        <div><p class="eyebrow">Goal Plan</p><h2>Goal Plan</h2></div>
-      </section>
       <form class="onboarding-flow" id="onboarding-form">
         <section class="panel onboarding-step">
           <p class="eyebrow">What I’m trying to accomplish</p>
@@ -6227,12 +6174,12 @@ async function renderOnboarding(root, context = getRouteContext()) {
             <select name="selectedGoalTemplateId">${templates.goalTemplates.map((item) => templateOption(item, goal?.id)).join("")}</select>
           </label>
           ${isRanked ? `<div class="field-row">
-            <label>Starting rank <select name="startRank">${rankOptions.map((rank) => `<option ${savedGoal.original?.rank === rank ? "selected" : ""}>${rank}</option>`).join("")}</select></label>
-            <label>Starting division <select name="startDivision">${divisions.map((division) => `<option ${savedGoal.original?.division === division ? "selected" : ""}>${division}</option>`).join("")}</select></label>
-            <label>Starting LP <input name="startLp" type="number" min="0" max="100" value="${escapeHtml(savedGoal.original?.lp ?? 0)}" /></label>
-            <label>Target rank <select name="targetRank">${rankOptions.map((rank) => `<option ${savedGoal.target?.rank === rank ? "selected" : ""}>${rank}</option>`).join("")}</select></label>
-            <label>Target division <select name="targetDivision">${divisions.map((division) => `<option ${savedGoal.target?.division === division ? "selected" : ""}>${division}</option>`).join("")}</select></label>
-            <label>Target LP <input name="targetLp" type="number" min="0" max="100" value="${escapeHtml(savedGoal.target?.lp ?? 0)}" /></label>
+            <label>Starting rank ${rankSelect("startRank", startPoint.rank)}</label>
+            <label>Starting division ${divisionSelect("startDivision", startPoint.division)}</label>
+            <label>Starting LP <input name="startLp" type="number" min="0" max="100" value="${escapeHtml(startPoint.lp ?? "")}" /></label>
+            <label>Target rank ${rankSelect("targetRank", targetPoint.rank)}</label>
+            <label>Target division ${divisionSelect("targetDivision", targetPoint.division)}</label>
+            <label>Target LP <input name="targetLp" type="number" min="0" max="100" value="${escapeHtml(targetPoint.lp ?? "")}" /></label>
           </div>` : ""}
         </section>
         <section class="panel onboarding-step">
@@ -6245,7 +6192,7 @@ async function renderOnboarding(root, context = getRouteContext()) {
           </label>
           ${focus?.description ? `<p class="muted">${escapeHtml(focus.description)}</p>` : ""}
         </section>
-        ${targets.length ? `<section class="panel onboarding-step"><p class="eyebrow">What success looks like</p>${targets.map((target, index) => `<label>${escapeHtml(target.label ?? "Target")}<input type="number" name="target-${index}" data-target-metric="${escapeHtml(target.metricId)}" data-target-operator="${escapeHtml(target.operator ?? "<=")}" data-target-window="${escapeHtml(target.window ?? "week")}" value="${escapeHtml(target.value ?? target.targetValue ?? 0)}" /></label>`).join("")}</section>` : ""}
+        ${targets.length ? `<section class="panel onboarding-step"><p class="eyebrow">What success looks like</p>${targets.map((target, index) => `<label>${escapeHtml(target.label ?? "Target")}<span class="input-label">Target</span><input type="number" name="target-${index}" data-target-metric="${escapeHtml(target.metricId)}" data-target-operator="${escapeHtml(target.operator ?? "<=")}" data-target-window="${escapeHtml(target.window ?? "week")}" value="${escapeHtml(target.value ?? target.targetValue ?? 0)}" /></label>`).join("")}</section>` : ""}
         <section class="panel panel-slim onboarding-submit"><div><p class="muted" id="onboarding-status" aria-live="polite"></p></div><div class="action-row"><button class="button" type="submit">Save Goal Plan</button><a class="button secondary" href="/">Dashboard</a></div></section>
       </form>
     `, { eyebrow: "Goal Plan", title: "Goal Plan", text: "Set your goal, current focus, and success targets.", compact: true });
@@ -6268,8 +6215,8 @@ async function renderOnboarding(root, context = getRouteContext()) {
       const payload = {
         role: data.get("role"), selectedGoalTemplateId: selectedGoalId, primaryFocusTemplateId: selectedFocusId,
         targets: targetInputs.map((input) => ({ metricId: input.dataset.targetMetric, operator: input.dataset.targetOperator, window: input.dataset.targetWindow, label: input.previousSibling?.textContent?.trim(), value: Number(input.value) })),
-        goalOriginal: { rank: data.get("startRank"), division: data.get("startDivision"), lp: Number(data.get("startLp")) },
-        goalTarget: { rank: data.get("targetRank"), division: data.get("targetDivision"), lp: Number(data.get("targetLp")) }
+        goalOriginal: { rank: data.get("startRank") || null, division: data.get("startDivision") || null, lp: data.get("startLp") === "" ? null : Number(data.get("startLp")) },
+        goalTarget: { rank: data.get("targetRank") || null, division: data.get("targetDivision") || null, lp: data.get("targetLp") === "" ? null : Number(data.get("targetLp")) }
       };
       const status = root.querySelector("#onboarding-status");
       status.textContent = "Saving…";
@@ -6794,26 +6741,6 @@ function bindNavControls(root) {
   applyNavLayout(root);
 }
 
-function bindNavSectionControls(root) {
-  const sections = Array.from(root.querySelectorAll("[data-nav-section]"));
-
-  sections.forEach((section) => {
-    section.addEventListener("toggle", () => {
-      if (!section.open) {
-        return;
-      }
-
-      sections.forEach((other) => {
-        if (other !== section) {
-          other.open = false;
-        }
-      });
-
-      window.localStorage.setItem("riftsense.navSection", section.dataset.navSection);
-    });
-  });
-}
-
 export async function renderApp(root) {
   const context = getRouteContext();
   const pathname = context.pathname;
@@ -6846,7 +6773,6 @@ export async function renderApp(root) {
         setAuthPageMode(false);
         await renderHome(root, getRouteContext());
         bindNavControls(root);
-        bindNavSectionControls(root);
         bindSessionControls(root);
         return;
       }
@@ -6859,7 +6785,6 @@ export async function renderApp(root) {
     if (pathname === "/") {
       await renderHome(root, context);
       bindNavControls(root);
-      bindNavSectionControls(root);
       bindSessionControls(root);
       return;
     }
@@ -6872,7 +6797,6 @@ export async function renderApp(root) {
     if (pathname === "/review") {
       await renderReviewPage(root, context);
       bindNavControls(root);
-      bindNavSectionControls(root);
       bindSessionControls(root);
       return;
     }
@@ -6882,7 +6806,6 @@ export async function renderApp(root) {
       compact: true
     });
     bindNavControls(root);
-    bindNavSectionControls(root);
     bindSessionControls(root);
   } catch (error) {
     root.innerHTML = appShell(`<section class="panel"><p>${escapeHtml(error.message)}</p></section>`, {
@@ -6890,12 +6813,10 @@ export async function renderApp(root) {
       compact: true
     });
     bindNavControls(root);
-    bindNavSectionControls(root);
     bindSessionControls(root);
     return;
   }
 
   bindNavControls(root);
-  bindNavSectionControls(root);
   bindSessionControls(root);
 }

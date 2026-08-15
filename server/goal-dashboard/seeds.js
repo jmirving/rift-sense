@@ -12,7 +12,7 @@ function rankSnapshot({ rank, division, lp, capturedAt }) {
   return {
     rank: rank || null,
     division: division || null,
-    lp: Number.isFinite(Number(lp)) ? Number(lp) : null,
+    lp: lp === null || lp === undefined || lp === "" || !Number.isFinite(Number(lp)) ? null : Number(lp),
     capturedAt
   };
 }
@@ -278,16 +278,16 @@ export function buildOnboardingGoalDashboardState({
   const selectedGoalSignals = normalizeStringArray(selectedSignalIds);
   const selectedGoalMetrics = normalizeStringArray(selectedMetricIds);
   const originalRank = rankSnapshot({
-    rank: goalOriginal?.rank ?? goalTarget?.startRank ?? "Gold",
-    division: goalOriginal?.division ?? goalTarget?.startDivision ?? "II",
-    lp: goalOriginal?.lp ?? goalTarget?.startLp ?? 34,
-    capturedAt: goalOriginal?.capturedAt ?? activeSince
+    rank: goalOriginal?.rank ?? goalTarget?.startRank ?? null,
+    division: goalOriginal?.division ?? goalTarget?.startDivision ?? null,
+    lp: goalOriginal?.lp ?? goalTarget?.startLp ?? null,
+    capturedAt: goalOriginal?.rank || goalOriginal?.division || Number.isFinite(Number(goalOriginal?.lp)) ? (goalOriginal?.capturedAt ?? activeSince) : null
   });
   const targetRank = rankSnapshot({
-    rank: goalTarget?.rank ?? goalTarget?.targetRank ?? "Emerald",
-    division: goalTarget?.division ?? goalTarget?.targetDivision ?? "IV",
-    lp: goalTarget?.lp ?? goalTarget?.targetLp ?? 0,
-    capturedAt: goalTarget?.capturedAt ?? activeSince
+    rank: goalTarget?.rank ?? goalTarget?.targetRank ?? null,
+    division: goalTarget?.division ?? goalTarget?.targetDivision ?? null,
+    lp: goalTarget?.lp ?? goalTarget?.targetLp ?? null,
+    capturedAt: goalTarget?.rank || goalTarget?.division || Number.isFinite(Number(goalTarget?.lp)) ? (goalTarget?.capturedAt ?? activeSince) : null
   });
   const currentRank = goalCurrent
     ? rankSnapshot({ ...goalCurrent, capturedAt: goalCurrent.capturedAt ?? activeSince })

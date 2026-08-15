@@ -18,7 +18,7 @@
   --radius-xl: 24px;
   --radius-lg: 18px;
   --radius-md: 16px;
-  --content-width: 1180px;
+  --content-width: 1080px;
 }
 
 * {
@@ -110,8 +110,7 @@ p {
 
 .nav-header,
 .side-nav-links,
-.side-nav-sections,
-.side-nav-accordion {
+.side-nav-sections {
   display: grid;
 }
 
@@ -123,50 +122,6 @@ p {
 
 .side-nav-sections {
   gap: 18px;
-}
-
-.side-nav-accordion {
-  gap: 8px;
-}
-
-.side-nav-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 46px;
-  padding: 0 14px;
-  border-radius: 14px;
-  border: 1px solid transparent;
-  color: rgba(247, 242, 232, 0.86);
-  cursor: pointer;
-  font-weight: 700;
-  list-style: none;
-}
-
-.side-nav-summary::-webkit-details-marker {
-  display: none;
-}
-
-.side-nav-summary::after {
-  content: "+";
-  color: var(--muted);
-  font-size: 1rem;
-}
-
-.side-nav-accordion[open] .side-nav-summary::after {
-  content: "-";
-}
-
-.side-nav-summary:hover,
-.side-nav-accordion.is-current .side-nav-summary,
-.side-nav-accordion[open] .side-nav-summary {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: var(--border);
-}
-
-.side-nav-accordion.is-current .side-nav-summary,
-.side-nav-accordion[open] .side-nav-summary {
-  color: var(--text);
 }
 
 .side-nav-links {
@@ -257,18 +212,10 @@ p {
   min-height: 12px;
 }
 
-.nav-meta {
-  color: var(--muted);
-  line-height: 1.55;
-  max-width: 18ch;
-  font-size: 0.95rem;
-  text-wrap: pretty;
-}
-
 .content-shell {
   width: min(100%, var(--content-width));
   min-width: 0;
-  margin: 0 auto;
+  margin: 0;
   display: grid;
   gap: 18px;
 }
@@ -1128,19 +1075,6 @@ body.auth-page.nav-collapsed {
   gap: 4px;
 }
 
-.initial-assessment-panel .button {
-  width: fit-content;
-}
-
-.recommended-review-card {
-  display: grid;
-  gap: 14px;
-  padding: 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: rgba(8, 18, 31, 0.24);
-}
-
 .assessment-game-row {
   grid-template-columns: minmax(0, 1fr) auto;
 }
@@ -1986,7 +1920,6 @@ body.nav-collapsed .nav-header {
 }
 
 body.nav-collapsed .brand-lockup,
-body.nav-collapsed .nav-meta,
 body.nav-collapsed .side-nav-sections,
 body.nav-collapsed .side-nav-spacer,
 body.nav-collapsed .session-panel {
@@ -2094,7 +2027,6 @@ body.nav-collapsed .session-panel {
   }
 
   body.nav-collapsed .brand-lockup,
-  body.nav-collapsed .nav-meta,
   body.nav-collapsed .side-nav-sections,
   body.nav-collapsed .side-nav-spacer,
   body.nav-collapsed .session-panel {

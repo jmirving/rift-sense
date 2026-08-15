@@ -1216,6 +1216,26 @@ describe("home API", () => {
     expect(savedHome.goalDashboard.role).toBe("Bot");
   });
 
+  it("keeps missing ranked goal values unset when saving onboarding", async () => {
+    const app = await createTestApp();
+
+    const response = await request(app)
+      .post("/api/onboarding")
+      .send({
+        context: "personal",
+        role: "Bot",
+        selectedGoalTemplateId: "goal-template-rank-climb",
+        primaryFocusTemplateId: "focus-die-less",
+        goalOriginal: { rank: null, division: null, lp: null },
+        goalTarget: { rank: null, division: null, lp: null }
+      });
+
+    expect(response.status).toBe(201);
+    const savedHome = await app.locals.testRepositories.userHomesRepository.getUserHome("usr_demo_home");
+    expect(savedHome.goalDashboard.focusPlan.goalInstance.original).toMatchObject({ rank: null, division: null, lp: null });
+    expect(savedHome.goalDashboard.focusPlan.goalInstance.target).toMatchObject({ rank: null, division: null, lp: null });
+  });
+
   it.skip("saves onboarding to the authenticated user when auth is enabled", async () => {
     const app = await createTestApp({ authEnabled: true });
     const token = jwt.sign(

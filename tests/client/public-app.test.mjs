@@ -30,6 +30,7 @@ function setupOptionsFixture() {
       goalTemplates: [{
         id: "goal-template-rank-climb",
         title: "Reach target rank",
+        category: "ranked-climb",
         description: "Climb with consistency.",
         configurableFields: ["startRank", "startDivision", "startLp", "targetRank", "targetDivision", "targetLp"],
         defaultFocusPath: ["die-less"]
@@ -635,7 +636,7 @@ describe("public app routes", () => {
               activePersonalGoal: {
                 title: "Die Less",
                 riotEvidence: {
-                  candidateGames: [{
+                  recentGames: [{
                     matchId: "NA1_ready",
                     championName: "Jhin",
                     queueLabel: "Ranked Solo/Duo",
@@ -643,6 +644,11 @@ describe("public app routes", () => {
                     kda: "1/5/3",
                     evaluationStatus: "current",
                     evaluationSummary: { deathCount: 5, reviewSignals: ["5 deaths"] }
+                  }, {
+                    matchId: "NA1_preparing",
+                    championName: "Ashe",
+                    queueLabel: "Ranked Solo/Duo",
+                    evaluationStatus: "pending"
                   }]
                 }
               }
@@ -661,6 +667,7 @@ describe("public app routes", () => {
     expect(document.body.textContent).toContain("Review queue");
     expect(document.body.textContent).toContain("Games ready for review");
     expect(document.body.textContent).toContain("Jhin · Loss");
+    expect(document.body.textContent).toContain("Ashe · Preparing");
     expect(document.querySelector('a[href="/review?matchId=NA1_ready"]')?.textContent).toContain("Review");
     expect(document.body.textContent).not.toContain("Choose a recent game from the dashboard");
     expect(document.body.textContent).not.toContain("Review workflows will land here");
@@ -1402,7 +1409,7 @@ describe("public app routes", () => {
     expect([...document.querySelectorAll('a[href="/review?matchId=NA1_review_candidate"]')].some((link) =>
       link.textContent.includes("Review")
     )).toBe(true);
-    expect(document.body.textContent).toContain("Recent Games");
+    expect(document.body.textContent).toContain("Recent games");
     expect(document.body.textContent).toContain("Kai'Sa · Evaluation pending");
     expect(document.body.textContent).toContain("Caitlyn · Loss");
     expect(document.querySelector('a[href="/review?matchId=NA1_new_partial"]')).toBeNull();
@@ -1710,7 +1717,7 @@ describe("public app routes", () => {
     await renderApp(document.querySelector("#app"));
 
     expect(document.body.textContent).toContain("Miss Fortune · Win");
-    expect(document.body.textContent).toContain("Why this game: It has the most review moments among your unreviewed assessment games.");
+    expect(document.body.textContent).toContain("Why: It has the most review moments among your unreviewed assessment games.");
     expect(document.querySelector(".game-evidence-row")?.textContent).toContain("Miss Fortune · Win");
     expect(document.querySelector(".game-evidence-row")?.textContent).toContain("10 review moments");
   });
@@ -1772,7 +1779,7 @@ describe("public app routes", () => {
     await renderApp(document.querySelector("#app"));
 
     expect(document.body.textContent).toContain("Ashe · Win");
-    expect(document.body.textContent).toContain("Why this game: You already started reviewing this game.");
+    expect(document.body.textContent).toContain("Why: You already started reviewing this game.");
     expect(document.body.textContent).not.toContain("RiftSense selected this as the next assessment game.");
   });
 
@@ -1832,10 +1839,9 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    const recommendedCard = document.querySelector(".recommended-review-card");
-    expect(recommendedCard?.textContent).toContain("Recommended next review");
-    expect(recommendedCard?.textContent).toContain("Ashe · Win");
-    expect(recommendedCard?.textContent).not.toContain("Why this game");
+    const nextStepCard = document.querySelector(".coaching-next-step-panel");
+    expect(nextStepCard?.textContent).toContain("Review next assessment game");
+    expect(nextStepCard?.textContent).not.toContain("Why:");
     expect(document.body.textContent).not.toContain("RiftSense selected this as the next assessment game.");
   });
 
@@ -3834,5 +3840,32 @@ describe("Goal Plan generalization", () => {
     await renderApp(document.querySelector("#app"));
     expect(document.querySelector('select[name="role"]').value).toBe("Top");
     expect(document.body.textContent).not.toContain("ADC");
+  });
+
+  it("leaves missing ranked goal values unset and keeps internal taxonomy out of labels", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") return mockJsonResponse({ authenticated: true, authEnabled: true, user: { id: "user" } });
+      if (url === "/api/onboarding/options") return mockJsonResponse(setupOptionsFixture());
+      if (url === "/api/home") return mockJsonResponse({
+        home: {
+          user: { profile: { primaryRole: "Bot" } },
+          goalDashboard: { focusPlan: { goal: {}, primaryFocus: {} } }
+        }
+      });
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/goal-plan");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.querySelector('select[name="startRank"]').value).toBe("");
+    expect(document.querySelector('select[name="targetRank"]').value).toBe("");
+    expect(document.querySelector('input[name="startLp"]').value).toBe("");
+    expect(document.querySelector('input[name="targetLp"]').value).toBe("");
+    expect(document.body.textContent).not.toContain("Iron IV 0 LP");
+    expect(document.querySelector('select[name="selectedGoalTemplateId"] option:checked').textContent.trim()).toBe("Reach target rank");
+    expect(document.querySelectorAll("h1, h2").length).toBe(1);
+    expect(document.body.textContent).toContain("Target");
   });
 });
