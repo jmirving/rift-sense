@@ -58,37 +58,18 @@ function logClientTiming(step, metadata = {}) {
   });
 }
 
-function isDemoPath(pathname) {
-  return pathname === "/demo" || pathname.startsWith("/demo/");
-}
-
 function getRouteContext() {
   const pathname = window.location.pathname;
-  const demoMode = isDemoPath(pathname);
-  let homeApiUrl = "/api/home";
-
-  if (pathname === "/demo/adc") {
-    homeApiUrl = "/api/demo/home/adc";
-  } else if (pathname === "/demo/no-riot-linked") {
-    homeApiUrl = "/api/demo/home/no-riot-linked";
-  } else if (demoMode) {
-    homeApiUrl = "/api/demo/home";
-  }
-
   return {
     pathname,
-    demoMode,
-    homeApiUrl,
-    requestOptions: demoMode
-      ? {
-          skipStoredToken: true
-        }
-      : undefined
+    demoMode: false,
+    homeApiUrl: "/api/home",
+    requestOptions: undefined
   };
 }
 
 function isPublicPath(pathname) {
-  return pathname === "/about" || pathname === "/login";
+  return pathname === "/login";
 }
 
 function toAppHref(href, context = getRouteContext()) {
@@ -96,43 +77,7 @@ function toAppHref(href, context = getRouteContext()) {
     return null;
   }
 
-  if (!context.demoMode) {
-    return href;
-  }
-
-  if (!href.startsWith("/")) {
-    return href;
-  }
-
-  const [pathname, query = ""] = href.split("?");
-  const suffix = query ? `?${query}` : "";
-
-  if (pathname === "/") {
-    return `/demo${suffix}`;
-  }
-  if (pathname === "/goals") {
-    return `/demo/setup${suffix}`;
-  }
-  if (pathname === "/setup") {
-    return `/demo/setup${suffix}`;
-  }
-  if (pathname === "/focus-plan") {
-    return `/demo/setup${suffix}`;
-  }
-  if (pathname === "/review") {
-    return `/demo/review${suffix}`;
-  }
-  if (pathname === "/onboarding") {
-    return `/demo/setup${suffix}`;
-  }
-  if (pathname === "/training" || pathname === "/drills" || pathname === "/test") return null;
-  if (pathname === "/team" || pathname === "/team-focus") return null;
-  if (pathname === "/library") return null;
-  if (pathname === "/focus/today" || pathname === "/focus/week" || pathname === "/focus/month") {
-    return `/demo/setup${suffix}`;
-  }
-
-  return null;
+  return href;
 }
 
 function readStoredAuthToken() {
@@ -379,8 +324,6 @@ function authShell(session) {
           ${renderLoginForm(session, { fullWidth: true })}
           <div class="auth-help-links">
             <a href="${escapeHtml(accountHref)}">Need account help? Open Nexus account access</a>
-            <a href="/about">New here? What is RiftSense?</a>
-            <a href="/demo">Want the guided path first? Open demo flow</a>
           </div>
           ${renderDeveloperTokenTools(session)}
         </section>
@@ -396,12 +339,9 @@ function renderLoginPage(root) {
 function appShell(content, hero = {}) {
   const context = getRouteContext();
   const pathname = context.pathname;
-  const demoMode = context.demoMode;
   const session = getSessionState();
-  const publicMode = !demoMode && !session.authenticated && isPublicPath(pathname);
+  const publicMode = !session.authenticated && isPublicPath(pathname);
   const navCollapsed = window.localStorage.getItem("riftsense.navCollapsed") === "true";
-  const searchParams = new URLSearchParams(window.location.search);
-  const isCuratorDetail = pathname.startsWith("/content/") && searchParams.get("curator") === "1";
   const heroHidden = hero.hidden === true;
   const heroTitle = hero.title ?? "RiftSense";
   const heroEyebrow = hero.eyebrow ?? "Dashboard";
@@ -412,30 +352,15 @@ function appShell(content, hero = {}) {
   const navSections = [
     {
       key: "learn",
-      title: publicMode ? "Explore" : "Improve",
+      title: "Improve",
       items: publicMode
         ? [
-            { href: "/", label: "Home", active: pathname === "/" },
-            { href: "/about", label: "About", active: pathname === "/about" },
-            { href: "/demo", label: "Demo", active: pathname === "/demo" }
-          ]
-        : demoMode
-        ? [
-            { href: "/demo", label: "Dashboard", active: pathname === "/demo" },
-            { href: "/demo/review", label: "Review", active: pathname === "/demo/review" },
-            { href: "/demo/setup", label: "Goal Plan", active: pathname === "/demo/setup" || pathname === "/demo/goals" || pathname === "/demo/onboarding" || pathname === "/demo/focus-plan" },
-            { label: "Team Focus", disabled: true, status: "Soon", statusTitle: "Under construction" },
-            { label: "Library", disabled: true, status: "Soon", statusTitle: "Under construction" },
-            { label: "Training", disabled: true, status: "Soon", statusTitle: "Under construction" }
+            { href: "/login", label: "Sign in", active: pathname === "/login" }
           ]
         : [
             { href: "/", label: "Dashboard", active: pathname === "/" || pathname === "/dashboard" },
             { href: "/review", label: "Review", active: pathname === "/review" },
-            { href: "/focus-plan", label: "Goal Plan", active: pathname === "/setup" || pathname === "/focus-plan" || pathname === "/goals" || pathname === "/onboarding" || pathname.startsWith("/focus/") },
-            { href: "/training-taxonomy", label: "Training Taxonomy", active: pathname === "/system-inventory" || pathname === "/training-taxonomy", muted: true },
-            { label: "Team Focus", disabled: true, status: "Soon", statusTitle: "Under construction" },
-            { label: "Library", disabled: true, status: "Soon", statusTitle: "Under construction" },
-            { label: "Training", disabled: true, status: "Soon", statusTitle: "Under construction" }
+            { href: "/goal-plan", label: "Goal Plan", active: pathname === "/goal-plan" }
           ]
     }
   ];
@@ -463,7 +388,7 @@ function appShell(content, hero = {}) {
               title="${navCollapsed ? "Expand sidebar" : "Collapse sidebar"}"
             >${navCollapsed ? "▶" : "◀"}</button>
           </div>
-          <p class="nav-meta">${escapeHtml(publicMode ? "Open the public home, About page, or demo." : "Open dashboard, review, or Goal Plan.")}</p>
+          <p class="nav-meta">${escapeHtml(publicMode ? "Sign in to continue." : "Open dashboard, review, or Goal Plan.")}</p>
           <div class="side-nav-sections">
             ${navSections.map((section) => `
               <details
@@ -2147,7 +2072,7 @@ function initialAssessmentTargetRows(dashboardView) {
 }
 
 function canonicalSetupHref(context = getRouteContext()) {
-  return toAppHref("/focus-plan", context) ?? "/focus-plan";
+  return "/goal-plan";
 }
 
 function canonicalDashboardHref(href, context = getRouteContext()) {
@@ -2160,7 +2085,7 @@ function canonicalDashboardHref(href, context = getRouteContext()) {
 
   const [pathname, query = ""] = href.split("?");
   const suffix = query ? `?${query}` : "";
-  if (pathname === "/goals" || pathname === "/onboarding" || pathname.startsWith("/focus/") || pathname === "/setup" || pathname === "/focus-plan") {
+  if (pathname === "/goal-plan") {
     return `${canonicalSetupHref(context)}${suffix}`;
   }
   if (pathname === "/team" || pathname === "/team-focus" || pathname === "/library" || pathname === "/training" || pathname === "/drills" || pathname === "/test") {
@@ -4659,11 +4584,8 @@ function renderDeathReviewList(plan, review) {
           const reasons = selectedCandidate?.interpretationReasons?.length
             ? selectedCandidate.interpretationReasons
             : [moment.reviewQuestion || "Needs replay check."];
-          const impactFacts = moment.consequenceFacts?.length ? moment.consequenceFacts : [];
-          const contextFacts = moment.contextChips?.length ? moment.contextChips : deathContextFacts(moment);
           const displayFacts = (moment.evidenceFacts ?? []).length ? moment.evidenceFacts : ["No clear pattern yet - review this death manually."];
           const replayQuestions = usefulReplayQuestions(moment.replayQuestions?.length ? moment.replayQuestions : replayQuestionsForDeath(moment, reasons));
-          const questionItems = impactFacts.length > 0 ? usefulReplayQuestions([moment.reviewQuestion]) : replayQuestions;
           return `
             <article class="death-review-item ${reviewedMoment ? "is-reviewed" : "is-unreviewed"}" id="death-${escapeHtml(String(moment.deathIndex))}" data-death-review-item data-death-index="${escapeHtml(String(moment.deathIndex))}">
               <div class="death-review-head">
@@ -4674,41 +4596,23 @@ function renderDeathReviewList(plan, review) {
                 <span class="${escapeHtml(statusUi.badgeClass)}">${escapeHtml(statusUi.label)}</span>
               </div>
               ${reviewedMoment ? `<p class="reviewed-summary-line">${escapeHtml(statusUi.label)} · ${escapeHtml(selectedCandidate?.label ?? "Pattern recorded")}</p>` : ""}
-              ${contextFacts.length > 0 ? `
-                <div class="death-context-row">
-                  ${contextFacts.map((fact) => `<span>${escapeHtml(fact)}</span>`).join("")}
-                </div>
-              ` : ""}
               <div class="death-review-expanded">
                 <div class="review-evidence-facts">
-                  <p class="eyebrow">Facts</p>
+                  <p class="eyebrow">What happened</p>
                   <ul>
                     ${displayFacts.map((fact) => `<li>${escapeHtml(fact)}</li>`).join("")}
                   </ul>
                 </div>
-                ${impactFacts.length > 0 ? `
+                ${reasons.length > 0 ? `
                   <div class="review-evidence-facts">
-                    <p class="eyebrow">Impact</p>
+                    <p class="eyebrow">Why it matters</p>
                     <ul>
-                      ${impactFacts.map((fact) => `<li>${escapeHtml(fact)}</li>`).join("")}
+                      ${reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}
                     </ul>
                   </div>
                 ` : ""}
-                ${questionItems.length > 0 ? `
-                  <div class="review-evidence-facts">
-                    <p class="eyebrow">${impactFacts.length > 0 ? "Review question" : "Replay can answer"}</p>
-                    <ul>
-                      ${questionItems.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}
-                    </ul>
-                  </div>
-                ` : ""}
-                ${(moment.debugDetails ?? []).length > 0 ? `
-                  <details class="technical-evidence">
-                    <summary>Debug details</summary>
-                    <ul>
-                      ${moment.debugDetails.map((detail) => `<li>${escapeHtml(detail)}</li>`).join("")}
-                    </ul>
-                  </details>
+                ${replayQuestions.length > 0 ? `
+                  <div class="review-evidence-facts"><p class="eyebrow">Consider instead</p><ul>${replayQuestions.map((question) => `<li>${escapeHtml(question)}</li>`).join("")}</ul></div>
                 ` : ""}
               </div>
               <div class="review-factor-intro">
@@ -4794,7 +4698,6 @@ function renderReviewPlan(plan, review) {
       <div class="review-main-column">
         ${renderAssessmentProgress(review, complete)}
         ${renderMainReview(plan)}
-        ${renderObservedPatterns(plan)}
       </div>
       <div class="review-progress-rail">
         ${renderReviewChecklist(plan, reviewedMoments)}
@@ -4926,12 +4829,6 @@ function renderMatchReview(root, review, context = getRouteContext()) {
     </section>
     ${renderReviewPlan(reviewPlan, review)}
     <section class="review-secondary-stack">
-      <details class="panel technical-evidence">
-        <summary>Technical evidence</summary>
-        <p class="muted"><a href="${escapeHtml(toAppHref("/training-taxonomy", context) ?? "/training-taxonomy")}">Training Taxonomy</a></p>
-        ${review.evaluationSummary ? renderDeathFacts(review.deathEvents, review.reviewedMoments) : '<p class="muted">Evaluation is not prepared for this match yet.</p>'}
-        ${renderTagCounts(review.deterministicTagCounts)}
-      </details>
       ${!review.evaluationSummary ? `
         <article class="panel">
           <p class="eyebrow">Preparing</p>
@@ -5508,10 +5405,6 @@ async function renderHome(root, context = getRouteContext()) {
     const dashboard = home.goalDashboard ?? {};
     const goal = dashboard.activePersonalGoal ?? {};
     const action = dashboard.todaysAction ?? {};
-    const teamFocus = dashboard.activeTeamFocus ?? {};
-    const suggestedNextSteps = (dashboard.suggestedNextSteps ?? []).filter((step) =>
-      Boolean(canonicalDashboardHref(step.href, context) || !step.href)
-    );
     const riotEvidence = goal.riotEvidence ?? null;
     const dashboardView = dashboardState({ dashboard, goal, riotEvidence });
     const activeReviewStatus = dashboardView.inInitialAssessment
@@ -5524,15 +5417,6 @@ async function renderHome(root, context = getRouteContext()) {
     const reviewHref = toAppHref("/review", context) ?? "#";
     const nextStep = resolveCoachingNextStep({ state: dashboardView, action, context, goal, setupHref });
     const focusTagline = `${goal.role ?? profile.primaryRole ?? "Player"} · ${goal.scope ?? "Personal"}`;
-    const demoBanner = context.demoMode
-      ? `
-      <section class="panel panel-slim">
-        <p class="eyebrow">Public Demo</p>
-        <h2>Seeded MVP dashboard</h2>
-        <p class="muted">This view is fixed demo data for the Bot + team-focus scenario from the MVP spec.</p>
-      </section>
-    `
-      : "";
     const setupGuide = home.setupGuide
       ? (() => {
         const href = canonicalDashboardHref(home.setupGuide.href, context) ?? setupHref;
@@ -5555,7 +5439,6 @@ async function renderHome(root, context = getRouteContext()) {
 
     root.innerHTML = appShell(`
     <section class="goal-dashboard-stack">
-      ${demoBanner}
       ${setupGuide}
       <section class="dashboard-home-layout">
         <section class="dashboard-main-column">
@@ -5576,43 +5459,8 @@ async function renderHome(root, context = getRouteContext()) {
           ${coachingNextStepCard(nextStep)}
           ${dashboardView.inInitialAssessment ? initialAssessmentPanel(dashboardView, context) : ""}
           ${dashboardView.inInitialAssessment ? "" : reviewQueueSummary(dashboardView.reviewQueue, context)}
-          ${riotEvidenceCard(riotEvidence, context)}
+          ${riotEvidence ? riotEvidenceCard(riotEvidence, context) : ""}
           ${dashboardView.inInitialAssessment ? "" : evidenceProgressCard(dashboardView)}
-        </section>
-        ${dashboardContextCards(dashboardView, teamFocus)}
-      </section>
-
-      <section class="panel next-steps-panel">
-        <div class="panel-header">
-          <div>
-            <p class="eyebrow">Suggested Next Steps</p>
-            <h2>Continue Learning</h2>
-          </div>
-        </div>
-        <section class="next-step-grid">
-          ${suggestedNextSteps.length > 0
-            ? suggestedNextSteps
-              .slice(0, 4)
-              .map((step) => {
-                const href = canonicalDashboardHref(step.href, context);
-                const [stepPathname] = (step.href ?? "").split("?");
-                const label = href === setupHref && (stepPathname === "/goals" || stepPathname === "/onboarding" || stepPathname.startsWith("/focus/"))
-                  ? "Edit Goal Plan"
-                  : step.label;
-                return nextStepCard({
-                  ...step,
-                  href,
-                  label
-                });
-              })
-              .join("")
-            : `
-              ${nextStepCard(dashboardView.inInitialAssessment
-                ? { title: "Assessment games", summary: "Review the remaining assessment games.", href: reviewHref, label: "Open assessment games" }
-                : { title: "Review queue", summary: "Pick a prepared game and review its moments.", href: reviewHref, label: "Open review" })}
-              ${nextStepCard({ title: "Goal Plan", summary: "Update your goal, focus path, role, and team focus.", href: setupHref, label: "Edit Goal Plan" })}
-              ${nextStepCard({ title: "Library", summary: "Library fills as you review games.", status: "Under construction" })}
-            `}
         </section>
       </section>
     </section>
@@ -5642,7 +5490,6 @@ function renderPublicAbout(root) {
         <p class="muted">It uses Nexus-authenticated identity, shared Riot profile fields, and RiftSense-owned recent-game evidence to help players focus review work against active goals.</p>
         <div class="action-row">
           <a class="button" href="/login">Continue with Nexus</a>
-          <a class="button secondary" href="/demo">View Demo</a>
         </div>
       </section>
       <section class="dashboard-two-column">
@@ -5674,8 +5521,6 @@ function renderAuthRequiredPage(root, title, summary) {
         <p class="muted">${escapeHtml(summary)}</p>
         <div class="action-row">
           <a class="button" href="/login">Continue with Nexus</a>
-          <a class="button secondary" href="/demo">View Demo</a>
-          <a class="button secondary" href="/about">About</a>
         </div>
       </section>
     </section>
@@ -5879,7 +5724,7 @@ function onboardingPreview({ state, templates }) {
   `;
 }
 
-async function renderOnboarding(root, context = getRouteContext()) {
+async function renderLegacyOnboarding(root, context = getRouteContext()) {
   if (!context.demoMode && !getSessionState().authenticated) {
     renderAuthRequiredPage(root, "Sign in to edit setup", "RiftSense setup is saved to your authenticated account.");
     return;
@@ -6332,6 +6177,106 @@ async function renderOnboarding(root, context = getRouteContext()) {
     });
   }
 
+  render();
+}
+
+async function renderOnboarding(root, context = getRouteContext()) {
+  if (!getSessionState().authenticated) {
+    renderAuthRequiredPage(root, "Sign in to edit your Goal Plan", "Your Goal Plan is saved to your authenticated account.");
+    return;
+  }
+
+  const [{ templates }, { home }] = await Promise.all([
+    requestJson("/api/onboarding/options"),
+    requestJson("/api/home")
+  ]);
+  const dashboard = home.goalDashboard ?? {};
+  const profile = home.user?.profile ?? {};
+  const focusPlan = dashboard.focusPlan ?? {};
+  const savedGoal = focusPlan.goal ?? {};
+  const savedFocus = focusPlan.primaryFocus ?? dashboard.activePersonalGoal ?? {};
+  const focusTemplates = templates.focusTemplates ?? [];
+  let selectedGoalId = templates.goalTemplates.find((goal) => goal.id === savedGoal.templateId)?.id ?? templates.goalTemplates[0]?.id ?? "";
+  let selectedFocusId = focusTemplates.find((focus) => focus.id === savedFocus.focusTemplateId || focus.id === savedFocus.templateId)?.id
+    ?? templates.goalTemplates.find((goal) => goal.id === selectedGoalId)?.defaultFocusPath?.[0]
+    ?? focusTemplates[0]?.id
+    ?? "";
+
+  const rankOptions = ["Iron", "Bronze", "Silver", "Gold", "Platinum", "Emerald", "Diamond", "Master", "Grandmaster", "Challenger"];
+  const divisions = ["IV", "III", "II", "I"];
+  const roleOptions = ["Top", "Jungle", "Mid", "Bot", "Support", "Multiple"];
+  const selected = (items, id) => items.find((item) => item.id === id);
+
+  function render() {
+    const goal = selected(templates.goalTemplates, selectedGoalId) ?? templates.goalTemplates[0];
+    const focus = selected(focusTemplates, selectedFocusId) ?? selected(focusTemplates, goal?.defaultFocusPath?.[0]) ?? focusTemplates[0];
+    selectedGoalId = goal?.id ?? "";
+    selectedFocusId = focus?.id ?? "";
+    const isRanked = goal?.category === "ranked-climb";
+    const targets = savedFocus.rawTargets?.length ? savedFocus.rawTargets : (focus?.suggestedTargets ?? []);
+    const currentRole = roleLabel(savedFocus.role ?? profile.primaryRole ?? "Multiple");
+
+    root.innerHTML = appShell(`
+      <section class="section-heading">
+        <div><p class="eyebrow">Goal Plan</p><h2>Goal Plan</h2></div>
+      </section>
+      <form class="onboarding-flow" id="onboarding-form">
+        <section class="panel onboarding-step">
+          <p class="eyebrow">What I’m trying to accomplish</p>
+          <label>Goal
+            <select name="selectedGoalTemplateId">${templates.goalTemplates.map((item) => templateOption(item, goal?.id)).join("")}</select>
+          </label>
+          ${isRanked ? `<div class="field-row">
+            <label>Starting rank <select name="startRank">${rankOptions.map((rank) => `<option ${savedGoal.original?.rank === rank ? "selected" : ""}>${rank}</option>`).join("")}</select></label>
+            <label>Starting division <select name="startDivision">${divisions.map((division) => `<option ${savedGoal.original?.division === division ? "selected" : ""}>${division}</option>`).join("")}</select></label>
+            <label>Starting LP <input name="startLp" type="number" min="0" max="100" value="${escapeHtml(savedGoal.original?.lp ?? 0)}" /></label>
+            <label>Target rank <select name="targetRank">${rankOptions.map((rank) => `<option ${savedGoal.target?.rank === rank ? "selected" : ""}>${rank}</option>`).join("")}</select></label>
+            <label>Target division <select name="targetDivision">${divisions.map((division) => `<option ${savedGoal.target?.division === division ? "selected" : ""}>${division}</option>`).join("")}</select></label>
+            <label>Target LP <input name="targetLp" type="number" min="0" max="100" value="${escapeHtml(savedGoal.target?.lp ?? 0)}" /></label>
+          </div>` : ""}
+        </section>
+        <section class="panel onboarding-step">
+          <p class="eyebrow">What I’m currently working on</p>
+          <label>Primary focus
+            <select name="primaryFocusTemplateId">${focusTemplates.map((item) => templateOption(item, focus?.id)).join("")}</select>
+          </label>
+          <label>Role
+            <select name="role">${roleOptions.map((role) => `<option ${currentRole === role ? "selected" : ""}>${role}</option>`).join("")}</select>
+          </label>
+          ${focus?.description ? `<p class="muted">${escapeHtml(focus.description)}</p>` : ""}
+        </section>
+        ${targets.length ? `<section class="panel onboarding-step"><p class="eyebrow">What success looks like</p>${targets.map((target, index) => `<label>${escapeHtml(target.label ?? "Target")}<input type="number" name="target-${index}" data-target-metric="${escapeHtml(target.metricId)}" data-target-operator="${escapeHtml(target.operator ?? "<=")}" data-target-window="${escapeHtml(target.window ?? "week")}" value="${escapeHtml(target.value ?? target.targetValue ?? 0)}" /></label>`).join("")}</section>` : ""}
+        <section class="panel panel-slim onboarding-submit"><div><p class="muted" id="onboarding-status" aria-live="polite"></p></div><div class="action-row"><button class="button" type="submit">Save Goal Plan</button><a class="button secondary" href="/">Dashboard</a></div></section>
+      </form>
+    `, { eyebrow: "Goal Plan", title: "Goal Plan", text: "Set your goal, current focus, and success targets.", compact: true });
+
+    const form = root.querySelector("#onboarding-form");
+    form?.addEventListener("change", (event) => {
+      if (event.target.name === "selectedGoalTemplateId") {
+        selectedGoalId = event.target.value;
+        selectedFocusId = selected(templates.goalTemplates, selectedGoalId)?.defaultFocusPath?.[0] ?? selectedFocusId;
+        render();
+      } else if (event.target.name === "primaryFocusTemplateId") {
+        selectedFocusId = event.target.value;
+        render();
+      }
+    });
+    form?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const targetInputs = [...form.querySelectorAll("[data-target-metric]")];
+      const payload = {
+        role: data.get("role"), selectedGoalTemplateId: selectedGoalId, primaryFocusTemplateId: selectedFocusId,
+        targets: targetInputs.map((input) => ({ metricId: input.dataset.targetMetric, operator: input.dataset.targetOperator, window: input.dataset.targetWindow, label: input.previousSibling?.textContent?.trim(), value: Number(input.value) })),
+        goalOriginal: { rank: data.get("startRank"), division: data.get("startDivision"), lp: Number(data.get("startLp")) },
+        goalTarget: { rank: data.get("targetRank"), division: data.get("targetDivision"), lp: Number(data.get("targetLp")) }
+      };
+      const status = root.querySelector("#onboarding-status");
+      status.textContent = "Saving…";
+      try { await requestJson("/api/onboarding", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); window.location.href = "/"; }
+      catch (error) { status.textContent = error instanceof Error ? error.message : "Goal Plan save failed."; }
+    });
+  }
   render();
 }
 
@@ -6911,15 +6856,7 @@ export async function renderApp(root) {
       return;
     }
 
-    if (pathname === "/about") {
-      renderPublicAbout(root);
-      bindNavControls(root);
-      bindNavSectionControls(root);
-      bindSessionControls(root);
-      return;
-    }
-
-    if (pathname === "/" || pathname === "/dashboard" || pathname === "/demo" || pathname === "/demo/adc" || pathname === "/demo/no-riot-linked") {
+    if (pathname === "/") {
       await renderHome(root, context);
       bindNavControls(root);
       bindNavSectionControls(root);
@@ -6927,101 +6864,13 @@ export async function renderApp(root) {
       return;
     }
 
-    if (pathname === "/setup" || pathname === "/focus-plan" || pathname === "/demo/setup" || pathname === "/goals" || pathname === "/demo/goals" || pathname === "/onboarding" || pathname === "/demo/onboarding") {
+    if (pathname === "/goal-plan") {
       await renderOnboarding(root, context);
       return;
     }
 
-    if (pathname === "/library") {
-      await renderLibrary(root);
-      bindNavControls(root);
-      bindNavSectionControls(root);
-      bindSessionControls(root);
-      return;
-    }
-
-    if (pathname === "/focus/today") {
-      await renderFocusPage(root, "today", context);
-      bindNavControls(root);
-      bindNavSectionControls(root);
-      bindSessionControls(root);
-      return;
-    }
-
-    if (pathname === "/focus/week") {
-      await renderFocusPage(root, "week", context);
-      bindNavControls(root);
-      bindNavSectionControls(root);
-      bindSessionControls(root);
-      return;
-    }
-
-    if (pathname === "/focus/month") {
-      await renderFocusPage(root, "month", context);
-      bindNavControls(root);
-      bindNavSectionControls(root);
-      bindSessionControls(root);
-      return;
-    }
-
-    if (pathname === "/drills" || pathname === "/test") {
-      await renderGoalDashboardPage(root, "training", context);
-      bindNavControls(root);
-      bindNavSectionControls(root);
-      bindSessionControls(root);
-      return;
-    }
-
-    if (pathname === "/review" || pathname === "/demo/review") {
+    if (pathname === "/review") {
       await renderReviewPage(root, context);
-      bindNavControls(root);
-      bindNavSectionControls(root);
-      bindSessionControls(root);
-      return;
-    }
-
-    if (pathname === "/system-inventory" || pathname === "/training-taxonomy") {
-      await renderSystemInventoryPage(root, context);
-      bindNavControls(root);
-      bindNavSectionControls(root);
-      bindSessionControls(root);
-      return;
-    }
-
-    if (pathname === "/training" || pathname === "/demo/training") {
-      await renderGoalDashboardPage(root, "training", context);
-      bindNavControls(root);
-      bindNavSectionControls(root);
-      bindSessionControls(root);
-      return;
-    }
-
-    if (pathname === "/team" || pathname === "/demo/team") {
-      await renderGoalDashboardPage(root, "team", context);
-      bindNavControls(root);
-      bindNavSectionControls(root);
-      bindSessionControls(root);
-      return;
-    }
-
-    if (pathname === "/curator/content") {
-      await renderCuratorList(root);
-      bindNavControls(root);
-      bindNavSectionControls(root);
-      bindSessionControls(root);
-      return;
-    }
-
-    if (pathname === "/curator/content/new") {
-      await renderCreateForm(root);
-      bindNavControls(root);
-      bindNavSectionControls(root);
-      bindSessionControls(root);
-      return;
-    }
-
-    if (pathname.startsWith("/content/")) {
-      await renderDetail(root);
       bindNavControls(root);
       bindNavSectionControls(root);
       bindSessionControls(root);

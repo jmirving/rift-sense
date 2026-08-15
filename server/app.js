@@ -5,7 +5,6 @@ import { createOptionalAuth, createRequireAuth } from "./auth/middleware.js";
 import { fetchSharedProfile as defaultFetchSharedProfile } from "./auth/shared-profile.js";
 import { createContentItemsRouter } from "./routes/content-items.js";
 import { createAuthRouter } from "./routes/auth.js";
-import { createDemoRouter } from "./routes/demo.js";
 import { createHomeRouter } from "./routes/home.js";
 import { createGoalPlanRouter } from "./routes/goal-plan.js";
 import { createMatchEvaluationsRouter } from "./routes/match-evaluations.js";
@@ -18,34 +17,8 @@ import { ApiError, badRequest, formatErrorResponse } from "./errors.js";
 const clientRoutes = [
   "/",
   "/login",
-  "/about",
-  "/demo",
-  "/demo/adc",
-  "/demo/goals",
-  "/demo/no-riot-linked",
-  "/demo/review",
-  "/demo/setup",
-  "/demo/training",
-  "/demo/team",
-  "/demo/onboarding",
-  "/goals",
-  "/setup",
-  "/focus-plan",
-  "/onboarding",
-  "/library",
-  "/focus/today",
-  "/focus/week",
-  "/focus/month",
-  "/drills",
-  "/test",
   "/review",
-  "/system-inventory",
-  "/training-taxonomy",
-  "/training",
-  "/team",
-  "/content/:id",
-  "/curator/content",
-  "/curator/content/new"
+  "/goal-plan"
 ];
 
 export function createApp({
@@ -119,13 +92,6 @@ export function createApp({
   }
 
   app.use(
-    "/api/demo",
-    createDemoRouter({
-      contentItemsRepository
-    })
-  );
-
-  app.use(
     "/api/onboarding",
     createOnboardingRouter({
       config: {
@@ -159,13 +125,12 @@ export function createApp({
     })
   );
 
+  // The content API remains available for administrative and diagnostic use;
+  // the Library and Curator product routes have been removed.
   app.use(
     "/api/content-items",
     createContentItemsRouter({
-      config: {
-        ...config,
-        requireAuth
-      },
+      config: { ...config, requireAuth },
       contentItemsRepository,
       assetStore,
       previewService

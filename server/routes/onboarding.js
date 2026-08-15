@@ -48,10 +48,9 @@ function resolveSelectedFocusArea({ context, library, selectedGoalTemplateId, pr
 }
 
 function validateTemplateIds(body, library) {
-  const context = VALID_CONTEXTS.has(body.context) ? body.context : "personal";
+  const context = "personal";
   const role = VALID_ROLES.has(body.role) ? normalizeRoleForStorage(body.role) : "Bot";
   const shouldCreatePersonal = context === "personal" || context === "both";
-  const shouldCreateTeam = context === "team" || context === "both";
   const goalTemplate = library.goalTemplates.find(
     (template) => template.id === body.selectedGoalTemplateId || template.legacyIds?.includes(body.selectedGoalTemplateId)
   );
@@ -61,12 +60,6 @@ function validateTemplateIds(body, library) {
   const primaryFocusTemplate = library.focusTemplates.find(
     (template) => template.id === (body.primaryFocusTemplateId ?? body.selectedFocusTemplateId)
   ) ?? legacyFocusTemplate;
-  const teamFocusTemplate = library.teamFocusTemplates.find(
-    (template) => template.id === body.selectedTeamFocusTemplateId
-  );
-  const actionTemplate = body.selectedActionTemplateId
-    ? library.actionTemplates.find((template) => template.id === body.selectedActionTemplateId)
-    : null;
 
   if (shouldCreatePersonal && !goalTemplate && !legacyFocusTemplate) {
     throw badRequest("Select a valid goal template.");
@@ -76,29 +69,12 @@ function validateTemplateIds(body, library) {
     throw badRequest("Select a valid primary focus.");
   }
 
-  if (shouldCreateTeam && !teamFocusTemplate) {
-    throw badRequest("Select a valid team focus template.");
-  }
-
-  if (body.selectedActionTemplateId && !actionTemplate) {
-    throw badRequest("Select a valid review priority.");
-  }
-
   const signalIds = new Set(library.signalTemplates.map((template) => template.id));
   const metricIds = new Set(library.metricTemplates.map((template) => template.id));
-  const focusIds = new Set(library.focusTemplates.map((template) => template.id));
-  const selectedSignalIds = Array.isArray(body.selectedSignalIds)
-    ? body.selectedSignalIds.map((value) => String(value ?? "").trim()).filter(Boolean)
-    : [];
-  const selectedMetricIds = Array.isArray(body.selectedMetricIds)
-    ? body.selectedMetricIds.map((value) => String(value ?? "").trim()).filter(Boolean)
-    : [];
-  const supportingFocusTemplateIds = Array.isArray(body.supportingFocusTemplateIds)
-    ? body.supportingFocusTemplateIds.map((value) => String(value ?? "").trim()).filter(Boolean)
-    : [];
-  const laterFocusTemplateIds = Array.isArray(body.laterFocusTemplateIds)
-    ? body.laterFocusTemplateIds.map((value) => String(value ?? "").trim()).filter(Boolean)
-    : [];
+  const selectedSignalIds = primaryFocusTemplate?.defaultSignalIds ?? [];
+  const selectedMetricIds = primaryFocusTemplate?.defaultMetricIds ?? [];
+  const supportingFocusTemplateIds = [];
+  const laterFocusTemplateIds = [];
 
   const invalidSignalId = selectedSignalIds.find((signalId) => !signalIds.has(signalId));
   if (invalidSignalId) {
@@ -108,13 +84,9 @@ function validateTemplateIds(body, library) {
   if (invalidMetricId) {
     throw badRequest(`Unknown metric template: ${invalidMetricId}`);
   }
-  const invalidFocusId = [...supportingFocusTemplateIds, ...laterFocusTemplateIds]
-    .find((focusId) => !focusIds.has(focusId));
-  if (invalidFocusId) {
-    throw badRequest(`Unknown focus template: ${invalidFocusId}`);
-  }
-
-  const targets = Array.isArray(body.targets) ? body.targets : [];
+  const targets = Array.isArray(body.targets) && body.targets.length > 0
+    ? body.targets
+    : (primaryFocusTemplate?.suggestedTargets ?? []);
   targets.forEach((target) => {
     if (!target || !metricIds.has(target.metricId)) {
       throw badRequest("Targets must reference valid metric templates.");
@@ -124,7 +96,7 @@ function validateTemplateIds(body, library) {
     }
   });
 
-  const weeklyTargets = Array.isArray(body.weeklyTargets) ? body.weeklyTargets : [];
+  const weeklyTargets = primaryFocusTemplate?.suggestedWeeklyTargets ?? [];
   weeklyTargets.forEach((target) => {
     if (!target || !signalIds.has(target.signalId)) {
       throw badRequest("Weekly targets must reference valid signal templates.");
@@ -211,8 +183,8 @@ export function createOnboardingRouter({ config, goalTypesRepository, userHomesR
       primaryFocusTemplateId: validated.primaryFocusTemplateId,
       supportingFocusTemplateIds: validated.supportingFocusTemplateIds,
       laterFocusTemplateIds: validated.laterFocusTemplateIds,
-      selectedActionTemplateId: request.body?.selectedActionTemplateId,
-      selectedTeamFocusTemplateId: request.body?.selectedTeamFocusTemplateId
+      selectedActionTemplateId: library.focusTemplates.find((template) => template.id === validated.primaryFocusTemplateId)?.defaultActionIds?.[0] ?? null,
+      selectedTeamFocusTemplateId: null
     });
     const saved = await userHomesRepository.saveUserHome({
       ...existingHome,

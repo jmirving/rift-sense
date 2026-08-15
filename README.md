@@ -1,6 +1,6 @@
 # RiftSense
 
-RiftSense is a League review workspace for goal-linked recent-game evidence, team focus, training actions, and curated learning content.
+RiftSense is a League review workspace for goal-linked recent-game evidence.
 
 ## Requirements
 
@@ -94,16 +94,6 @@ Opening a route with `?perf=1` also enables client timing logs for that browser 
 ## Current Routes
 
 - `/`
-- `/about`
-- `/demo`
-- `/goals`
 - `/review`
 - `/review?matchId=:matchId`
-- `/demo/review?matchId=:matchId`
-- `/training`
-- `/team`
-- `/onboarding`
-- `/library`
-- `/curator/content`
-- `/curator/content/new`
-- `/content/:id`
+- `/goal-plan`
