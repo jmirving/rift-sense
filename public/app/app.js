@@ -1181,33 +1181,19 @@ function riotEvidenceCard(riotEvidence, context = {}, primaryGameId = null) {
   }
 
   const recentGames = reviewReadyDisplayGroups(riotEvidence);
-  const hasRecommendedFirst = recentGames[0]?.games?.[0]?.matchId === assessmentNextGame(riotEvidence.initialAssessment)?.matchId;
-  const sourceLabel = riotEvidence.sourceLabel ? `<p class="eyebrow">${escapeHtml(riotEvidence.sourceLabel)}</p>` : "";
-  const counts = riotReadinessCounts(riotEvidence);
-  const availabilityLabel = counts.evaluationReadyCount > 0
-    ? `${counts.evaluationReadyCount} evaluated ${counts.evaluationReadyCount === 1 ? "game" : "games"} available`
-    : riotEvidenceSummary(riotEvidence);
-  const sortLabel = riotEvidence.initialAssessment?.nextMatchId
-    ? (hasRecommendedFirst ? "Assessment recommendation appears first." : "Sorted by recency. Recommended assessment game is marked.")
-    : "Sorted by recency.";
-  const preparationStatus = riotPreparationStatusBlock(riotEvidence);
   const gameCount = recentGames.reduce((sum, group) => sum + group.games.length, 0);
   return `
     <section class="panel riot-evidence-panel" id="review-ready-games">
       <div class="panel-header">
         <div>
           <p class="eyebrow">Recent games</p>
-          <h2>Games</h2>
-          ${sourceLabel}
+          <h2>Choose a game</h2>
         </div>
         <div class="action-row">
           ${getSessionState().authenticated ? '<button class="button secondary" type="button" data-refresh-recent-games>Refresh recent games</button>' : ""}
         </div>
       </div>
       <p class="muted recent-games-refresh-status" aria-live="polite">${escapeHtml(state.recentGamesRefreshMessage)}</p>
-      ${availabilityLabel ? `<p class="muted">${escapeHtml(availabilityLabel)}</p>` : ""}
-      ${gameCount > 1 ? `<p class="muted">${escapeHtml(sortLabel)}</p>` : ""}
-      ${preparationStatus}
       <section class="compact-list">
         ${gameCount > 0
           ? recentGames.map((group) => `
@@ -1265,7 +1251,7 @@ function reviewReadyDisplayGroups(riotEvidence = {}) {
 
   const groups = [
     { key: "recommended", title: "Recommended next", games: [] },
-    { key: "other", title: "Other review-ready games", games: [] },
+    { key: "other", title: "Review-ready games", games: [] },
     { key: "reviewed", title: "Already reviewed", games: [] },
     { key: "manual", title: "Needs manual review", games: [] },
     { key: "pending", title: "Pending evaluations", games: [] }
@@ -1416,7 +1402,7 @@ function resolveCoachingNextStep({ state: dashboardView, action = {}, context = 
     if (nextGame) {
       return {
         type: "review_assessment_game",
-        title: "Review next assessment game",
+        title: "Review your next assessment game",
         description: `Finish the ${dashboardView.assessmentTarget}-game baseline so coaching targets can use reviewed evidence.`,
         reason: assessmentNextGameReason(nextGame, dashboardView.initialAssessment),
         primaryCta: {
@@ -1671,15 +1657,29 @@ function primaryActionCard(primaryAction) {
   `;
 }
 
-function coachingNextStepCard(nextStep) {
+function primaryActionDetails(nextStep, dashboardView, riotEvidence = {}) {
+  const game = (riotEvidence.recentGames ?? riotEvidence.candidateGames ?? []).find((candidate) => candidate.matchId === nextStep.gameId);
+  const details = [];
+  if (game) {
+    details.push(`${game.champion ?? game.championName ?? "Unknown champion"} · ${game.result ?? "Result unknown"}`);
+    details.push(`${reviewMomentLabel(game)} ready`);
+  }
+  if (nextStep.type === "review_assessment_game") {
+    details.push(`${dashboardView.assessmentCompleted}/${dashboardView.assessmentTarget} assessment reviews complete`);
+  }
+  return details;
+}
+
+function coachingNextStepCard(nextStep, dashboardView, riotEvidence = {}) {
   const primary = nextStep.primaryCta ?? {};
   const secondary = nextStep.secondaryCta ?? null;
+  const details = primaryActionDetails(nextStep, dashboardView, riotEvidence);
   return `
-    <section class="panel primary-action-panel coaching-next-step-panel">
-      <p class="eyebrow">Coaching next step</p>
+    <section class="panel primary-action-panel coaching-next-step-panel" data-dashboard-primary-action>
+      <p class="eyebrow">Do this next</p>
       <h2>${escapeHtml(nextStep.title)}</h2>
-      <p class="muted">${escapeHtml(nextStep.description)}</p>
-      ${nextStep.reason ? `<p class="muted">Why: ${escapeHtml(nextStep.reason)}</p>` : ""}
+      ${details.length ? `<div class="primary-action-facts">${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join("")}</div>` : ""}
+      ${nextStep.reason ? `<p class="primary-action-reason">Why: ${escapeHtml(nextStep.reason)}</p>` : `<p class="muted">${escapeHtml(nextStep.description)}</p>`}
       <div class="action-row">
         ${primary.href
           ? `<a class="button" href="${escapeHtml(primary.href)}">${escapeHtml(primary.label ?? "Open")}</a>`
@@ -1687,6 +1687,30 @@ function coachingNextStepCard(nextStep) {
         ${secondary?.href ? `<a class="button secondary" href="${escapeHtml(secondary.href)}">${escapeHtml(secondary.label)}</a>` : ""}
         ${secondary?.action ? `<button class="button secondary" type="button" data-coaching-action="${escapeHtml(secondary.action)}">${escapeHtml(secondary.label)}</button>` : ""}
       </div>
+    </section>
+  `;
+}
+
+function secondaryDashboardActions({ nextStep, dashboardView, goal, profile, setupHref, riotEvidence }) {
+  const games = reviewQueueGames(riotEvidence, 20);
+  const alternateGames = games.filter((game) => game.matchId !== nextStep.gameId);
+  const focusTitle = goal.title ?? "Goal Plan";
+  const role = goal.role ?? profile.primaryRole;
+  return `
+    <section class="dashboard-secondary-actions" aria-label="Other actions">
+      ${alternateGames.length > 0 ? `
+        <a class="secondary-action" href="#review-ready-games">
+          <span class="eyebrow">Review</span>
+          <strong>Choose another game</strong>
+          <span>${alternateGames.length} other review-ready ${alternateGames.length === 1 ? "game" : "games"}</span>
+        </a>
+      ` : ""}
+      <a class="secondary-action" href="${escapeHtml(setupHref)}">
+        <span class="eyebrow">Current focus</span>
+        <strong>${escapeHtml(focusTitle)}</strong>
+        <span>${escapeHtml(role ? `${role} role` : "Edit your goal plan")}</span>
+        <em>Edit Goal Plan</em>
+      </a>
     </section>
   `;
 }
@@ -5349,60 +5373,16 @@ async function renderHome(root, context = getRouteContext()) {
     const action = dashboard.todaysAction ?? {};
     const riotEvidence = goal.riotEvidence ?? null;
     const dashboardView = dashboardState({ dashboard, goal, riotEvidence });
-    const activeReviewStatus = dashboardView.inInitialAssessment
-      ? `Assessment: ${dashboardView.assessmentCompleted}/${dashboardView.assessmentTarget} reviewed`
-      : dashboardView.hasReviewedGames ? (goal.goalStatus ?? "Evidence started") : "No reviewed games yet";
-    const activeReviewTrend = dashboardView.inInitialAssessment
-      ? "watch"
-      : dashboardView.hasReviewedGames ? (goal.goalStatusTrend ?? "unknown") : "unknown";
     const setupHref = canonicalSetupHref(context);
-    const reviewHref = toAppHref("/review", context) ?? "#";
     const nextStep = resolveCoachingNextStep({ state: dashboardView, action, context, goal, setupHref });
-    const focusTagline = `${goal.role ?? profile.primaryRole ?? "Player"} · ${goal.scope ?? "Personal"}`;
-    const setupGuide = home.setupGuide
-      ? (() => {
-        const href = canonicalDashboardHref(home.setupGuide.href, context) ?? setupHref;
-        const label = href === setupHref && (home.setupGuide.label === "View Goals" || home.setupGuide.href === "/goals" || home.setupGuide.href === "/onboarding")
-          ? "Open Goal Plan"
-          : (home.setupGuide.label ?? "Open Goal Plan").replace("Focus Plan", "Goal Plan");
-        const title = home.setupGuide.status === "setup-needed" || home.setupGuide.title === "Setup needed"
-          ? "Goal Plan needed"
-          : (home.setupGuide.title ?? "Goal Plan needed").replace("Focus Plan", "Goal Plan");
-        return `
-      <section class="panel panel-slim">
-        <p class="eyebrow">${escapeHtml(home.setupGuide.status === "setup-needed" ? "Goal Plan" : "Next")}</p>
-        <h2>${escapeHtml(title)}</h2>
-        <p class="muted">${escapeHtml(home.setupGuide.summary ?? "")}</p>
-        ${home.setupGuide.href ? `<a class="button" href="${escapeHtml(href)}">${escapeHtml(label)}</a>` : ""}
-      </section>
-    `;
-      })()
-      : "";
 
     root.innerHTML = appShell(`
     <section class="goal-dashboard-stack">
-      ${setupGuide}
-      <section class="dashboard-home-layout">
-        <section class="dashboard-main-column">
-          <section class="panel active-goal-panel">
-            <div class="active-goal-hero">
-              <div class="active-goal-copy">
-                <p class="eyebrow">Current Focus</p>
-                <h2>${escapeHtml(goal.title ?? "No current focus yet")}</h2>
-                ${activeGoalAgeLine(dashboardView.goalProgress)}
-                ${dashboardView.inInitialAssessment ? `<p class="muted">Assessment progress: ${escapeHtml(dashboardView.assessmentCompleted)} of ${escapeHtml(dashboardView.assessmentTarget)} games reviewed</p>` : ""}
-                <div class="badge-row">
-                  <span class="context-badge">${goal.broadGoalTitle ? `Goal: ${escapeHtml(goal.broadGoalTitle)} · ` : ""}${escapeHtml(focusTagline)}</span>
-                  ${statusBadge(activeReviewStatus, activeReviewTrend)}
-                </div>
-              </div>
-              <a class="button secondary" href="${escapeHtml(setupHref)}">Edit Goal Plan</a>
-            </div>
-          </section>
-          ${coachingNextStepCard(nextStep)}
-          ${riotEvidence ? riotEvidenceCard(riotEvidence, context, nextStep.gameId) : reviewQueueSummary(dashboardView.reviewQueue, context, nextStep.gameId)}
-        </section>
+      <section class="dashboard-launchpad">
+        ${coachingNextStepCard(nextStep, dashboardView, riotEvidence ?? {})}
+        ${secondaryDashboardActions({ nextStep, dashboardView, goal, profile, setupHref, riotEvidence: riotEvidence ?? {} })}
       </section>
+      ${riotEvidence ? riotEvidenceCard(riotEvidence, context, nextStep.gameId) : reviewQueueSummary(dashboardView.reviewQueue, context, nextStep.gameId)}
     </section>
   `, {
       hidden: true

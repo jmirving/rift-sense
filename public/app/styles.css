@@ -925,6 +925,53 @@ body.auth-page.nav-collapsed {
   gap: 20px;
 }
 
+.dashboard-launchpad {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(250px, 0.72fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.dashboard-secondary-actions {
+  display: grid;
+  gap: 12px;
+  align-content: stretch;
+}
+
+.secondary-action {
+  display: grid;
+  gap: 7px;
+  min-height: 0;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--muted);
+  text-decoration: none;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.secondary-action strong {
+  color: var(--text);
+  font-size: 1.08rem;
+}
+
+.secondary-action em {
+  margin-top: auto;
+  color: var(--accent);
+  font-size: 0.84rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.secondary-action:hover,
+.secondary-action:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(255, 209, 102, 0.5);
+  background: rgba(255, 255, 255, 0.065);
+  color: var(--text);
+}
+
 .dashboard-two-column,
 .review-workspace-layout {
   grid-template-columns: minmax(0, 0.95fr) minmax(320px, 1.05fr);
@@ -1013,15 +1060,48 @@ body.auth-page.nav-collapsed {
 
 .primary-action-panel {
   display: grid;
-  gap: 14px;
+  gap: 16px;
+  align-content: center;
+  min-height: 286px;
   border-color: rgba(126, 240, 200, 0.42);
   background:
+    radial-gradient(circle at top right, rgba(255, 209, 102, 0.18), transparent 38%),
     linear-gradient(180deg, rgba(126, 240, 200, 0.1), rgba(255, 255, 255, 0.025)),
     var(--bg-panel);
+  animation: dashboard-action-enter 280ms ease-out both;
 }
 
 .primary-action-panel h2 {
-  font-size: clamp(1.7rem, 3vw, 2.45rem);
+  max-width: 15ch;
+  font-size: clamp(2rem, 3.5vw, 3rem);
+  letter-spacing: -0.045em;
+}
+
+.primary-action-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.primary-action-facts span {
+  padding: 6px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(7, 17, 31, 0.3);
+  color: var(--text);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.primary-action-reason {
+  max-width: 62ch;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+@keyframes dashboard-action-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .dashboard-compact-panel,
@@ -1946,6 +2026,7 @@ body.nav-collapsed .session-panel {
   .review-moment-body,
   .dashboard-two-column,
   .dashboard-home-layout,
+  .dashboard-launchpad,
   .dashboard-muted-grid,
   .active-goal-hero,
   .active-goal-footer,

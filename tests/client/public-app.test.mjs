@@ -464,6 +464,26 @@ describe("public app routes", () => {
     expect(document.querySelector('.session-footer-link[href="/account"]')?.textContent).toBe("Open Nexus");
   });
 
+  it("uses Goal Plan as the sole primary action when setup is needed", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url === "/api/session") {
+        return mockJsonResponse({ authEnabled: true, authenticated: true, user: { id: "usr_1" }, accountUrl: "", portalBaseUrl: "", manualTokenEntryAvailable: false });
+      }
+      if (url === "/api/home") {
+        return mockJsonResponse({ home: { user: { id: "usr_1", profile: {} }, goalDashboard: { activePersonalGoal: {}, todaysAction: { status: "setup-needed", title: "Finish Goal Plan", href: "/focus-plan", label: "Open Goal Plan" } } } });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.pushState({}, "", "/");
+
+    await renderApp(document.querySelector("#app"));
+
+    expect(document.querySelector("[data-dashboard-primary-action]")?.textContent).toContain("Finish Goal Plan");
+    expect(document.querySelector('[data-dashboard-primary-action] a[href="/focus-plan"]')?.textContent).toContain("Open Goal Plan");
+    expect(document.querySelectorAll('a[href="/training"], a[href="/team"], a[href="/library"], a[href="/about"], a[href="/demo"]')).toHaveLength(0);
+  });
+
   it.skip("renders Goal Plan as the canonical configuration page", async () => {
     const fetchMock = vi.fn(async (url) => {
       if (url === "/api/session") {
@@ -874,9 +894,9 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("2 evaluated games available");
-    expect(document.body.textContent).toContain("Sorted by recency.");
-    expect(document.body.textContent).toContain("Evaluations are being prepared.");
+    expect(document.body.textContent).toContain("Choose a game");
+    expect(document.body.textContent).not.toContain("Assessment recommendation appears first.");
+    expect(document.body.textContent).not.toContain("Evaluations are being prepared.");
     expect(document.body.textContent).toContain("Review your latest game");
     expect(document.body.textContent).toContain("Review this game");
     expect(document.body.textContent).toContain("Waiting for review");
@@ -890,7 +910,7 @@ describe("public app routes", () => {
     expect(document.body.textContent).not.toContain("Insights will appear after you review games.");
     expect(document.body.textContent).not.toContain("Seeded from onboarding. Not updated from reviewed games yet.");
     expect(document.body.textContent).not.toContain("On track");
-    expect(document.body.textContent).toContain("Current Focus");
+    expect(document.body.textContent).toContain("Current focus");
     expect(document.body.textContent).toContain("Die Less");
     expect(document.body.textContent).toContain("Jhin · Loss");
     expect(document.body.textContent).toContain("Ranked Solo/Duo · 8/5/6 KDA");
@@ -907,9 +927,7 @@ describe("public app routes", () => {
     expect(document.body.textContent).not.toContain("SECRET_MATCH_JSON");
     expect(document.querySelector(".primary-action-panel a.button")?.getAttribute("href")).toBe("/review?matchId=NA1_1");
     expect(document.querySelector(".game-evidence-actions .status-badge")?.getAttribute("title")).toBe("No review moments in this game have been triaged yet.");
-    expect([...document.querySelectorAll('a[href="/review?matchId=NA1_1"]')].some((link) =>
-      link.textContent.includes("Review")
-    )).toBe(true);
+    expect(document.querySelectorAll('a[href="/review?matchId=NA1_1"]')).toHaveLength(1);
     expect(document.querySelectorAll(".review-candidate-panel")).toHaveLength(0);
     expect(document.querySelector("#nav-drawer")).not.toBeNull();
   });
@@ -1213,9 +1231,9 @@ describe("public app routes", () => {
     await renderApp(document.querySelector("#app"));
 
     expect(document.body.textContent).toContain("No review ready");
-    expect(document.body.textContent).toContain("Match summaries are ready. Evaluations are pending.");
-    expect(document.body.textContent).toContain("Evaluations are being prepared.");
-    expect(document.body.textContent).toContain("Recent games are still being prepared.");
+    expect(document.body.textContent).toContain("Choose a game");
+    expect(document.body.textContent).not.toContain("Evaluations are being prepared.");
+    expect(document.body.textContent).toContain("RiftSense needs a game with prepared review moments before it can create new coaching evidence.");
     expect(document.body.textContent).not.toContain("10 games ready");
     expect(document.body.textContent).not.toContain("Review this game");
     expect(document.querySelector('a[href="/review?matchId=NA1_pending"]')).toBeNull();
@@ -1227,7 +1245,7 @@ describe("public app routes", () => {
       expect.objectContaining({ credentials: "same-origin" })
     );
     expect(homeRequests).toBe(2);
-    expect(document.body.textContent).toContain("1 evaluated game available");
+    expect(document.body.textContent).toContain("Review-ready games");
     expect(document.body.textContent).toContain("Review this game");
     expect(document.body.textContent).toContain("3 review moments");
   });
@@ -1291,7 +1309,7 @@ describe("public app routes", () => {
     await renderApp(document.querySelector("#app"));
 
     expect(document.body.textContent).toContain("Jhin · Evaluation pending");
-    expect(document.body.textContent).toContain("Match summaries are being prepared.");
+    expect(document.body.textContent).toContain("Choose a game");
     expect(document.body.textContent).not.toContain("10 games discovered");
     expect(document.body.textContent).not.toContain("0 match summaries ready");
     expect(document.body.textContent).not.toContain("10 match summaries preparing");
@@ -1840,7 +1858,7 @@ describe("public app routes", () => {
     await renderApp(document.querySelector("#app"));
 
     const nextStepCard = document.querySelector(".coaching-next-step-panel");
-    expect(nextStepCard?.textContent).toContain("Review next assessment game");
+    expect(nextStepCard?.textContent).toContain("Review your next assessment game");
     expect(nextStepCard?.textContent).not.toContain("Why:");
     expect(document.body.textContent).not.toContain("RiftSense selected this as the next assessment game.");
   });
@@ -1895,8 +1913,8 @@ describe("public app routes", () => {
 
     await renderApp(document.querySelector("#app"));
 
-    expect(document.body.textContent).toContain("Match preparation failed. Retry available.");
-    expect(document.body.textContent).toContain("Some evaluations failed.");
+    expect(document.body.textContent).toContain("No recent games are available yet.");
+    expect(document.querySelector("[data-refresh-recent-games]")).not.toBeNull();
     expect(document.body.textContent).not.toContain("1 game discovered");
     expect(document.body.textContent).not.toContain("0 match summaries ready");
     expect(document.body.textContent).not.toContain("1 preparation failed");
